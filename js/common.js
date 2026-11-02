@@ -79,47 +79,40 @@ class Net {
 }
 
 /* ------------------------------------------------------------------ rain renderer (organic, B/W)
- * The rain is a field of "plumes": petal-shaped sheets of fine dotted filaments that bloom
- * from a point, breathe, and dissolve, while their sparkling rims fall as drops. Dots flow
- * along every filament. Everything is a deterministic function of world position + shared
- * time, so plumes continue across phones placed side by side.
+ * Rain with simple physics: every drop falls from rest, accelerates to a terminal velocity,
+ * streaks (as a fine line of dots) in proportion to its speed, slants with the wind, and
+ * splashes where it lands: on the floor, or on a finger held on the glass (an umbrella).
+ * Taps throw up fountains of threads that fall back as rain; flicks throw sprays of drops.
+ * Everything is a deterministic function of world position + shared time (+ shared events),
+ * so the rain continues across phones placed side by side.
  * Default: white light on black.  ?ink : black ink on white paper. */
 const INK = new URLSearchParams(location.search).has('ink');
 const PAL = INK
   ? { bg: '244,243,240', ink: '12,12,14', comp: 'source-over', fade: 0.24 }
-  : { bg: '4,4,5', ink: '236,237,240', comp: 'lighter', fade: 0.26 };
+  : { bg: '4,4,5', ink: '236,237,240', comp: 'lighter', fade: 0.42 };
 if (INK) document.documentElement.classList.add('ink');
 /* one colour per phone (strands stay black & white; a person's touches carry their colour) */
 const COLORS = INK
   ? ['214,74,58', '196,132,20', '30,150,110', '40,110,200', '130,80,200', '200,70,140', '90,150,30', '20,140,160']
   : ['255,122,107', '255,198,96', '112,228,182', '110,182,255', '198,152,255', '255,140,200', '170,232,100', '96,222,232'];
 function colorOf(i) { return i == null ? PAL.ink : COLORS[((i % COLORS.length) + COLORS.length) % COLORS.length]; }
-const PLUME_LANE = 380;    // world px between plume lanes
-const PLUME_GAP = 15;      // seconds between plumes in one lane (divided by rain density)
-const PLUME_LIFE = 24;     // seconds a plume lives (bloom -> breathe -> dissolve into rain)
-const PLUME_DRIFT = 14;    // world px/s a plume sinks while it lives
-const PLUME_SEG = 14;      // samples per filament
-const PLUME_DROPS = 34;    // drops released over a plume's life
-const DRIZZLE_LANE = 26;   // fine background rain
+const DROP_TOP = -240;      // world y where drops start falling (from rest)
+const TAU = 0.2;           // seconds for a drop to reach its terminal velocity
+const UMB_R = 58;          // umbrella radius (a finger held on the glass)
+const DRIP_G = 1300, SPLASH_G = 1300, FLING_G = 1500;   // gravity, world px/s^2
 const RIVER_LINES = 26;    // filaments in the river when phones are joined
+/* three depths of rain: far drops are small, dim and slow; near drops are bigger, brighter, faster */
+const RAIN_LAYERS = [
+  { lane: 9,  vt: 560,  P: 1.25, len: 0.045, dot: 0.85, gap: 2.4, alpha: 0.32, lum: 0.35, splash: 0 },
+  { lane: 15, vt: 860,  P: 1.6,  len: 0.05,  dot: 1.05, gap: 2.8, alpha: 0.55, lum: 0.6,  splash: 3 },
+  { lane: 26, vt: 1200, P: 2.3,  len: 0.055, dot: 1.3,  gap: 3.2, alpha: 0.85, lum: 0.9,  splash: 6 },
+];
 function smoothstep(a, b, x) { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
-let _spark = null;         // soft glow sprite for the brightest sparkles
-function sparkSprite() {
-  if (_spark) return _spark;
-  const cv = document.createElement('canvas'); cv.width = cv.height = 32;
-  const g = cv.getContext('2d'), gr = g.createRadialGradient(16, 16, 0, 16, 16, 16);
-  gr.addColorStop(0, `rgba(${PAL.ink},1)`); gr.addColorStop(0.16, `rgba(${PAL.ink},0.85)`);
-  gr.addColorStop(0.42, `rgba(${PAL.ink},0.16)`); gr.addColorStop(1, `rgba(${PAL.ink},0)`);
-  g.fillStyle = gr; g.fillRect(0, 0, 32, 32);
-  return (_spark = cv);
-}
-
 class RainRenderer {
   constructor(canvas, opts = {}) {
     this.cv = canvas;
     this.ctx = canvas.getContext('2d');
     this.scale = opts.scale || 1;          // screen px per world px
-    this.detail = opts.detail || 1;        // fraction of filaments to draw (big screens can use fewer)
     this.view = { x: 0, y: 0 };            // world coords of the screen's top-left
     this.floor = null;                     // world y where drops land (null = none)
     this.density = 1;
@@ -129,6 +122,9 @@ class RainRenderer {
     this.river = null;                     // {cy, since, speed} while phones are joined
     this.trails = [];                      // coloured glints along drags
     this.bolts = [];                       // lightning strikes
+    this.umbrellas = new Map();            // held fingers: id -> {x, y, t, since, c, seed}
+    this.flings = [];                      // flicks: sprays of drops thrown with a finger
+    this.hits = 0;                         // drops that landed on an umbrella (for the pitter-patter)
     this.storm = 0;                        // 0..1, shared: how many people are blowing
     this.bright = 0;
     this.fresh = true;
@@ -152,6 +148,13 @@ class RainRenderer {
   addFlash(e) { this.flashes.push(e); }
   addTrail(e) { this.trails.push(e); if (this.trails.length > 160) this.trails.shift(); }
   addBolt(e) { this.bolts.push(e); if (this.bolts.length > 12) this.bolts.shift(); }
+  addHold(e) {
+    const u = this.umbrellas.get(e.id);
+    if (e.off) { if (u) u.off = true; return; }
+    if (!u || u.off || u.since !== e.since) this.umbrellas.set(e.id, Object.assign({}, e));
+    else { u.x = e.x; u.y = e.y; u.t = e.t; }
+  }
+  addFling(e) { this.flings.push(e); if (this.flings.length > 12) this.flings.shift(); }
 
   /* displacement at world (x,y): drags push AND swirl strands around the finger */
   disp(x, y, T) {
@@ -181,141 +184,174 @@ class RainRenderer {
   draw(T) {
     const c = this.ctx, s = this.scale, vx = this.view.x, vy = this.view.y;
     const W = this.worldW, H = this.worldH, lw = Math.max(1, s * 0.75);
+    const dtF = this.lastT != null ? clamp(T - this.lastT, 0, 0.1) : 0.016;
+    this.lastT = T;
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     c.globalCompositeOperation = 'source-over';
-    c.fillStyle = `rgba(${PAL.bg},${this.fresh ? 1 : PAL.fade})`;      // soft persistence = smoky trails
+    c.fillStyle = `rgba(${PAL.bg},${this.fresh ? 1 : PAL.fade})`;      // soft persistence = motion blur
     c.fillRect(0, 0, this.w, this.h);
     this.fresh = false;
     this.impulses = this.impulses.filter(m => T - m.t < 3);
     this.bright = Math.max(0, this.bright - 0.01);
     const boost = 1 + this.bright * 0.6;
-
     c.globalCompositeOperation = PAL.comp;
     c.lineCap = 'round'; c.lineJoin = 'round';
-    const floor = this.floor;
-    const yMax = floor != null ? Math.min(vy + H, floor) : vy + H;
-    // ---- plumes: fans of fine dotted filaments that bloom from a point, breathe,
-    //      and let their sparkling tips fall as rain. When phones join, they bend
-    //      into one horizontal river that flows across every screen.
-    const river = this.river, storm = this.storm, dens = this.density;
-    const rho = river ? clamp((T - river.since) / 2.5, 0, 1) : 0;    // river fades in after a join
-    const fib = [new Path2D(), new Path2D(), new Path2D()];           // dim / mid / bright filaments
-    const sparks = [], glows = [], streaks = [], floorHits = [];
-    const smooth = (path, pts) => {                                  // curve through midpoints
-      if (pts.length < 2) return;
-      path.moveTo(pts[0][0], pts[0][1]);
-      for (let q = 1; q < pts.length - 1; q++) {
-        const mx = (pts[q][0] + pts[q + 1][0]) / 2, my = (pts[q][1] + pts[q + 1][1]) / 2;
-        path.quadraticCurveTo(pts[q][0], pts[q][1], mx, my);
-      }
-      const e = pts[pts.length - 1]; path.lineTo(e[0], e[1]);
+
+    const floor = this.floor, yLand = floor != null ? floor : 1e9, storm = this.storm, dens = this.density;
+    const river = this.river, rho = river ? clamp((T - river.since) / 2.5, 0, 1) : 0;
+    const yBot = vy + H + 30;
+    const toS = (x, y) => [(x - vx) * s, (y - vy) * s];
+    const onS = (sx, sy, m = 30) => sx > -m && sx < this.w + m && sy > -m && sy < this.h + m;
+
+    // everything is batched: dotted streaks per depth layer, sparkles in a few brightness levels
+    const lines = RAIN_LAYERS.map(() => new Path2D());
+    const SL = 4, sp = []; for (let k = 0; k < SL; k++) sp.push(new Path2D());
+    const tinted = [];                                               // [sx, sy, colour, alpha]
+    const lvl = al => Math.min(SL - 1, Math.floor(clamp(al * boost, 0, 0.999) * SL));
+    const spark = (sx, sy, al, r = 1) => {
+      if (al > 0.03 && onS(sx, sy, 8)) { const d = r * lw * 1.3; sp[lvl(al)].rect(sx - d / 2, sy - d / 2, d, d); }
     };
-    const yBot = vy + H + 40, yLand = floor != null ? floor : 1e9;
-    const i0 = Math.floor((vx - 620) / PLUME_LANE), i1 = Math.ceil((vx + W + 620) / PLUME_LANE);
-    for (let i = i0; i <= i1; i++) {
-      const Pi = PLUME_GAP * (0.8 + 0.5 * hash(i + 3)) / dens, ph = hash(i + 7) * Pi;
-      const kHi = Math.floor((T - ph) / Pi), kLo = Math.ceil((T - ph - PLUME_LIFE - 5) / Pi);
-      for (let k = kLo; k <= kHi; k++) {
-        const pl = this._plume(i, k, Pi, ph);
-        const a = T - pl.tb;
-        if (a < 0) continue;
-        // where the plume is now: a rough box test before doing any real work
-        const ry = pl.ry0 + PLUME_DRIFT * a;
-        if (pl.rx + 640 < vx || pl.rx - 640 > vx + W || ry - 80 > yBot) continue;
-        const alive = a < PLUME_LIFE;
-        const dis = smoothstep(PLUME_LIFE - 7, PLUME_LIFE, a);       // dissolving: filaments thin out from the root
-        const joins = rho > 0 && pl.joinable && ry < river.cy - 60;
-        if (alive) {
-          for (const lb of pl.lobes) {
-            const nf = Math.max(6, Math.round(lb.nf * this.detail));
-            for (let f = 0; f < nf; f++) {
-              const q = f / (nf - 1) * 2 - 1;
-              const fs = lb.seed + f * 7;
-              if (hash(fs + 1) < dis * 1.15) continue;              // this filament has already let go
-              const lum = lb.lum * (0.55 + 0.45 * hash(fs + 2)) * (1 - 0.6 * q * q * hash(fs + 3));
-              const bucket = lum > 0.62 ? 2 : lum > 0.36 ? 1 : 0;
-              const wp = this._fiber(pl, lb, q, fs, T, this._tmp || (this._tmp = []));
-              const pts = [];
-              for (let n = 0; n < wp.length; n++) {
-                let [x, y] = wp[n];
-                if (joins) {                                          // swept sideways where it reaches the river
-                  const top = river.cy - 34, ex = y - top;
-                  if (ex > 0) { y = top + ex * (1 - 0.72 * rho); x += Math.sign(river.speed) * ex * 1.5 * rho; }
-                }
-                if (y > yLand) y = yLand;
-                const [dx, dy] = this.disp(x, y, T);
-                pts.push([(x + dx - vx) * s, (y + dy - vy) * s]);
-              }
-              let on = false;                                         // skip filaments entirely off this screen
-              for (const [px, py] of pts) if (px > -24 && px < this.w + 24 && py > -24 && py < this.h + 24) { on = true; break; }
-              if (!on) continue;
-              const cut = Math.round(PLUME_SEG * 0.55);                // brighter toward the rim
-              smooth(fib[Math.max(0, bucket - 1)], pts.slice(0, cut + 1));
-              smooth(fib[bucket], pts.slice(cut));
-              // sparkle dust that gathers at the filament tips (and a little along the rim)
-              const e = pts[pts.length - 1], e2 = pts[pts.length - 3];
-              if (e[1] < -30 || e[1] > this.h + 30 || e[0] < -30 || e[0] > this.w + 30) continue;
-              const ux = e[0] - e2[0], uy = e[1] - e2[1], ul = Math.hypot(ux, uy) || 1;
-              for (let m = 0; m < 3; m++) {
-                const hs = fs * 13 + m * 101;
-                const out = (hash(hs) * hash(hs) * 26 - 4) * s, side = (hash(hs + 1) - 0.5) * 12 * s;
-                const tw = 0.5 + 0.5 * Math.sin(T * (1.5 + 2.5 * hash(hs + 2)) + hash(hs + 3) * 6.28);
-                const al = lum * (0.35 + 0.65 * tw) * (1 - dis * 0.5);
-                const px = e[0] + (ux / ul) * out - (uy / ul) * side, py = e[1] + (uy / ul) * out + (ux / ul) * side;
-                if (hash(hs + 4) < 0.035) glows.push([px, py, al]); else sparks.push([px, py, al, hash(hs + 5) < 0.3 ? 1.6 : 1]);
-              }
+    const streak = (b, x1, y1, x2, y2) => {                          // world coords; a finger's push bends it
+      const [d1x, d1y] = this.disp(x1, y1, T), [d2x, d2y] = this.disp(x2, y2, T);
+      const a = toS(x1 + d1x, y1 + d1y), e = toS(x2 + d2x, y2 + d2y);
+      if (!onS(a[0], a[1]) && !onS(e[0], e[1])) return null;
+      lines[b].moveTo(a[0], a[1]); lines[b].lineTo(e[0], e[1]);
+      return e;
+    };
+
+    // fingers held on the glass are umbrellas (shared with the joined phones)
+    const umbs = [];
+    for (const [id, u] of this.umbrellas) {
+      if (u.off || T - u.t > 0.5) { if (u.off || T - u.t > 2) this.umbrellas.delete(id); continue; }
+      umbs.push(u);
+    }
+
+    // wind: a slow drift, gusty in a storm; it slants every drop the same way on every screen
+    const wind = 34 * vnoise(T * 0.07, 3.3) + 18 * vnoise(T * 0.29, 7.1) + storm * (240 + 90 * vnoise(T * 0.5, 1.7));
+
+    // ---- rain: three depths of drops. Each one falls from rest, speeds up to its terminal
+    //      velocity, streaks in proportion to its speed and splashes where it lands.
+    let hits = 0;
+    for (let L = 0; L < RAIN_LAYERS.length; L++) {
+      const ly = RAIN_LAYERS[L];
+      const fall = aa => DROP_TOP + ly.vt * (aa - TAU * (1 - Math.exp(-aa / TAU)));
+      const reachX = Math.abs(wind) * 2.2 + 60;
+      const i0 = Math.floor((vx - reachX) / ly.lane), i1 = Math.ceil((vx + W + reachX) / ly.lane);
+      const aMin = Math.max(0, (vy - 80 - DROP_TOP) / ly.vt), aMax = (Math.min(yBot, yLand) - DROP_TOP) / ly.vt + TAU + 0.8;
+      const tl = ly.len * (1 + storm * 0.6);                         // streak = distance fallen in the last tl s
+      for (let i = i0; i <= i1; i++) {
+        const P = ly.P * (0.7 + 0.6 * hash(i * 7 + L)) / (dens * (1 + storm * 1.3)), ph = hash(i * 13 + L * 5) * P;
+        const kHi = Math.floor((T - ph - aMin) / P), kLo = Math.ceil((T - ph - aMax) / P);
+        for (let k = kLo; k <= kHi; k++) {
+          const tb = k * P + ph, a = T - tb;
+          if (a < 0) continue;
+          const ks = (Math.imul(i, 977) + Math.imul(k, 131) + L * 7919) | 0;
+          const x0 = i * ly.lane + hash(ks + 1) * ly.lane, wp = hash(ks + 4) * 9;
+          const size = 0.75 + 0.5 * hash(ks + 2), lum = ly.lum * (0.6 + 0.4 * hash(ks + 3));
+          const xAt = aa => x0 + wind * aa + 4 * vnoise(aa * 1.5 + wp, 0.5);
+          const yh = fall(a), v = Math.max(1, ly.vt * (1 - Math.exp(-a / TAU)));
+          const at = Math.max(0, a - tl), yt = fall(at);
+          // joined phones: most drops are caught by the river and carried across the screens
+          if (rho > 0 && hash(ks + 7) < 0.65 * rho) {
+            const top = river.cy - 30;
+            if (yh > top) {
+              const f = (yh - top) / ly.vt;                            // seconds since it entered the current
+              if (f > 2.8) continue;
+              const xc = xAt(a - f), dir = Math.sign(river.speed) || 1, spd = Math.abs(river.speed) * (0.8 + 0.4 * hash(ks + 8));
+              const depth = (hash(ks + 9) - 0.15) * 70;
+              const fx = q => xc + dir * spd * (q - 0.3 * (1 - Math.exp(-q / 0.3)));
+              const fy = q => top + depth * (1 - Math.exp(-q * 5)) + 7 * vnoise(q * 0.8 + wp, 3);
+              const q0 = Math.max(0, f - 0.07);
+              const e = streak(L, fx(q0), fy(q0), fx(f), fy(f));
+              if (e) spark(e[0], e[1], lum * Math.min(1, (2.8 - f) / 0.8), ly.dot);
+              continue;
             }
           }
-        }
-        // rain: tips release glittering drops that fall (more as the plume dissolves, more in a storm)
-        const nd = Math.round(PLUME_DROPS * dens * (1 + storm * 1.5));
-        for (let j = 0; j < nd; j++) {
-          const ds = pl.seed * 3 + j * 17;
-          const tr = pl.tb + 2.5 + Math.sqrt(hash(ds)) * (PLUME_LIFE - 2.5);   // skewed toward the end of life
-          const dt = T - tr;
-          if (dt < 0 || dt > 4.5) continue;
-          const lb = pl.lobes[Math.floor(hash(ds + 1) * pl.lobes.length)];
-          const q = hash(ds + 2) * 2 - 1;
-          const tip = this._fiber(pl, lb, q, lb.seed, tr, this._tmp2 || (this._tmp2 = [])), [x0, y0] = tip[tip.length - 1];
-          const g = 320 + 120 * hash(ds + 3);
-          let y = y0 + 24 * dt + 0.5 * g * dt * dt;
-          const x = x0 + (hash(ds + 4) - 0.5) * 14 * dt + storm * 90 * dt * dt;
-          if (y > yLand) {                                            // landed: a small splash on the floor
-            const hit = (y - yLand) / (24 + g * dt);
-            if (hit < 1.2) floorHits.push([x, yLand, hit, ds, 0.7]);
+          // umbrellas: drops that reach a canopy after it opened stop there and splash
+          let stopY = yLand, onUmb = false;
+          if (umbs.length) {
+            const xh = xAt(a);
+            for (const u of umbs) {
+              const du = xh - u.x;
+              if (Math.abs(du) >= UMB_R) continue;
+              const rim = u.y - Math.sqrt(UMB_R * UMB_R - du * du) * 0.62;
+              if (rim < stopY && yh > rim && tb + a - (yh - rim) / v >= u.since) { stopY = rim; onUmb = true; }
+            }
+          }
+          if (yh > stopY) {
+            const dtH = (yh - stopY) / ly.vt, hx = xAt(a - dtH);
+            if (yt < stopY) streak(L, xAt(at), yt, hx, stopY);         // the bit still above the surface
+            if (onUmb) { if (dtH < dtF) hits++; this._splash(spark, hx, stopY, dtH, ks, lum, L ? 2 : 0, 0.55, false); }
+            else this._splash(spark, hx, stopY, dtH, ks, lum, ly.splash, size, L > 0);
             continue;
           }
-          if (y < vy - 20 || y > yBot) continue;
-          const vyv = 24 + g * dt, len = Math.min(26, vyv * 0.045);
-          const [sx, sy] = [(x - vx) * s, (y - vy) * s];
-          const al = 0.75 * (0.6 + 0.4 * hash(ds + 5));
-          sparks.push([sx, sy, al, 1.3]);
-          if (len > 3) streaks.push([sx, sy, len * s, al]);
+          if (yh < vy - 60) continue;
+          const e = streak(L, xAt(at), yt, xAt(a), yh);
+          if (e && L > 0) spark(e[0], e[1], lum * (L === 1 ? 0.6 : 1), ly.dot);   // nearer drops glint
         }
       }
     }
-    // a whisper of fine rain behind everything
-    const nl = Math.ceil(W / DRIZZLE_LANE) + 2, d0 = Math.floor(vx / DRIZZLE_LANE);
-    for (let i = d0; i < d0 + nl; i++) {
-      const v = 380 + 260 * hash(i * 3 + 1), P = (2.2 + 3 * hash(i * 3 + 2)) / (dens * (1 + storm)), ph = hash(i * 3 + 5) * P;
-      const span = (yBot + 200) / v + 0.3;
-      for (let k = Math.floor((T - ph) / P); k * P + ph > T - span; k--) {
-        const age = T - (k * P + ph), y = -200 + v * age;
-        if (y > yLand || y < vy - 40) continue;
-        const x = i * DRIZZLE_LANE + hash(i * 31 + k) * DRIZZLE_LANE + storm * 0.12 * (y - vy);
-        streaks.push([(x - vx) * s, (y - vy) * s, (14 + 16 * hash(i + k * 7)) * s, 0.16 + 0.12 * hash(k * 5 + i)]);
+    this.hits = (this.hits || 0) + hits;
+
+    // umbrellas: a dotted canopy in the holder's colour; water runs off its edges and drips,
+    // each drip starting from rest and visibly speeding up as it falls
+    const canopies = [];
+    for (const u of umbs) {
+      const open = smoothstep(0, 0.22, T - u.since), sd = (u.seed | 0) || 1;
+      const p = new Path2D();
+      for (let n = 0; n <= 28; n++) {
+        const th = Math.PI + n / 28 * Math.PI;
+        const [sx, sy] = toS(u.x + Math.cos(th) * UMB_R * open, u.y + Math.sin(th) * UMB_R * 0.62 * open);
+        n ? p.lineTo(sx, sy) : p.moveTo(sx, sy);
+      }
+      canopies.push([p, colorOf(u.c), open]);
+      for (let j = 0; j < 60; j++) {
+        const td = u.since + 0.3 + j * 0.19 + hash(sd + j * 7) * 0.12, dt = T - td;
+        if (dt < 0) break;
+        if (dt > 1.3) continue;
+        const side = hash(sd + j * 3) < 0.5 ? -1 : 1;
+        const ex = u.x + side * UMB_R * (0.86 + 0.12 * hash(sd + j + 11)) + side * 30 * dt, ey = u.y + 1;
+        const y = ey + 0.5 * DRIP_G * dt * dt, yp = ey + 0.5 * DRIP_G * Math.max(0, dt - 0.03) ** 2;
+        if (y > yLand) { this._splash(spark, ex, yLand, (y - yLand) / (DRIP_G * dt), sd + j, 0.7, 3, 0.7, true); continue; }
+        const e = streak(1, ex - side * 30 * 0.03, yp - 1, ex, y);
+        if (e) spark(e[0], e[1], 0.85, 1.2);
       }
     }
 
-    // draw: a faint silk line under each filament, then the same filament as flowing dots
-    const flow = -(T * (16 + 40 * storm)) * s;
-    for (let b = 0; b < 3; b++) {
-      c.setLineDash([0.01, (b === 2 ? 2.4 : 3) * s]);
-      c.lineDashOffset = flow * (1 + b * 0.15);
-      c.strokeStyle = `rgba(${PAL.ink},${Math.min(1, (0.11 + b * 0.15) * boost)})`;
-      c.lineWidth = lw * (b === 2 ? 1.2 : 1); c.stroke(fib[b]);
+    // flings: a fast flick throws a spray of drops that arc under gravity and splash down
+    this.flings = this.flings.filter(f => T - f.t < 3);
+    for (const f of this.flings) {
+      const age = T - f.t; if (age < 0) continue;
+      const base = Math.atan2(f.dy, f.dx), col = colorOf(f.c), sd = f.seed | 0;
+      for (let j = 0; j < 40; j++) {
+        const hs = sd + j * 31;
+        const ang = base + (hash(hs) - 0.5) * 0.6, spd = f.sp * (0.4 + 0.65 * hash(hs + 1));
+        const ux = Math.cos(ang) * spd, uy = Math.sin(ang) * spd;
+        const px = t => f.x + ux * (1 - Math.exp(-t * 1.4)) / 1.4, py = t => f.y + uy * t + 0.5 * FLING_G * t * t;
+        const disc = uy * uy + 2 * FLING_G * (yLand - f.y);
+        const tLand = disc > 0 ? (-uy + Math.sqrt(disc)) / FLING_G : 1e9;
+        if (age > tLand) { this._splash(spark, px(tLand), yLand, age - tLand, hs, 0.8, 4, 0.8, true); continue; }
+        const e = streak(2, px(Math.max(0, age - 0.03)), py(Math.max(0, age - 0.03)), px(age), py(age));
+        if (e) { tinted.push([e[0], e[1], col, 0.95]); spark(e[0], e[1], 0.5, 1.4); }
+      }
     }
-    c.setLineDash([]); c.lineDashOffset = 0;
+
+    // draw the rain: each streak is a short line of fine dots
+    for (let L = 0; L < RAIN_LAYERS.length; L++) {
+      const ly = RAIN_LAYERS[L];
+      c.setLineDash([0.01, ly.gap * s]);
+      c.lineDashOffset = 0;
+      c.strokeStyle = `rgba(${PAL.ink},${Math.min(1, ly.alpha * boost)})`;
+      c.lineWidth = lw * ly.dot; c.stroke(lines[L]);
+    }
+    c.setLineDash([]);
+    for (const [p, col, open] of canopies) {
+      c.strokeStyle = `rgba(${col},${0.12 * open})`; c.lineWidth = lw * 5; c.stroke(p);
+      c.setLineDash([0.01, 3 * s]);
+      c.strokeStyle = `rgba(${col},${0.8 * open})`; c.lineWidth = lw * 1.4; c.stroke(p);
+      c.setLineDash([]);
+    }
+
     // the river itself: long dotted currents that run across every joined screen
     if (river && rho > 0) {
       const G = 240, xs = Math.floor((vx - 260) / G) * G, xe = vx + W + 260;
@@ -327,65 +363,38 @@ class RainRenderer {
           const y = river.cy + off * (0.62 + 0.38 * vnoise(x * 0.0021, T * 0.08 + 3)) * (0.85 + 0.15 * vnoise(x * 0.004, j * 0.4))
                   + 26 * vnoise(x * 0.0028 + j * 0.06, T * 0.12) + 7 * vnoise(x * 0.011 + j * 0.9, T * 0.3 + j);
           const [dx, dy] = this.disp(x, y, T);
-          pts.push([(x + dx - vx) * s, (y + dy - vy) * s]);
+          pts.push(toS(x + dx, y + dy));
         }
-        smooth(paths[hash(j + 900) < 0.35 ? 1 : 0], pts);
+        const path = paths[hash(j + 900) < 0.35 ? 1 : 0];
+        path.moveTo(pts[0][0], pts[0][1]);
+        for (let q = 1; q < pts.length - 1; q++)
+          path.quadraticCurveTo(pts[q][0], pts[q][1], (pts[q][0] + pts[q + 1][0]) / 2, (pts[q][1] + pts[q + 1][1]) / 2);
       }
       const ro = (xs - T * river.speed) * s;                          // same dot phase on every phone
       [[0, 0.14, 3.2], [1, 0.32, 2.6]].forEach(([b, al, gap]) => {
-        c.setLineDash([]); c.strokeStyle = `rgba(${PAL.ink},${0.03 * rho * boost})`; c.lineWidth = lw * 0.6; c.stroke(paths[b]);
         c.setLineDash([0.01, gap * s]); c.lineDashOffset = ro;
         c.strokeStyle = `rgba(${PAL.ink},${al * rho * boost})`; c.lineWidth = lw * 1.15; c.stroke(paths[b]);
       });
       c.setLineDash([]); c.lineDashOffset = 0;
-      for (let j = 0; j < 70; j++) {                                  // glitter drifting along the current
-        const sp = river.speed * (0.7 + 0.6 * hash(j + 40)), span = W + 400;
-        const x = vx - 200 + ((((hash(j + 41) * span + T * sp - vx) % span) + span) % span);
-        const y = river.cy + (hash(j + 42) - 0.5) * 110 + 20 * vnoise(x * 0.004, j);
-        const tw = 0.5 + 0.5 * Math.sin(T * 3 + j);
-        sparks.push([(x - vx) * s, (y - vy) * s, 0.7 * rho * tw, hash(j + 43) < 0.3 ? 1.6 : 1]);
-      }
     }
-    // falling streaks and sparkles, batched into a few alpha levels (far fewer draw calls)
-    const SL = 4, sp = [], st = [];
-    for (let k = 0; k < SL; k++) { sp.push(new Path2D()); st.push(new Path2D()); }
-    const lvl = al => Math.min(SL - 1, Math.floor(clamp(al * boost, 0, 0.999) * SL));
-    for (const [sx, sy, len, al] of streaks) { const p = st[lvl(al)]; p.moveTo(sx, sy - len); p.lineTo(sx, sy); }
-    for (const [sx, sy, al, r] of sparks) {
-      if (al <= 0.03) continue;
-      const d = r * lw * 1.3; sp[lvl(al)].rect(sx - d / 2, sy - d / 2, d, d);
-    }
-    c.lineWidth = lw * 0.8;
-    for (let k = 0; k < SL; k++) {
-      const al = (k + 0.5) / SL;
-      c.strokeStyle = `rgba(${PAL.ink},${al * 0.45})`; c.stroke(st[k]);
-      c.fillStyle = `rgba(${PAL.ink},${al})`; c.fill(sp[k]);
-    }
-    const spr = sparkSprite();
-    for (const [sx, sy, al] of glows) {
-      c.globalAlpha = Math.min(1, al * boost);
-      c.drawImage(spr, sx - 7 * lw, sy - 7 * lw, 14 * lw, 14 * lw);
-    }
-    c.globalAlpha = 1;
 
-    // where drops reach the floor they spread out like ink touching water
-    for (const [x, fy, age, seed, lum] of floorHits) {
-      this._bloom(c, x, fy, age, seed, { n: 9, life: 1.6, speed: [30, 110], flat: 0.22, sink: 0, alpha: 0.22 * lum, lw });
+    // taps: a fountain of fine threads leaps up, opens like a flower and rains back down
+    this.ripples = this.ripples.filter(r => T - r.t < 3.4);
+    for (const r of this.ripples) {
+      const age = T - r.t; if (age < 0) continue;
+      this._fountain(c, r, age, lw, yLand, spark);
+    }
+
+    // sparkles
+    for (let k = 0; k < SL; k++) { c.fillStyle = `rgba(${PAL.ink},${(k + 0.5) / SL})`; c.fill(sp[k]); }
+    for (const [sx, sy, col, al] of tinted) {
+      c.fillStyle = `rgba(${col},${al})`; c.fillRect(sx - 1.2 * lw, sy - 1.2 * lw, 2.4 * lw, 2.4 * lw);
     }
     if (floor != null && floor < vy + H + 40) {
       const fy = (floor - vy) * s;
       const g = c.createLinearGradient(0, fy - 50, 0, fy);
       g.addColorStop(0, `rgba(${PAL.ink},0)`); g.addColorStop(1, `rgba(${PAL.ink},0.05)`);
       c.fillStyle = g; c.fillRect(0, fy - 50, this.w, 50);
-    }
-
-    // taps: ink blooms
-    this.ripples = this.ripples.filter(r => T - r.t < 3.2);
-    for (const r of this.ripples) {
-      const age = T - r.t; if (age < 0) continue;
-      const k = r.k || 1;
-      this._bloom(c, r.x, r.y, age, r.seed || 1, { n: r.echo ? 30 : 52, life: 3.2, speed: [60 * k, 260 * k], flat: 1, sink: 26,
-        alpha: r.echo ? 0.3 : 0.42, lw, core: true, col: colorOf(r.c) });
     }
 
     // drags leave a fading trail of glints in the dragger's colour
@@ -416,102 +425,59 @@ class RainRenderer {
     c.globalCompositeOperation = 'source-over';
   }
 
-  /* one plume: a few overlapping fans ("lobes") of filaments sharing one root */
-  _plume(i, k, Pi, ph) {
-    const cache = this._pc || (this._pc = new Map()), key = i + ':' + k;
-    let p = cache.get(key);
-    if (p) return p;
-    if (cache.size > 300) cache.clear();
-    const seed = (Math.imul(i, 977) + Math.imul(k, 131)) & 0xffffff;
-    const nL = 3 + Math.floor(hash(seed + 1) * 3);
-    const lean = (hash(seed + 2) - 0.5) * 0.4, size = 0.8 + 0.45 * hash(seed + 3);
-    const lobes = [];
-    for (let m = 0; m < nL; m++) {
-      const ls = (seed * 7 + m * 1013) & 0xffffff;
-      lobes.push({
-        seed: ls, th0: lean + (hash(ls + 1) - 0.5) * 1.5, S0: 0.42 + 0.4 * hash(ls + 2),
-        bend: (hash(ls + 11) - 0.5) * 1.6, cup: 0.15 + 0.45 * hash(ls + 12),
-        L0: size * (200 + 220 * hash(ls + 3)), nf: Math.round(22 + 16 * hash(ls + 4)),
-        lum: 0.35 + 0.65 * hash(ls + 5), curl: 0.3 + 0.8 * hash(ls + 6),
-        w1: 0.12 + 0.2 * hash(ls + 7), w2: 0.1 + 0.18 * hash(ls + 8),
-        p1: hash(ls + 9) * 6.283, p2: hash(ls + 10) * 6.283,
-      });
+  /* a drop meeting a surface: a few droplets bounce up and fall back (gravity), plus a flat ring */
+  _splash(spark, hx, hy, dt, ks, lum, n, size, ring) {
+    if (dt > 0.75) return;
+    for (let m = 0; m < n; m++) {
+      const hs = ks * 3 + m * 37;
+      const ux = (hash(hs) - 0.5) * 230 * size, uy = (90 + 170 * hash(hs + 1)) * size;
+      const y = hy - uy * dt + 0.5 * SPLASH_G * dt * dt;
+      if (y > hy + 1) continue;
+      const [sx, sy] = this._toScreen(hx + ux * dt, y);
+      spark(sx, sy, lum * (1 - dt / 0.75), 0.9);
     }
-    p = { seed, lobes, tb: k * Pi + ph, joinable: hash(seed + 6) < 0.8,
-          rx: i * PLUME_LANE + (hash(seed + 4) - 0.5) * PLUME_LANE * 0.9, ry0: -200 + hash(seed + 5) * 560 };
-    cache.set(key, p);
-    return p;
-  }
-  /* the whole filament q (-1..1) of a lobe at time Tq, as world points root -> tip.
-     A lobe is a sheet of filaments laid along one flowing S-shaped spine: tight at the root,
-     flaring like a ginkgo leaf, with the outer filaments rolling back at the rim. */
-  _fiber(pl, lb, q, fs, Tq, out) {
-    const a = Tq - pl.tb, g = smoothstep(0, 5, a), st = this.storm;
-    const rx = pl.rx, ry = pl.ry0 + PLUME_DRIFT * a;
-    const th = lb.th0 + 0.14 * Math.sin(Tq * lb.w1 + lb.p1) + st * 0.5 * (0.75 + 0.25 * Math.sin(Tq * 1.3 + lb.p2));
-    const bend = lb.bend * (0.75 + 0.35 * Math.sin(Tq * lb.w2 + lb.p2)) + st * 0.25;
-    const L = lb.L0 * (0.15 + 0.85 * g) * (1 + 0.05 * Math.sin(Tq * 0.27 + lb.p1));
-    const Wd = L * lb.S0 * (0.35 + 0.65 * g) * (1 + 0.18 * Math.sin(Tq * lb.w2 * 1.3 + lb.p1));
-    const ns = (lb.seed & 1023) * 0.37, tw = Tq * (0.18 + st * 0.7);
-    const sn = Math.sin(th), cs = Math.cos(th);
-    // spine control points (local frame: "down" rotated by th, bend swings it sideways)
-    const c1x = sn * 0.3 * L, c1y = cs * 0.34 * L;
-    const c2x = sn * 0.62 * L + cs * bend * 0.38 * L, c2y = cs * 0.66 * L - sn * bend * 0.38 * L;
-    const c3x = sn * 0.92 * L + cs * bend * 0.12 * L, c3y = cs * 0.92 * L - sn * bend * 0.12 * L;
-    const lf = 1 - 0.16 * q * q + 0.07 * vnoise(q * 3.1 + ns, tw);          // scalloped rim
-    const roll = lb.curl * q * q;
-    out.length = 0;
-    for (let n = 0; n <= PLUME_SEG; n++) {
-      const t = n / PLUME_SEG * lf, u = 1 - t;
-      const b0 = u * u * u, b1 = 3 * u * u * t, b2 = 3 * u * t * t, b3 = t * t * t;
-      const cx = b1 * c1x + b2 * c2x + b3 * c3x, cy = b1 * c1y + b2 * c2y + b3 * c3y;
-      let tx = 3 * u * u * c1x + 6 * u * t * (c2x - c1x) + 3 * t * t * (c3x - c2x);
-      let ty = 3 * u * u * c1y + 6 * u * t * (c2y - c1y) + 3 * t * t * (c3y - c2y);
-      const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
-      const wide = Wd * Math.pow(t, 1.45) * (1 + lb.cup * Math.sin(3.1416 * t)) + 2.5;   // cupped like a petal
-      const wave = 9 * t * vnoise(q * 1.7 + ns + t * 1.2, tw + (fs & 255) * 0.01);
-      const off = q * wide + wave;
-      const back = roll * L * 0.22 * smoothstep(0.6, 1, t);                   // rim rolls back toward the root
-      out.push([rx + cx - ty * off - tx * back, ry + cy + tx * off - ty * back]);
-    }
-    return out;
-  }
-
-  _bloom(c, x, y, age, seed, o) {
-    const fade = Math.pow(Math.max(0, 1 - age / o.life), 1.4);
-    if (fade <= 0) return;
-    const s = this.scale;
-    const path = new Path2D(), tips = [];
-    for (let j = 0; j < o.n; j++) {
-      const th = hash(seed + j * 5) * 6.283;
-      const sp = lerp(o.speed[0], o.speed[1], hash(seed + j * 5 + 1));
-      const curl = (hash(seed + j * 5 + 2) - 0.5) * 3.4;
-      const wob = hash(seed + j * 5 + 3) * 6.283;
-      for (let n = 0; n <= 10; n++) {
-        const u = age * n / 10;
-        const rad = sp * (1 - Math.exp(-2.4 * u)) / 2.4;
-        const ang = th + curl * u;
-        const w = Math.sin(u * 7 + wob) * 5 * u;
-        const px = x + Math.cos(ang) * rad - Math.sin(ang) * w;
-        const py = y + (Math.sin(ang) * rad + Math.cos(ang) * w) * o.flat + o.sink * u * u;
-        const sx = (px - this.view.x) * s, sy = (py - this.view.y) * s;
-        if (n === 0) path.moveTo(sx, sy); else path.lineTo(sx, sy);
-        if (n === 10) tips.push([sx, sy, hash(seed + j * 5 + 4)]);
+    if (ring && dt < 0.45) {
+      const r = (3 + 55 * dt) * size, al = lum * 0.45 * (1 - dt / 0.45);
+      for (let q = 0; q < 8; q++) {
+        const th = q / 8 * 6.283 + hash(ks + q);
+        const [sx, sy] = this._toScreen(hx + Math.cos(th) * r, hy + Math.sin(th) * r * 0.22);
+        spark(sx, sy, al, 0.8);
       }
     }
-    const col = o.col || PAL.ink;
-    c.setLineDash([]); c.strokeStyle = `rgba(${col},${o.alpha * fade * 0.3})`; c.lineWidth = o.lw * 0.5; c.stroke(path);
-    c.setLineDash([0.01, 3 * s]); c.lineDashOffset = -age * 30 * s;
-    c.strokeStyle = `rgba(${col},${Math.min(1, o.alpha * fade * 1.7)})`; c.lineWidth = o.lw * 1.1; c.stroke(path);
+    if (dt < 0.05) { const [sx, sy] = this._toScreen(hx, hy); spark(sx, sy, lum * 1.3, 1.7); }
+  }
+
+  /* a tap: threads leap up from the finger, open like a flower and fall back as rain */
+  _fountain(c, r, age, lw, yLand, spark) {
+    const k = r.k || 1, n = r.echo ? 26 : 44, col = colorOf(r.c), sd = r.seed | 0;
+    const fade = age < 2.2 ? 1 : Math.max(0, 1 - (age - 2.2) / 1.2);
+    if (fade <= 0) return;
+    const g = 640 * k, path = new Path2D();
+    const tHead = age * 1.1, tTail = Math.max(0, (age - 0.5) * 1.3);    // the jet rises, then lets go
+    for (let j = 0; j < n; j++) {
+      const q = j / (n - 1) * 2 - 1;
+      const ang = q * 1.05 + (hash(sd + j * 3) - 0.5) * 0.2;            // 0 = straight up
+      const v = (250 + 140 * hash(sd + j * 3 + 1)) * k * (1 - 0.3 * q * q);
+      const ux = Math.sin(ang) * v, uy = Math.cos(ang) * v, wob = hash(sd + j * 3 + 2) * 6.283;
+      const P = tt => this._toScreen(r.x + ux * tt + 4 * Math.sin(tt * 5 + wob) * tt * k,
+                                     Math.min(yLand, r.y - uy * tt + 0.5 * g * tt * tt));
+      for (let m = 0; m <= 12; m++) {
+        const [sx, sy] = P(tTail + (tHead - tTail) * m / 12);
+        m ? path.lineTo(sx, sy) : path.moveTo(sx, sy);
+      }
+      const [hx, hy] = P(tHead);
+      spark(hx, hy, 0.9 * fade, hash(sd + j * 3 + 4) < 0.3 ? 1.7 : 1.1);
+    }
+    c.setLineDash([]);
+    c.strokeStyle = `rgba(${col},${0.1 * fade})`; c.lineWidth = lw * 0.6; c.stroke(path);
+    c.setLineDash([0.01, 2.8 * this.scale]); c.lineDashOffset = -age * 40 * this.scale;
+    c.strokeStyle = `rgba(${col},${(r.echo ? 0.45 : 0.75) * fade})`; c.lineWidth = lw * 1.1; c.stroke(path);
     c.setLineDash([]); c.lineDashOffset = 0;
-    c.fillStyle = `rgba(${col},${Math.min(1, o.alpha * fade * 2.2)})`;
-    for (const [tx, ty, h] of tips) { const d = (h < 0.3 ? 2.3 : 1.3) * o.lw; c.fillRect(tx - d / 2, ty - d / 2, d, d); }
-    if (o.core) {
-      const [sx, sy] = this._toScreen(x, y);
-      const R = (24 + 40 * age) * s;
-      const g = c.createRadialGradient(sx, sy, 0, sx, sy, R);
-      g.addColorStop(0, `rgba(${col},${0.5 * fade})`); g.addColorStop(0.35, `rgba(${col},${0.16 * fade})`); g.addColorStop(1, `rgba(${col},0)`);
-      c.fillStyle = g; c.beginPath(); c.arc(sx, sy, R, 0, 6.283); c.fill();
+    if (age < 0.35) {
+      const [sx, sy] = this._toScreen(r.x, r.y), R = (10 + 60 * age) * this.scale * k, f = 1 - age / 0.35;
+      const gr = c.createRadialGradient(sx, sy, 0, sx, sy, R);
+      gr.addColorStop(0, `rgba(${col},${0.45 * f})`); gr.addColorStop(1, `rgba(${col},0)`);
+      c.fillStyle = gr; c.beginPath(); c.arc(sx, sy, R, 0, 6.283); c.fill();
     }
   }
 
