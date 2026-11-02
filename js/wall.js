@@ -141,10 +141,14 @@
   function echo(g, m) {
     lastPhone = Date.now();
     if (!m || !clients.size) return;
-    const a = anchor(g), mem = groupMembers(g);
+    const mem = groupMembers(g);
     if (!mem.length) return;
+    // map the phone (or the whole row of joined phones) onto the full wall:
+    // left of the phones = left of the wall, top = top
     const minX = Math.min(...mem.map(c => c.ox)), minY = Math.min(...mem.map(c => c.oy));
-    const x = a.x + (m.x - minX) * 0.45, y = a.y + (m.y - minY) * 0.3;
+    const maxX = Math.max(...mem.map(c => c.ox + c.w)), maxY = Math.max(...mem.map(c => c.oy + c.h));
+    const gu = clamp((m.x - minX) / Math.max(1, maxX - minX), 0, 1), gv = clamp((m.y - minY) / Math.max(1, maxY - minY), 0, 1);
+    const x = R.view.x + (0.05 + 0.9 * gu) * R.worldW, y = R.view.y + (0.08 + 0.84 * gv) * R.worldH;
     if (m.type === 'tap') { R.addRipple({ x, y, t: T(), seed: m.seed || 1, k: 0.8, c: m.c }); S.plip(clamp(x / R.worldW, 0, 1), 0.18); { const at = RainSound.nextPulse(T()); S.voice(m.c, RainSound.noteFor(m.c, clamp(x / R.worldW, 0, 1), at), at, T(), 0.2, clamp(x / R.worldW, 0, 1)); } }
     if (m.type === 'wind') { R.addImpulse({ x, y, dx: m.dx * 0.8, dy: m.dy * 0.8, r: 70, t: T() }); R.addTrail({ x, y, t: T(), c: m.c }); }
     // simple feed for TouchDesigner: positions 0..1 on the wall
