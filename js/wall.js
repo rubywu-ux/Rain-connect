@@ -8,6 +8,8 @@
   const S = new RainSound();
   const T = () => (Date.now() - EPOCH) / 1000;
   R.floor = null;
+  // ?td : running inside TouchDesigner's Web Render TOP -> no click-to-start, TD makes the sound
+  const TDMODE = new URLSearchParams(location.search).has('td');
 
   /* ---------------- QR to the phone page */
   const phoneUrl = new URL('./', location.href);
@@ -139,6 +141,10 @@
     const x = a.x + (m.x - minX) * 0.45, y = a.y + (m.y - minY) * 0.3;
     if (m.type === 'tap') { R.addRipple({ x, y, t: T(), seed: m.seed || 1, k: 0.8 }); S.plip(clamp(x / R.worldW, 0, 1), 0.18); }
     if (m.type === 'wind') R.addImpulse({ x, y, dx: m.dx * 0.8, dy: m.dy * 0.8, r: 70, t: T() });
+    // simple feed for TouchDesigner: positions 0..1 on the wall
+    if (m.type === 'tap' || m.type === 'wind')
+      net.pub('td', { type: m.type, u: +clamp(x / R.worldW, 0, 1).toFixed(3), v: +clamp(y / R.worldH, 0, 1).toFixed(3),
+                      du: m.dx ? +(m.dx / 55).toFixed(2) : 0, dv: m.dy ? +(m.dy / 55).toFixed(2) : 0, n: mem.length });
   }
   function wallJoin(g, n) {
     const a = anchor(g);
@@ -146,6 +152,7 @@
     R.addRipple({ x: a.x, y: a.y, t: T(), seed: Math.random() * 1e6 | 0, k: 1.4 });
     R.bright = 1.2;
     S.chime(n - 1, 0, 0.26);
+    net.pub('td', { type: 'join', n, u: +clamp(a.x / R.worldW, 0, 1).toFixed(3), v: +clamp(a.y / R.worldH, 0, 1).toFixed(3), online: clients.size });
   }
 
   /* ---------------- live world rain: fetch, show, share with phones */
@@ -173,6 +180,7 @@
 
   /* ---------------- start + loop */
   $('start').onclick = () => { S.start(); if (snap) S.setRain(clamp(snap.pct / 30, 0, 1)); $('start').remove(); };
+  if (TDMODE) $('start').remove();
   addEventListener('keydown', e => {
     if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
     if (e.key === 'm') { mapOn = !mapOn; $('wallmap').classList.toggle('on', mapOn); }

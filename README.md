@@ -21,3 +21,11 @@ the strands, on every connected screen, echoed on the wall.
   the wall and shared with the phones. Raining = a WMO rain, drizzle, shower or
   thunderstorm code, or ≥0.1 mm of non-snow precipitation.
 - Separate rooms for testing: add `?room=test` to both URLs.
+
+## TouchDesigner
+Load `wall.html?td` in a Web Render TOP. It runs the hub with no click-to-start, and
+TouchDesigner makes the sound. Every phone event is also published as JSON on the MQTT
+topic `rainconnect/rubywu-ux-k7q2/gallery/td`, as `{type: tap|wind|join, u, v, ...}` with
+u and v from 0 to 1 on the wall. The live data is on `.../rainnow` and `.../stats`, both
+retained. Listen with an MQTT Client DAT at `tcp://broker.emqx.io:1883`.
+Run only ONE wall: either the browser one or the one in TouchDesigner, never both.
