@@ -13,6 +13,12 @@
   let gid = ME;
   let members = [{ id: ME, ox: 0, oy: 0, w: innerWidth, h: innerHeight, num: 1 }];
   let entered = false;
+  let stormTarget = 0, stormN = 0, pillDots = '';
+  function updatePill() {
+    const n = members.length;
+    const txt = stormN >= 2 ? `≋ ${stormN} blowing · storm` : n > 1 ? `${n} phones · one rain` : 'alone in the rain';
+    $('pill').innerHTML = pillDots + txt;
+  }
   let myColor = Math.floor(hash(parseInt(ME, 36) | 0) * 8);   // until the wall assigns one
   /* everyone's notes: their own instrument, the shared chord, on the shared pulse; softer in bigger groups */
   function play(ci, u, tEvent, level) {
@@ -34,6 +40,8 @@
   net.sub('g/' + gid);
   net.sub('rainnow');
   net.sub('stats');
+  net.sub('storm');
+  net.sub('strike');
   net.connect();
 
   function hello() { net.pub('hub/in', { type: 'hello', id: ME, w: innerWidth, h: innerHeight }); ping(); }
@@ -62,6 +70,16 @@
           R.addRipple({ x: v.x + m.u * R.worldW, y: v.y + m.v * R.worldH, t: m.t, seed: m.seed + 7, c: m.c, k: 0.6, echo: true });
         if (entered) play(m.c, m.u != null ? m.u : 0.5, m.t, inView ? 0.55 : 0.3);
       }
+    } else if (topic === 'storm') {
+      // shared storm: 2+ people blowing anywhere
+      stormTarget = m.level || 0;
+      if (entered) S.setStorm(stormTarget);
+      stormN = m.n || 0;
+      updatePill();
+    } else if (topic === 'strike') {
+      if (!entered) return;
+      R.addBolt({ u: m.u, seed: m.seed, power: m.power, t: T() });
+      S.thunder(m.power, 0.25 + hash(m.seed + 3) * 0.9);
     } else if (topic === 'rainnow') {
       setSnap(m);
     } else if (topic === 'stats') {
@@ -86,7 +104,7 @@
     document.documentElement.style.setProperty('--me', colorOf(myColor));
     const dots = [...members].sort((a, b) => a.ox - b.ox || a.oy - b.oy)
       .map(p => `<i class="dot${p.id === ME ? ' me' : ''}" style="--c:${colorOf(p.color)}"></i>`).join('');
-    $('pill').innerHTML = dots + (n > 1 ? `${n} phones · one rain` : 'alone in the rain');
+    pillDots = dots; updatePill();
     $('pill').classList.toggle('lit', n > 1);
     if (n > before && m.seam) {
       // someone joined: light sweeps from the seam; every phone rings its own note, left to right
@@ -134,6 +152,58 @@
     $('enter').textContent = 'Back to the rain';
   };
   $('globe').onclick = () => { $('world').classList.remove('hidden'); $('hud').classList.add('hidden'); };
+
+  /* ---------------- breath: blow into the phone (opt-in, uses the microphone) */
+  let mic = null;
+  $('wind').onclick = async () => {
+    if (mic) { mic.stream.getTracks().forEach(t => t.stop()); mic = null; $('wind').classList.remove('on', 'blowing'); return; }
+    try {
+      S.start();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      const src = S.ctx.createMediaStreamSource(stream), an = S.ctx.createAnalyser();
+      an.fftSize = 1024; src.connect(an);
+      mic = { stream, an, td: new Float32Array(an.fftSize), fd: new Float32Array(an.frequencyBinCount), floor: 0.01, hot: 0, last: 0, blowing: false };
+      $('wind').classList.add('on');
+    } catch (e) { $('wind').textContent = '×'; setTimeout(() => { $('wind').textContent = '≋'; }, 1500); }
+  };
+  setInterval(() => {
+    if (!mic) return;
+    const { an, td, fd } = mic;
+    an.getFloatTimeDomainData(td); an.getFloatFrequencyData(fd);
+    let sum = 0; for (let i = 0; i < td.length; i++) sum += td[i] * td[i];
+    const rms = Math.sqrt(sum / td.length);
+    // blowing = loud, broadband and low-heavy (speech is more tonal/mid); measured against the room
+    const binHz = S.ctx.sampleRate / an.fftSize;
+    let low = 0, all = 0, lsum = 0, psum = 0, nb = 0;
+    for (let i = 1; i < fd.length; i++) {
+      const hz = i * binHz, p = Math.pow(10, fd[i] / 10);
+      all += p; if (hz < 700) low += p;
+      if (hz > 60 && hz < 2500) { lsum += Math.log(p + 1e-12); psum += p; nb++; }
+    }
+    const lowRatio = all ? low / all : 0;
+    // breath is noisy (flat spectrum); voices, hums and music are tonal (peaky spectrum)
+    const flat = nb && psum > 0 ? Math.exp(lsum / nb) / (psum / nb) : 0;
+    const thr = Math.max(0.045, mic.floor * 4);
+    const candidate = rms > thr && lowRatio > 0.5 && flat > 0.12;
+    if (RC.debug) window.__mic = { rms: +rms.toFixed(3), low: +lowRatio.toFixed(2), flat: +flat.toFixed(3), thr: +thr.toFixed(3) };
+    mic.hot = candidate ? mic.hot + 1 : Math.max(0, mic.hot - 2);
+    if (!candidate && !mic.blowing) mic.floor = mic.floor * 0.97 + rms * 0.03;
+    const was = mic.blowing;
+    mic.blowing = mic.hot >= 3;
+    $('wind').classList.toggle('blowing', mic.blowing);
+    if (mic.blowing) {
+      const strength = clamp((rms - thr) / 0.25, 0.1, 1);
+      const now = performance.now();
+      if (!was) S.gust(strength);
+      if (now - mic.last > 300) {
+        mic.last = now;
+        net.pub('hub/in', { type: 'blow', id: ME, c: myColor, s: +strength.toFixed(2) });
+        // your own breath pushes the strands across your screen
+        const t = T(), v = R.view;
+        R.addImpulse({ x: v.x + R.worldW * (0.2 + Math.random() * 0.6), y: v.y + R.worldH * 0.75, dx: (Math.random() - 0.5) * 60, dy: -70 * strength, r: 220, t });
+      }
+    }
+  }, 50);
 
   /* ---------------- touch: tap, drag (wind), edge swipes (connect) */
   const EDGE = 30;
@@ -205,6 +275,7 @@
       if (members.length > 1 || gid !== ME) applyGroup({ gid: ME, members: [{ id: ME, ox: 0, oy: 0, w: innerWidth, h: innerHeight, num: 1 }] });
       R.floor = innerHeight;
     }
+    R.storm += (stormTarget - R.storm) * 0.04;
     R.draw(t);
     if (!$('world').classList.contains('hidden')) {
       const r = mapCv.getBoundingClientRect();

@@ -111,6 +111,8 @@ class RainRenderer {
     this.flashes = [];                     // joins -> orbit threads
     this.river = null;                     // {cy, since, speed} while phones are joined
     this.trails = [];                      // coloured glints along drags
+    this.bolts = [];                       // lightning strikes
+    this.storm = 0;                        // 0..1, shared: how many people are blowing
     this.bright = 0;
     this.fresh = true;
     this.resize();
@@ -132,6 +134,7 @@ class RainRenderer {
   addRipple(e) { this.ripples.push(e); if (this.ripples.length > 30) this.ripples.shift(); }
   addFlash(e) { this.flashes.push(e); }
   addTrail(e) { this.trails.push(e); if (this.trails.length > 160) this.trails.shift(); }
+  addBolt(e) { this.bolts.push(e); if (this.bolts.length > 12) this.bolts.shift(); }
 
   /* displacement at world (x,y): drags push AND swirl strands around the finger */
   disp(x, y, T) {
@@ -179,6 +182,7 @@ class RainRenderer {
 
     // ---- strands: noise-driven ink threads; when phones are joined they converge into a river
     const river = this.river;                                       // {cy, since, speed} or null
+    const storm = this.storm;
     const rho = river ? clamp((T - river.since) / 2.5, 0, 1) : 0;    // river fades in after a join
     const grain = new Path2D();
     const smooth = (path, pts) => {                                  // curve through midpoints
@@ -216,7 +220,8 @@ class RainRenderer {
              + ob * (0.18 + 0.82 * Math.pow(fan, 1.5))
              + (0.35 + fan) * 20 * vnoise(aa * 1.6 + pb, b * 3.1 + ks * 0.01)
              + 12 * vnoise(y * 0.011 + b * 0.7 + pb, i * 0.29)
-             + 30 * vnoise(y * 0.0035 + i * 0.13, T * 0.12);
+             + 30 * vnoise(y * 0.0035 + i * 0.13, T * 0.12)
+             + storm * (70 * aa * 0.6 + 45 * vnoise(T * 0.6 + i * 0.07, y * 0.004));   // strands lean in the storm wind
         const joins = rho > 0 && hash(ks + 200) < 0.72;
         const entryY = river ? river.cy - 60 + (hash(ks + 201) - 0.5) * 50 : 0;
         const tEntry = (entryY - RAIN_TOP) / v;
@@ -329,6 +334,13 @@ class RainRenderer {
       c.fillStyle = g; c.beginPath(); c.arc(sx, sy, rr, 0, 6.283); c.fill();
     }
 
+    // lightning: white bolts (same seed -> same bolt on every screen), with a brief sky flash
+    this.bolts = this.bolts.filter(b => T - b.t < 1.2);
+    for (const b of this.bolts) {
+      const age = T - b.t; if (age < 0) continue;
+      this._bolt(c, b, age, lw);
+    }
+
     // joins: a luminous orbit thread drawn across the connected screens
     this.flashes = this.flashes.filter(f => T - f.t < 5);
     for (const f of this.flashes) {
@@ -370,6 +382,48 @@ class RainRenderer {
       g.addColorStop(0, `rgba(${col},${0.5 * fade})`); g.addColorStop(0.35, `rgba(${col},${0.16 * fade})`); g.addColorStop(1, `rgba(${col},0)`);
       c.fillStyle = g; c.beginPath(); c.arc(sx, sy, R, 0, 6.283); c.fill();
     }
+  }
+
+  _bolt(c, b, age, lw) {
+    // flicker: bright, dip, bright again, then fade
+    const fl = age < 0.07 ? 1 : age < 0.12 ? 0.25 : age < 0.2 ? 0.9 : Math.max(0, 1 - (age - 0.2) / 0.9);
+    if (fl <= 0) return;
+    const W = this.w, H = this.h, sd = b.seed | 0;
+    // sky flash over the whole screen
+    if (age < 0.35) {
+      c.globalCompositeOperation = 'source-over';
+      c.fillStyle = INK ? `rgba(20,20,24,${0.18 * b.power * fl})` : `rgba(235,240,255,${0.22 * b.power * fl})`;
+      c.fillRect(0, 0, W, H);
+      c.globalCompositeOperation = PAL.comp;
+    }
+    const col = INK ? '20,20,24' : '255,255,255';
+    const main = new Path2D(), branches = new Path2D();
+    let x = b.u * W, y = -10;
+    const endY = H * (0.55 + 0.45 * hash(sd + 1));
+    const step = 16 + 10 * hash(sd + 2);
+    main.moveTo(x, y);
+    let n = 0;
+    while (y < endY) {
+      x += (hash(sd + 10 + n) - 0.5) * 34;
+      y += step * (0.6 + 0.8 * hash(sd + 200 + n));
+      main.lineTo(x, y);
+      if (hash(sd + 400 + n) < 0.12) {                // a branch forks off
+        let bx = x, by = y;
+        const dir = hash(sd + 500 + n) < 0.5 ? -1 : 1;
+        branches.moveTo(bx, by);
+        const len = 3 + Math.floor(hash(sd + 600 + n) * 6);
+        for (let k = 0; k < len; k++) {
+          bx += dir * (6 + 14 * hash(sd + 700 + n * 13 + k)); by += 10 + 12 * hash(sd + 800 + n * 13 + k);
+          branches.lineTo(bx, by);
+        }
+      }
+      n++;
+    }
+    [[9, 0.08], [4, 0.25], [1.6, 1]].forEach(([w, a]) => {
+      c.strokeStyle = `rgba(${col},${a * fl})`;
+      c.lineWidth = w * lw; c.stroke(main);
+      c.lineWidth = w * lw * 0.5; c.stroke(branches);
+    });
   }
 
   _orbit(c, f, age, lw) {
@@ -553,6 +607,67 @@ class RainSound {
   }
 
   /* a very quiet pad holding the current chord's root and fifth, so everything sits on one harmony */
+  /* storm: dark gusting wind bed whose loudness follows how many people are blowing */
+  _noiseBuffer(sec, brown) {
+    const a = this.ctx, len = a.sampleRate * sec, buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < len; i++) {
+      const w = Math.random() * 2 - 1;
+      if (brown) { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w;
+    }
+    const f = Math.min(4000, len >> 2); for (let i = 0; i < f; i++) { const t = i / f; d[i] = d[i] * t + d[len - f + i] * (1 - t); }
+    return buf;
+  }
+  setStorm(level) {
+    const a = this.ctx; if (!a) return;
+    if (!this.storm) {
+      const src = a.createBufferSource(); src.buffer = this._noiseBuffer(6, true); src.loop = true;
+      const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; lp.Q.value = 0.7;
+      const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 700; bp.Q.value = 0.6;
+      const gust = a.createOscillator(), gg = a.createGain(); gust.frequency.value = 0.13; gg.gain.value = 260;
+      gust.connect(gg); gg.connect(lp.frequency); gust.start();
+      const air = a.createGain(); air.gain.value = 0.25;
+      const g = a.createGain(); g.gain.value = 0.0001;
+      src.connect(lp); lp.connect(g); src.connect(bp); bp.connect(air); air.connect(g);
+      g.connect(this.master); src.start();
+      this.storm = { g, lp };
+    }
+    // 0 = calm; 2 people ~ quiet; more people = louder
+    this.storm.g.gain.setTargetAtTime(level <= 0 ? 0.0001 : 0.06 + level * 0.42, a.currentTime, level > 0 ? 0.8 : 1.2);
+    this.storm.lp.frequency.setTargetAtTime(380 + level * 700, a.currentTime, 1);
+  }
+  /* thunder after a strike: low rumble (+ a crack when it is close) */
+  thunder(power = 0.6, delay = 0.6) {
+    const a = this.ctx; if (!a) return;
+    const t = a.currentTime + delay;
+    const src = a.createBufferSource(); src.buffer = this._noiseBuffer(3, true);
+    const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(260 + power * 300, t);
+    lp.frequency.exponentialRampToValueAtTime(90, t + 2.4);
+    const g = a.createGain(); g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.25 + 0.55 * power, t + 0.08 + (1 - power) * 0.25);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.8);
+    src.connect(lp); lp.connect(g); g.connect(this.master); g.connect(this.wet);
+    src.start(t); src.stop(t + 3);
+    if (power > 0.6) {                                       // close strike: a short crack first
+      const cs = a.createBufferSource(); cs.buffer = this._noiseBuffer(0.3, false);
+      const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1500;
+      const cg = a.createGain(); cg.gain.setValueAtTime(0.0001, t - 0.05);
+      cg.gain.exponentialRampToValueAtTime(0.12 * power, t - 0.04); cg.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      cs.connect(hp); hp.connect(cg); cg.connect(this.master); cs.start(t - 0.05); cs.stop(t + 0.25);
+    }
+  }
+  /* one person blowing: a soft whoosh */
+  gust(strength = 0.5) {
+    const a = this.ctx; if (!a) return;
+    const t = a.currentTime;
+    const src = a.createBufferSource(); src.buffer = this._noiseBuffer(1.2, false);
+    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.8;
+    bp.frequency.setValueAtTime(500, t); bp.frequency.exponentialRampToValueAtTime(1400, t + 0.5); bp.frequency.exponentialRampToValueAtTime(600, t + 1.1);
+    const g = a.createGain(); g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05 + 0.08 * strength, t + 0.25); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.15);
+    src.connect(bp); bp.connect(g); g.connect(this.master); src.start(t); src.stop(t + 1.2);
+  }
+
   startPad(getT) {
     const a = this.ctx; if (!a || this.pad) return;
     const g = a.createGain(); g.gain.value = 0.0001;

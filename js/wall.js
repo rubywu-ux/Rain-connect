@@ -33,6 +33,7 @@
   const exits = [];            // recent edge exits {id, side, pos, at}
   const anchors = new Map();   // gid -> wall position for echoes
   const since = new Map();     // gid -> when it first had 2+ phones (river start)
+  const blowers = new Map();   // id -> {at, s}: phones blowing right now
 
   const net = new Net(onMsg, st => {
     $('netdot').classList.toggle('ok', st === 'online');
@@ -83,6 +84,7 @@
     if (m.type === 'hb' && (m.gid !== c.gid || m.n !== groupMembers(c.gid).length)) sendAssign(c.gid);
     if ((m.type === 'hb' || m.type === 'hello') && m.w && (m.w !== c.w || m.h !== c.h)) { c.w = m.w; c.h = m.h; sendAssign(c.gid); }
     if (m.type === 'exit' || m.type === 'enter') swipe(m);
+    if (m.type === 'blow') { blowers.set(m.id, { at: Date.now(), s: m.s || 0.5 }); lastPhone = Date.now(); }
   }
 
   /* A swipe that leaves phone A's edge and lands on phone B's opposite edge
@@ -124,6 +126,32 @@
     wallJoin(a.gid, groupMembers(a.gid).length);
     stats();
   }
+
+  /* ---------------- breath storm: 2+ people blowing at once (anywhere) = storm + lightning;
+     more people = louder storm, more lightning. Strikes are shared so every screen flashes together. */
+  let stormLevel = 0, stormN = 0, lastStormPub = 0;
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, b] of blowers) if (now - b.at > 900) blowers.delete(id);
+    const n = blowers.size;
+    const avg = n ? [...blowers.values()].reduce((a, b) => a + b.s, 0) / n : 0;
+    const level = n < 2 ? 0 : Math.min(1, 0.22 + (n - 2) * 0.18 + avg * 0.12);
+    if (n !== stormN || Math.abs(level - stormLevel) > 0.02 || now - lastStormPub > 1500) {
+      stormN = n; stormLevel = level; lastStormPub = now;
+      net.pub('storm', { n, level: +level.toFixed(2) });
+      net.pub('td', { type: 'storm', n, level: +level.toFixed(2) });
+      S.setStorm(level);
+    }
+    if (level > 0 && Math.random() < (0.3 + level * 2.2) * 0.25) {
+      const strike = { seed: Math.floor(Math.random() * 1e9), u: +(0.08 + Math.random() * 0.84).toFixed(3), power: +(0.45 + 0.55 * level * Math.random()).toFixed(2) };
+      net.pub('strike', strike);
+      net.pub('td', Object.assign({ type: 'strike' }, strike));
+      R.addBolt(Object.assign({ t: T() }, strike));
+      S.thunder(strike.power, 0.25 + hash(strike.seed + 3) * 0.9);
+    }
+  }, 250);
+  const tickStorm = () => { R.storm += (stormLevel - R.storm) * 0.04; requestAnimationFrame(tickStorm); };
+  requestAnimationFrame(tickStorm);
 
   // forget phones that closed the page
   setInterval(() => {

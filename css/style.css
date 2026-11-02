@@ -115,3 +115,8 @@ html.ink .world h1, html.ink .wall-title, html.ink .wall-stats .big { text-shado
   background: rgb(var(--c)); box-shadow: 0 0 8px rgba(var(--c), .8); }
 .pill .dot.me { width: 9px; height: 9px; outline: 1px solid rgba(var(--rgb), .7); outline-offset: 2px; }
 .pill .dot:last-of-type { margin-right: 9px; }
+
+/* breath / wind button */
+.hud-btns { display: flex; gap: 10px; pointer-events: auto; }
+#wind.on { background: rgba(var(--rgb), .18); border-color: rgba(var(--rgb), .7); box-shadow: 0 0 14px rgba(var(--rgb), .35); }
+#wind.blowing { background: rgba(var(--rgb), .45); }
