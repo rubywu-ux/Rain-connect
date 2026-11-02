@@ -3,7 +3,7 @@
  * and fetches + shares the live world rain snapshot. Keep exactly one wall open. */
 (() => {
   const $ = id => document.getElementById(id);
-  const R = new RainRenderer($('rain'), { scale: 1.6 });
+  const R = new RainRenderer($('rain'), { scale: 1.6, detail: +(new URLSearchParams(location.search).get('detail') || 0.6) });
   const M = new WorldMap($('map'));
   const S = new RainSound();
   const T = () => (Date.now() - EPOCH) / 1000;

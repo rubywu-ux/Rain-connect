@@ -4,8 +4,8 @@ A rain installation for phones. Open the wall page on the projector laptop. Visi
 the phone page by tapping an NFC sticker or scanning the QR code. Their phone shows how
 much of Earth is under rain right now (live data from Open-Meteo), then catches the rain.
 Put phones side by side and swipe one finger across both screens: they join into one
-continuous canvas. Organic black-and-white ink strands fall like rain; once phones are joined
-the strands converge into one horizontal river that flows across all the screens. Each join
+continuous canvas. Black-and-white plumes of fine, flowing dotted filaments bloom, breathe and slowly dissolve, their sparkling rims falling as rain; once phones are joined
+the rain converges into one horizontal river that flows across all the screens. Each join
 draws a glowing orbit thread and plays a chime; taps bloom like ink in water and drags swirl
 the strands, on every connected screen, echoed on the wall.
 
