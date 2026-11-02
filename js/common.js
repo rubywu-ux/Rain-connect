@@ -29,6 +29,15 @@ function hash(i) {
   return i / 4294967296;
 }
 
+/* smooth value noise in [-1,1] built on the integer hash (deterministic everywhere) */
+function vnoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), w = yf * yf * (3 - 2 * yf);
+  const h = (a, b) => hash(Math.imul(a, 374761393) ^ Math.imul(b, 668265263));
+  return lerp(lerp(h(xi, yi), h(xi + 1, yi), u), lerp(h(xi, yi + 1), h(xi + 1, yi + 1), u), w) * 2 - 1;
+}
+function fbm(x, y) { return vnoise(x, y) * 0.65 + vnoise(x * 2.03 + 5.2, y * 2.03 + 1.3) * 0.35; }
+
 /* ------------------------------------------------------------------ network */
 class Net {
   constructor(onMessage, onStatus) {
@@ -69,14 +78,20 @@ class Net {
   }
 }
 
-/* ------------------------------------------------------------------ rain renderer */
-const LAYERS = [
-  // far, fine rain
-  { sp: 4.5, off: 0, speed: [520, 820], len: [8, 22], alpha: [0.07, 0.26], width: 0.8 },
-  // near, bright streaks
-  { sp: 9, off: 77777, speed: [900, 1350], len: [26, 70], alpha: [0.25, 0.8], width: 1.3 },
-];
-const RAIN_TOP = -600;    // world y where drops start
+/* ------------------------------------------------------------------ rain renderer (organic, B/W)
+ * Each "drop" is a bundle of fine strands that sways as it falls and fans out
+ * behind its head like ink threads in water. Everything is a deterministic
+ * function of world position + shared time, so strands continue across phones.
+ * Default: white light on black.  ?ink : black ink on white paper. */
+const INK = new URLSearchParams(location.search).has('ink');
+const PAL = INK
+  ? { bg: '244,243,240', ink: '12,12,14', comp: 'source-over', fade: 0.24 }
+  : { bg: '4,4,5', ink: '236,237,240', comp: 'lighter', fade: 0.26 };
+if (INK) document.documentElement.classList.add('ink');
+const RAIN_TOP = -600;     // world y where drops start
+const LANE = 16;           // world px between strand lanes
+const TAIL = 18;           // samples per strand
+const TAIL_DT = 0.05;      // seconds between tail samples
 
 class RainRenderer {
   constructor(canvas, opts = {}) {
@@ -86,10 +101,12 @@ class RainRenderer {
     this.view = { x: 0, y: 0 };            // world coords of the screen's top-left
     this.floor = null;                     // world y where drops land (null = none)
     this.density = 1;
-    this.impulses = [];                    // wind / push fields (shared events)
-    this.ripples = [];                     // taps
-    this.flashes = [];                     // join flashes
-    this.bright = 0;                       // extra glow after a join
+    this.impulses = [];                    // drag / push fields (shared events)
+    this.ripples = [];                     // taps -> ink blooms
+    this.flashes = [];                     // joins -> orbit threads
+    this.river = null;                     // {cy, since, speed} while phones are joined
+    this.bright = 0;
+    this.fresh = true;
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -100,158 +117,275 @@ class RainRenderer {
     this.cv.height = Math.round(this.h * this.dpr);
     this.cv.style.width = this.w + 'px';
     this.cv.style.height = this.h + 'px';
+    this.fresh = true;
   }
   get worldW() { return this.w / this.scale; }
   get worldH() { return this.h / this.scale; }
 
   addImpulse(e) { this.impulses.push(e); if (this.impulses.length > 60) this.impulses.shift(); }
-  addRipple(e) { this.ripples.push(e); if (this.ripples.length > 40) this.ripples.shift(); }
+  addRipple(e) { this.ripples.push(e); if (this.ripples.length > 30) this.ripples.shift(); }
   addFlash(e) { this.flashes.push(e); }
 
-  /* displacement of a drop at world (x,y) from all live impulses */
+  /* displacement at world (x,y): drags push AND swirl strands around the finger */
   disp(x, y, T) {
     let dx = 0, dy = 0;
     for (const m of this.impulses) {
       const age = T - m.t;
-      if (age < 0 || age > 2.6) continue;
-      const env = age < 0.08 ? age / 0.08 : Math.exp(-(age - 0.08) * 1.7);
+      if (age < 0 || age > 3) continue;
+      const env = age < 0.1 ? age / 0.1 : Math.exp(-(age - 0.1) * 1.3);
       const ex = x - m.x, ey = y - m.y;
-      const d2 = ex * ex + ey * ey;
-      const r2 = m.r * m.r;
+      const d2 = ex * ex + ey * ey, r2 = m.r * m.r;
       if (d2 > r2 * 6) continue;
       const f = Math.exp(-d2 / r2) * env;
-      if (m.kind === 'radial') {
-        const d = Math.sqrt(d2) + 1;
-        dx += ex / d * m.s * f; dy += ey / d * m.s * f;
-      } else {
-        dx += m.dx * f; dy += m.dy * f;
+      const d = Math.sqrt(d2) + 1;
+      if (m.kind === 'radial') { dx += ex / d * m.s * f; dy += ey / d * m.s * f; }
+      else {
+        const mag = Math.hypot(m.dx, m.dy) || 1;
+        const turn = Math.sign(m.dx * ey - m.dy * ex) || 1;          // curl around the drag line
+        dx += (m.dx * 0.7 - ey / d * mag * 0.8 * turn) * f;
+        dy += (m.dy * 0.7 + ex / d * mag * 0.8 * turn) * f;
       }
     }
     return [dx, dy];
   }
 
+  _toScreen(x, y) { return [(x - this.view.x) * this.scale, (y - this.view.y) * this.scale]; }
+
   draw(T) {
     const c = this.ctx, s = this.scale, vx = this.view.x, vy = this.view.y;
-    const W = this.worldW, H = this.worldH;
+    const W = this.worldW, H = this.worldH, lw = Math.max(1, s * 0.75);
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     c.globalCompositeOperation = 'source-over';
-    const g = c.createLinearGradient(0, 0, 0, this.h);
-    g.addColorStop(0, '#02040a'); g.addColorStop(1, '#06101c');
-    c.fillStyle = g; c.fillRect(0, 0, this.w, this.h);
+    c.fillStyle = `rgba(${PAL.bg},${this.fresh ? 1 : PAL.fade})`;      // soft persistence = smoky trails
+    c.fillRect(0, 0, this.w, this.h);
+    this.fresh = false;
+    this.impulses = this.impulses.filter(m => T - m.t < 3);
+    this.bright = Math.max(0, this.bright - 0.01);
+    const boost = 1 + this.bright * 0.6;
 
-    this.impulses = this.impulses.filter(m => T - m.t < 2.6);
-    this.bright = Math.max(0, this.bright - 0.012);
-
-    c.globalCompositeOperation = 'lighter';
-    c.lineCap = 'round';
+    c.globalCompositeOperation = PAL.comp;
+    c.lineCap = 'round'; c.lineJoin = 'round';
     const floor = this.floor;
     const yMax = floor != null ? Math.min(vy + H, floor) : vy + H;
-    const splashes = [];
+    const buckets = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
+    const nodes = [], floorHits = [];
 
-    for (const L of LAYERS) {
-      const buckets = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];
-      const i0 = Math.floor(vx / L.sp) - 3, i1 = Math.ceil((vx + W) / L.sp) + 3;
-      for (let i = i0; i <= i1; i++) {
-        const h0 = hash(i + L.off + 1000003);
-        const x = i * L.sp + hash(i + L.off + 7) * L.sp * 0.8;
-        const speed = lerp(L.speed[0], L.speed[1], hash(i + L.off + 11));
-        const period = (0.45 + 1.7 * hash(i + L.off + 23)) / this.density;
-        const phase = hash(i + L.off + 31) * period;
-        const len = lerp(L.len[0], L.len[1], hash(i + L.off + 41));
-        const alpha = lerp(L.alpha[0], L.alpha[1], h0);
-        const b = Math.min(3, Math.floor(alpha / (L.alpha[1] + 0.001) * 4));
-        const lo = vy - 20, hi = yMax + len + 40;
-        let k1 = Math.floor((T - phase - (lo - RAIN_TOP) / speed) / period);
-        let k0 = Math.ceil((T - phase - (hi - RAIN_TOP) / speed) / period);
-        if (k1 - k0 > 24) k0 = k1 - 24;
-        for (let k = k0; k <= k1; k++) {
-          const yh = (T - (k * period + phase)) * speed + RAIN_TOP;
-          if (floor != null && yh > floor) {
-            const dt = (yh - floor) / speed;
-            if (dt < 0.4 && L.off) splashes.push([x, floor, dt, alpha, i * 31 + k]);
-            continue;
+    // ---- strands: noise-driven ink threads; when phones are joined they converge into a river
+    const river = this.river;                                       // {cy, since, speed} or null
+    const rho = river ? clamp((T - river.since) / 2.5, 0, 1) : 0;    // river fades in after a join
+    const grain = new Path2D();
+    const smooth = (path, pts) => {                                  // curve through midpoints
+      if (pts.length < 2) return;
+      path.moveTo(pts[0][0], pts[0][1]);
+      for (let q = 1; q < pts.length - 1; q++) {
+        const mx = (pts[q][0] + pts[q + 1][0]) / 2, my = (pts[q][1] + pts[q + 1][1]) / 2;
+        path.quadraticCurveTo(pts[q][0], pts[q][1], mx, my);
+      }
+      const e = pts[pts.length - 1]; path.lineTo(e[0], e[1]);
+    };
+
+    const i0 = Math.floor((vx - 160) / LANE), i1 = Math.ceil((vx + W + 160) / LANE);
+    const reach = river ? river.speed * 3.4 * rho : 0;               // river carries strands sideways
+    for (let i = i0 - Math.ceil(reach / LANE); i <= i1; i++) {
+      const x0 = i * LANE + hash(i + 5) * LANE;
+      const v = lerp(200, 430, hash(i + 11));
+      const P = (1.3 + 2.4 * hash(i + 23)) / this.density;
+      const ph = hash(i + 31) * P;
+      const A = lerp(30, 110, hash(i + 41)), f1 = lerp(0.25, 0.7, hash(i + 43));
+      const nb = 3 + Math.floor(hash(i + 61) * 4);
+      const lum = 0.25 + 0.75 * hash(i + 67) * hash(i + 67);
+      const lo = vy - 80, hi = (river ? Math.max(yMax, river.cy + v * 3.6) : yMax) + v * TAIL * TAIL_DT + 80;
+      const k1 = Math.floor((T - ph - (lo - RAIN_TOP) / v) / P);
+      let k0 = Math.ceil((T - ph - (hi - RAIN_TOP) / v) / P);
+      if (k1 - k0 > 18) k0 = k1 - 18;
+      for (let k = k0; k <= k1; k++) {
+        const age = T - (k * P + ph);
+        if (age < 0) continue;
+        const ks = i * 977 + k * 131;
+        const sx0 = hash(ks + 17) * 50;
+        // where this drop is at time aa (strand b, tail fraction fan)
+        const rainX = (aa, y, fan, b, ob, pb) =>
+          x0 + A * fbm(aa * f1 + sx0, i * 0.37) * Math.min(1, aa * 0.7)
+             + ob * (0.18 + 0.82 * Math.pow(fan, 1.5))
+             + (0.35 + fan) * 20 * vnoise(aa * 1.6 + pb, b * 3.1 + ks * 0.01)
+             + 12 * vnoise(y * 0.011 + b * 0.7 + pb, i * 0.29)
+             + 30 * vnoise(y * 0.0035 + i * 0.13, T * 0.12);
+        const joins = rho > 0 && hash(ks + 200) < 0.72;
+        const entryY = river ? river.cy - 60 + (hash(ks + 201) - 0.5) * 50 : 0;
+        const tEntry = (entryY - RAIN_TOP) / v;
+        const yh = RAIN_TOP + v * age;
+        let fadeOut = 0;
+        if (joins) { fadeOut = Math.max(0, (age - tEntry) - 2.6); if (fadeOut > 0.9) continue; }
+        if (floor != null && yh > floor && !(joins && rho > 0.5)) {
+          const hit = (yh - floor) / v;
+          if (hit < 1.6) floorHits.push([rainX((floor - RAIN_TOP) / v, floor, 0, 0, 0, 0), floor, hit, ks, lum]);
+          if (yh - v * TAIL * TAIL_DT > floor) continue;
+        }
+        let head = null;
+        for (let b = 0; b < nb; b++) {
+          const ob = (hash(ks + b) - 0.5) * 70, pb = hash(ks + b + 7) * 9;
+          let bucket = Math.min(3, Math.floor(lum * 4 * (0.6 + 0.4 * hash(ks + b + 3))));
+          if (fadeOut > 0) bucket = Math.max(0, bucket - 1 - Math.floor(fadeOut * 3));
+          const pts = [];
+          for (let n = 0; n < TAIL; n++) {
+            const aa = age - n * TAIL_DT;
+            if (aa < 0) break;
+            const fan = n / TAIL;
+            let y = RAIN_TOP + v * aa;
+            let x = rainX(aa, y, fan, b, ob, pb);
+            if (joins && aa > tEntry) {
+              // converge into the horizontal current and flow sideways across the screens
+              const tin = aa - tEntry, ramp = 1 - Math.exp(-tin * 2.2);
+              const xe = rainX(tEntry, entryY, fan, b, ob, pb);
+              const D = 80;                                       // turn radius-ish: keeps the curve soft
+              const rx = xe + river.speed * (tin - (1 - Math.exp(-tin / 0.55)) * 0.55)
+                       + 34 * vnoise(tin * 0.7 + pb, ks * 0.01) * ramp;
+              const spread = (hash(ks + b + 13) - 0.5) * 70 * ramp;
+              const ry = entryY + D * (1 - Math.exp(-tin * v / D)) + spread * 0.5
+                       + 22 * vnoise(rx * 0.006 + b * 1.7, T * 0.35 + ks * 0.003) * ramp;
+              x = lerp(x, rx, rho); y = lerp(y, ry, rho);
+            }
+            if (floor != null) y = Math.min(y, floor);
+            const [dx, dy] = this.disp(x, y, T);
+            pts.push([(x + dx - vx) * s, (y + dy - vy) * s]);
+            if (n === 0 && b === 0) head = [x + dx, y + dy];
+            if (n % 3 === 1 && hash(ks + b * 5 + n) < 0.5) {         // ink grain
+              const gx = pts[pts.length - 1][0] + (hash(ks + n * 7 + b) - 0.5) * 8 * s;
+              const gy = pts[pts.length - 1][1] + (hash(ks + n * 11 + b) - 0.5) * 8 * s;
+              grain.rect(gx, gy, lw * 0.8, lw * 0.8);
+            }
           }
-          const yt = yh - len;
-          const [hx, hy] = this.disp(x, yh, T);
-          const [tx, ty] = this.disp(x, yt, T);
-          buckets[b].moveTo((x + tx - vx) * s, (Math.min(yt + ty, floor ?? 1e9) - vy) * s);
-          buckets[b].lineTo((x + hx - vx) * s, (Math.min(yh + hy, floor ?? 1e9) - vy) * s);
+          smooth(buckets[bucket], pts);
+        }
+        if (head && hash(ks + 99) < 0.28 && fadeOut === 0 && head[1] > vy - 20 && head[1] < vy + H + 20 && head[1] < (floor ?? 1e9)) {
+          nodes.push([head[0], head[1], lum, hash(ks + 101) < 0.16]);
         }
       }
-      c.lineWidth = L.width * Math.max(1, s * 0.8);
-      for (let b = 0; b < 4; b++) {
-        const a = Math.min(1, ((b + 1) / 4) * L.alpha[1] * (1 + this.bright));
-        c.strokeStyle = `rgba(170,215,255,${a})`;
-        c.stroke(buckets[b]);
+    }
+    for (let b = 0; b < 4; b++) {
+      c.strokeStyle = `rgba(${PAL.ink},${Math.min(1, (0.045 + b * 0.055) * boost)})`;
+      c.lineWidth = lw * (0.55 + b * 0.18);
+      c.stroke(buckets[b]);
+    }
+    c.fillStyle = `rgba(${PAL.ink},0.18)`;
+    c.fill(grain);
+
+    // glowing heads; a few become stippled "orbit" spheres with a faint plumb line
+    for (const [x, y, lum, sphere] of nodes) {
+      const [sx, sy] = this._toScreen(x, y);
+      const g = c.createRadialGradient(sx, sy, 0, sx, sy, 9 * s);
+      g.addColorStop(0, `rgba(${PAL.ink},${0.35 * lum * boost})`); g.addColorStop(1, `rgba(${PAL.ink},0)`);
+      c.fillStyle = g; c.beginPath(); c.arc(sx, sy, 9 * s, 0, 6.283); c.fill();
+      c.fillStyle = `rgba(${PAL.ink},${0.9 * lum})`;
+      c.beginPath(); c.arc(sx, sy, 1.3 * lw, 0, 6.283); c.fill();
+      if (sphere) {
+        for (let q = 0; q < 26; q++) {
+          const th = hash(q * 7 + Math.floor(x)) * 6.283, ph2 = Math.acos(2 * hash(q * 11 + Math.floor(y)) - 1);
+          c.fillRect(sx + Math.cos(th) * Math.sin(ph2) * 6 * s, sy + Math.cos(ph2) * 6 * s, lw * 0.9, lw * 0.9);
+        }
+        if (floor != null) {
+          c.strokeStyle = `rgba(${PAL.ink},0.06)`; c.lineWidth = lw * 0.6;
+          c.beginPath(); c.moveTo(sx, sy + 7 * s); c.lineTo(sx, (floor - vy) * s); c.stroke();
+        }
       }
     }
 
-    // splashes where drops hit the floor
+    // where strands reach the floor they spread out like ink touching water
+    for (const [x, fy, age, seed, lum] of floorHits) {
+      this._bloom(c, x, fy, age, seed, { n: 9, life: 1.6, speed: [30, 110], flat: 0.22, sink: 0, alpha: 0.22 * lum, lw });
+    }
     if (floor != null && floor < vy + H + 40) {
-      c.strokeStyle = 'rgba(180,220,255,0.35)';
-      c.lineWidth = 1;
-      for (const [x, fy, dt, a] of splashes) {
-        const r = 4 + dt * 40;
-        c.globalAlpha = (1 - dt / 0.4) * a;
-        c.beginPath();
-        c.ellipse((x - vx) * s, (fy - vy) * s, r * s, r * 0.28 * s, 0, Math.PI, 2 * Math.PI);
-        c.stroke();
-      }
-      c.globalAlpha = 1;
-      const fg = c.createLinearGradient(0, (floor - vy) * s - 60, 0, (floor - vy) * s);
-      fg.addColorStop(0, 'rgba(90,150,220,0)');
-      fg.addColorStop(1, 'rgba(90,150,220,0.16)');
-      c.fillStyle = fg;
-      c.fillRect(0, (floor - vy) * s - 60, this.w, 60);
+      const fy = (floor - vy) * s;
+      const g = c.createLinearGradient(0, fy - 50, 0, fy);
+      g.addColorStop(0, `rgba(${PAL.ink},0)`); g.addColorStop(1, `rgba(${PAL.ink},0.05)`);
+      c.fillStyle = g; c.fillRect(0, fy - 50, this.w, 50);
     }
 
-    // ripples (taps)
-    this.ripples = this.ripples.filter(r => T - r.t < 2.2);
+    // taps: ink blooms
+    this.ripples = this.ripples.filter(r => T - r.t < 3.2);
     for (const r of this.ripples) {
-      const age = T - r.t;
-      if (age < 0) continue;
+      const age = T - r.t; if (age < 0) continue;
       const k = r.k || 1;
-      for (let j = 0; j < 3; j++) {
-        const a = age - j * 0.16;
-        if (a <= 0) continue;
-        const rad = a * 170 * k;
-        const al = Math.max(0, 1 - a / 1.9) * 0.55;
-        c.strokeStyle = `rgba(185,225,255,${al})`;
-        c.lineWidth = (1.6 - j * 0.4) * Math.max(1, s * 0.8);
-        c.beginPath();
-        c.arc((r.x - vx) * s, (r.y - vy) * s, rad * s, 0, Math.PI * 2);
-        c.stroke();
-      }
-      if (age < 0.9) {           // splash droplets
-        c.fillStyle = `rgba(210,235,255,${(1 - age / 0.9) * 0.9})`;
-        for (let n = 0; n < 12; n++) {
-          const ang = hash(r.seed + n * 3) * Math.PI * 2;
-          const sp = 90 + hash(r.seed + n * 3 + 1) * 220;
-          const px = r.x + Math.cos(ang) * sp * age;
-          const py = r.y + Math.sin(ang) * sp * age + 420 * age * age;
-          c.beginPath(); c.arc((px - vx) * s, (py - vy) * s, 1.6 * Math.max(1, s * 0.8), 0, Math.PI * 2); c.fill();
-        }
-      }
+      this._bloom(c, r.x, r.y, age, r.seed || 1, { n: 40, life: 3.2, speed: [60 * k, 260 * k], flat: 1, sink: 26, alpha: 0.42, lw, core: true });
     }
 
-    // join flashes: a soft curtain of light spreading from the seam
-    this.flashes = this.flashes.filter(f => T - f.t < 2.4);
+    // joins: a luminous orbit thread drawn across the connected screens
+    this.flashes = this.flashes.filter(f => T - f.t < 5);
     for (const f of this.flashes) {
-      const age = T - f.t;
-      if (age < 0) continue;
-      const spread = age * 520;
-      const al = Math.max(0, 1 - age / 2.4) * 0.35;
-      for (const dir of [-1, 1]) {
-        const x = (f.x + dir * spread - vx) * s;
-        const gr = c.createLinearGradient(x - 70 * s, 0, x + 70 * s, 0);
-        gr.addColorStop(0, 'rgba(120,190,255,0)');
-        gr.addColorStop(0.5, `rgba(150,210,255,${al})`);
-        gr.addColorStop(1, 'rgba(120,190,255,0)');
-        c.fillStyle = gr;
-        c.fillRect(x - 70 * s, 0, 140 * s, this.h);
-      }
+      const age = T - f.t; if (age < 0) continue;
+      this._orbit(c, f, age, lw);
     }
     c.globalCompositeOperation = 'source-over';
+  }
+
+  _bloom(c, x, y, age, seed, o) {
+    const fade = Math.pow(Math.max(0, 1 - age / o.life), 1.4);
+    if (fade <= 0) return;
+    const s = this.scale;
+    const path = new Path2D();
+    for (let j = 0; j < o.n; j++) {
+      const th = hash(seed + j * 5) * 6.283;
+      const sp = lerp(o.speed[0], o.speed[1], hash(seed + j * 5 + 1));
+      const curl = (hash(seed + j * 5 + 2) - 0.5) * 3.4;
+      const wob = hash(seed + j * 5 + 3) * 6.283;
+      for (let n = 0; n <= 10; n++) {
+        const u = age * n / 10;
+        const rad = sp * (1 - Math.exp(-2.4 * u)) / 2.4;
+        const ang = th + curl * u;
+        const w = Math.sin(u * 7 + wob) * 5 * u;
+        const px = x + Math.cos(ang) * rad - Math.sin(ang) * w;
+        const py = y + (Math.sin(ang) * rad + Math.cos(ang) * w) * o.flat + o.sink * u * u;
+        const sx = (px - this.view.x) * s, sy = (py - this.view.y) * s;
+        if (n === 0) path.moveTo(sx, sy); else path.lineTo(sx, sy);
+      }
+    }
+    c.strokeStyle = `rgba(${PAL.ink},${o.alpha * fade})`;
+    c.lineWidth = o.lw * 0.7;
+    c.stroke(path);
+    if (o.core) {
+      const [sx, sy] = this._toScreen(x, y);
+      const R = (24 + 40 * age) * s;
+      const g = c.createRadialGradient(sx, sy, 0, sx, sy, R);
+      g.addColorStop(0, `rgba(${PAL.ink},${0.5 * fade})`); g.addColorStop(0.35, `rgba(${PAL.ink},${0.16 * fade})`); g.addColorStop(1, `rgba(${PAL.ink},0)`);
+      c.fillStyle = g; c.beginPath(); c.arc(sx, sy, R, 0, 6.283); c.fill();
+    }
+  }
+
+  _orbit(c, f, age, lw) {
+    const reveal = Math.min(1, age / 1.4);
+    const fade = age < 1.4 ? 1 : Math.max(0, 1 - (age - 1.4) / 3.6);
+    const sd = Math.floor(f.x * 3 + f.y * 7);
+    const P = [
+      [f.x - 520, f.y + 240 + hash(sd) * 120], [f.x - 180, f.y - 340 - hash(sd + 1) * 100],
+      [f.x + 160, f.y + 320 + hash(sd + 2) * 100], [f.x + 540, f.y - 200 - hash(sd + 3) * 120],
+    ];
+    const pt = u => {
+      const a = 1 - u;
+      return [a * a * a * P[0][0] + 3 * a * a * u * P[1][0] + 3 * a * u * u * P[2][0] + u * u * u * P[3][0],
+              a * a * a * P[0][1] + 3 * a * a * u * P[1][1] + 3 * a * u * u * P[2][1] + u * u * u * P[3][1]];
+    };
+    const path = new Path2D();
+    const N = 80;
+    for (let n = 0; n <= N * reveal; n++) {
+      const [x, y] = this._toScreen(...pt(n / N));
+      if (n === 0) path.moveTo(x, y); else path.lineTo(x, y);
+    }
+    [[7, 0.06], [3, 0.18], [1.1, 0.95]].forEach(([w, a]) => {
+      c.strokeStyle = `rgba(${PAL.ink},${a * fade})`; c.lineWidth = w * lw; c.stroke(path);
+    });
+    for (const u of [0.18, 0.5, 0.82]) {
+      if (u > reveal) continue;
+      const [x, y] = this._toScreen(...pt(u));
+      c.fillStyle = `rgba(${PAL.ink},${0.85 * fade})`;
+      for (let q = 0; q < 40; q++) {
+        const th = hash(q * 13 + sd) * 6.283, ph = Math.acos(2 * hash(q * 17 + sd) - 1), r = 9 * this.scale;
+        c.fillRect(x + Math.cos(th) * Math.sin(ph) * r, y + Math.cos(ph) * r, lw, lw);
+      }
+    }
+    const [hx, hy] = this._toScreen(...pt(reveal));
+    const g = c.createRadialGradient(hx, hy, 0, hx, hy, 18 * lw);
+    g.addColorStop(0, `rgba(${PAL.ink},${0.9 * fade})`); g.addColorStop(1, `rgba(${PAL.ink},0)`);
+    c.fillStyle = g; c.beginPath(); c.arc(hx, hy, 18 * lw, 0, 6.283); c.fill();
   }
 }
 
@@ -416,28 +550,28 @@ class WorldMap {
     c.clearRect(0, 0, w, h);
     this._fit(w, h);
     c.beginPath(); this.path({ type: 'Sphere' });
-    c.strokeStyle = 'rgba(120,170,230,0.12)'; c.lineWidth = 1; c.stroke();
+    c.strokeStyle = `rgba(${PAL.ink},0.12)`; c.lineWidth = 1; c.stroke();
     if (this.land) {
       c.beginPath(); this.path(this.land);
-      c.fillStyle = 'rgba(40,80,130,0.16)'; c.fill();
-      c.strokeStyle = 'rgba(140,195,255,0.45)'; c.lineWidth = 0.7; c.stroke();
+      c.fillStyle = `rgba(${PAL.ink},0.035)`; c.fill();
+      c.strokeStyle = `rgba(${PAL.ink},0.42)`; c.lineWidth = 0.7; c.stroke();
     }
     if (!this.snap) return;
-    c.globalCompositeOperation = 'lighter';
+    c.globalCompositeOperation = PAL.comp;
     const scl = Math.max(0.6, w / 700);
     for (const [lat, lon, mm, code] of this.snap.pts) {
       const p = this.proj([lon, lat]); if (!p) continue;
       if (mm == null && code == null) continue;
       if (!isRaining(mm, code)) {
-        c.fillStyle = 'rgba(120,160,210,0.22)';
+        c.fillStyle = `rgba(${PAL.ink},0.22)`;
         c.fillRect(p[0] - 0.6, p[1] - 0.6, 1.2, 1.2);
         continue;
       }
       const inten = clamp(0.35 + Math.sqrt(mm || 0.2) / 2.2, 0.35, 1);
       const glow = c.createRadialGradient(p[0], p[1], 0, p[0], p[1], 16 * scl * inten);
-      glow.addColorStop(0, `rgba(120,190,255,${0.32 * inten})`); glow.addColorStop(1, 'rgba(120,190,255,0)');
+      glow.addColorStop(0, `rgba(${PAL.ink},${0.3 * inten})`); glow.addColorStop(1, `rgba(${PAL.ink},0)`);
       c.fillStyle = glow; c.beginPath(); c.arc(p[0], p[1], 16 * scl * inten, 0, Math.PI * 2); c.fill();
-      c.strokeStyle = `rgba(200,230,255,${0.75 * inten})`; c.lineWidth = 0.9;
+      c.strokeStyle = `rgba(${PAL.ink},${0.8 * inten})`; c.lineWidth = 0.9;
       const seed = Math.round((lat + 90) * 1000 + lon * 7);
       c.beginPath();
       for (let k = 0; k < 6; k++) {

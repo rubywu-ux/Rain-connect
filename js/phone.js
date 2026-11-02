@@ -30,9 +30,8 @@
 
   function hello() { net.pub('hub/in', { type: 'hello', id: ME, w: innerWidth, h: innerHeight }); ping(); }
   function ping() { net.pub('hub/in', { type: 'ping', id: ME, t0: Date.now() }); }
-  setInterval(() => net.pub('hub/in', { type: 'hb', id: ME, w: innerWidth, h: innerHeight }), 3000);
-  let pings = 0;
-  setInterval(() => { if (pings++ < 6 || pings % 5 === 0) ping(); }, 2500);
+  setInterval(() => net.pub('hub/in', { type: 'hb', id: ME, gid, n: members.length, w: innerWidth, h: innerHeight }), 3000);
+  setInterval(ping, 4000);
 
   function onMsg(topic, m) {
     if (topic === 'c/' + ME) {
@@ -66,6 +65,11 @@
     const me = mine();
     R.view.x = me.ox; R.view.y = me.oy;
     R.floor = Math.max(...members.map(p => p.oy + p.h));
+    // joined phones share one horizontal river through the middle of the group
+    R.river = members.length > 1 ? {
+      cy: members.reduce((a, p) => a + p.oy + p.h / 2, 0) / members.length,
+      since: m.since ? (m.since - EPOCH) / 1000 : T(), speed: 150,
+    } : null;
     const n = members.length;
     $('pill').textContent = n > 1 ? `${n} phones · one rain` : 'alone in the rain';
     $('pill').classList.toggle('lit', n > 1);
@@ -158,10 +162,9 @@
       S.plip(x / innerWidth, 0.35);
     } else {
       const side = edgeOf(x, y);
-      const q = drag.pts[0], dt = Math.max(1, performance.now() - q[2]);
-      const vx = (x - q[0]) / dt, vy = (y - q[1]) / dt;
-      const toward = { left: -vx, right: vx, top: -vy, bottom: vy }[side];
-      if (side && toward > 0.15)
+      // finger left the screen through an edge after travelling toward it
+      const toward = { left: drag.x0 - x, right: x - drag.x0, top: drag.y0 - y, bottom: y - drag.y0 }[side];
+      if (side && toward > 40)
         net.pub('hub/in', { type: 'exit', id: ME, side, pos: side === 'left' || side === 'right' ? y : x });
     }
     drag = null;
@@ -177,7 +180,7 @@
   /* ---------------- render loop */
   function frame() {
     const t = T();
-    if (!hubSeen || Date.now() - hubSeen > 12000) {           // no wall/hub: solo rain
+    if (!hubSeen || Date.now() - hubSeen > 15000) {           // no wall/hub: solo rain
       if (members.length > 1 || gid !== ME) applyGroup({ gid: ME, members: [{ id: ME, ox: 0, oy: 0, w: innerWidth, h: innerHeight, num: 1 }] });
       R.floor = innerHeight;
     }

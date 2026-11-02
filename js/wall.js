@@ -13,12 +13,13 @@
   const phoneUrl = new URL('./', location.href);
   if (RC.base.split('/').pop() !== 'gallery') phoneUrl.searchParams.set('room', RC.base.split('/').pop());
   new URLSearchParams(location.search).get('broker') && phoneUrl.searchParams.set('broker', RC.broker);
+  if (INK) phoneUrl.searchParams.set('ink', '');
   try {
     const qr = qrcode(0, 'M'); qr.addData(phoneUrl.href); qr.make();
     $('qr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
     const svg = $('qr').querySelector('svg');
-    svg.querySelectorAll('rect').forEach(r => r.setAttribute('fill', '#02040a'));
-    svg.querySelectorAll('path').forEach(p => p.setAttribute('fill', '#e8f2ff'));
+    svg.querySelectorAll('rect').forEach(r => r.setAttribute('fill', `rgb(${PAL.bg})`));
+    svg.querySelectorAll('path').forEach(p => p.setAttribute('fill', `rgb(${PAL.ink})`));
   } catch (e) { $('qr').textContent = phoneUrl.href; }
 
   /* ---------------- hub state */
@@ -27,6 +28,7 @@
   let nextNum = 1;
   const exits = [];            // recent edge exits {id, side, pos, at}
   const anchors = new Map();   // gid -> wall position for echoes
+  const since = new Map();     // gid -> when it first had 2+ phones (river start)
 
   const net = new Net(onMsg, st => {
     $('netdot').classList.toggle('ok', st === 'online');
@@ -39,7 +41,9 @@
   const groupMembers = g => [...clients.values()].filter(c => c.gid === g);
   function sendAssign(g, extra = {}) {
     const mem = groupMembers(g).map(c => ({ id: c.id, ox: c.ox, oy: c.oy, w: c.w, h: c.h, num: c.num }));
-    for (const c of groupMembers(g)) net.pub('c/' + c.id, { type: 'assign', gid: g, members: mem, ...extra });
+    if (mem.length > 1 && !since.has(g)) since.set(g, Date.now());
+    if (mem.length < 2) since.delete(g);
+    for (const c of groupMembers(g)) net.pub('c/' + c.id, { type: 'assign', gid: g, members: mem, since: since.get(g), ...extra });
   }
   function stats() {
     const gs = new Set([...clients.values()].map(c => c.gid));
@@ -68,6 +72,8 @@
     if (!c) return;
     c.seen = Date.now();
     if (m.type === 'hello') sendAssign(c.gid);
+    // phone's picture of its group drifted (lost message, wall restarted): resend it
+    if (m.type === 'hb' && (m.gid !== c.gid || m.n !== groupMembers(c.gid).length)) sendAssign(c.gid);
     if ((m.type === 'hb' || m.type === 'hello') && m.w && (m.w !== c.w || m.h !== c.h)) { c.w = m.w; c.h = m.h; sendAssign(c.gid); }
     if (m.type === 'exit' || m.type === 'enter') swipe(m);
   }
@@ -78,6 +84,7 @@
   const OPP = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' };
   function swipe(m) {
     const now = Date.now();
+    if (RC.debug) console.log('swipe', m.type, m.id, m.side, Math.round(m.pos), now % 100000, JSON.stringify(exits.map(e => [e.kind, e.id, e.side, now - e.at])));
     while (exits.length && now - exits[0].at > 2500) exits.shift();
     let best = null;
     for (const o of exits) {

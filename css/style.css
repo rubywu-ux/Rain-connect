@@ -1,8 +1,10 @@
 :root {
-  --ink: #e8f2ff;
-  --dim: rgba(200, 225, 255, 0.55);
-  --faint: rgba(200, 225, 255, 0.3);
-  --bg: #02040a;
+  --rgb: 236, 237, 240;
+  --bgrgb: 4, 4, 5;
+  --ink: #eeeef1;
+  --dim: rgba(var(--rgb), 0.55);
+  --faint: rgba(var(--rgb), 0.32);
+  --bg: #040405;
   --serif: 'Cormorant Garamond', 'Times New Roman', serif;
   --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
 }
@@ -20,7 +22,7 @@ canvas#rain { position: fixed; inset: 0; touch-action: none; display: block; }
 /* ---------- world (map) view */
 .world {
   position: fixed; inset: 0; z-index: 5;
-  background: radial-gradient(120% 80% at 50% 45%, #071226 0%, #02040a 70%);
+  background: radial-gradient(120% 80% at 50% 45%, rgba(var(--rgb), .06) 0%, var(--bg) 70%);
   display: flex; flex-direction: column; justify-content: space-between;
   padding: calc(env(safe-area-inset-top) + 28px) 24px calc(env(safe-area-inset-bottom) + 28px);
   transition: opacity .9s ease;
@@ -31,7 +33,7 @@ canvas#rain { position: fixed; inset: 0; touch-action: none; display: block; }
 .world h1 {
   font-family: var(--serif); font-weight: 300; font-size: clamp(84px, 30vw, 150px);
   line-height: .9; margin-top: 14px; letter-spacing: -0.02em;
-  text-shadow: 0 0 40px rgba(120, 190, 255, .35);
+  text-shadow: 0 0 40px rgba(var(--rgb), .35);
 }
 .pct-sign { font-size: .45em; margin-left: .06em; color: var(--dim); }
 .lede { font-family: var(--serif); font-style: italic; font-size: 26px; margin-top: 4px; }
@@ -39,11 +41,11 @@ canvas#rain { position: fixed; inset: 0; touch-action: none; display: block; }
 .world-foot { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
 .btn {
   font: inherit; font-size: 13px; letter-spacing: .2em; text-transform: uppercase; color: var(--ink);
-  background: rgba(120, 180, 255, .08); border: 1px solid rgba(170, 215, 255, .45);
+  background: rgba(var(--rgb), .08); border: 1px solid rgba(var(--rgb), .45);
   padding: 16px 26px; border-radius: 999px; cursor: pointer;
-  box-shadow: 0 0 30px rgba(110, 180, 255, .18) inset, 0 0 24px rgba(110, 180, 255, .15);
+  box-shadow: 0 0 30px rgba(var(--rgb), .18) inset, 0 0 24px rgba(var(--rgb), .15);
 }
-.btn:active { background: rgba(120, 180, 255, .2); }
+.btn:active { background: rgba(var(--rgb), .2); }
 
 /* ---------- rain view HUD */
 .hud {
@@ -54,14 +56,14 @@ canvas#rain { position: fixed; inset: 0; touch-action: none; display: block; }
 }
 .pill {
   font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
-  padding: 7px 12px; border: 1px solid rgba(170, 215, 255, .2); border-radius: 999px;
-  background: rgba(2, 4, 10, .45); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  padding: 7px 12px; border: 1px solid rgba(var(--rgb), .2); border-radius: 999px;
+  background: rgba(var(--bgrgb), .45); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   transition: color .4s, border-color .4s;
 }
-.pill.lit { color: var(--ink); border-color: rgba(170, 215, 255, .6); }
+.pill.lit { color: var(--ink); border-color: rgba(var(--rgb), .6); }
 .icon-btn {
   pointer-events: auto; font-size: 20px; line-height: 1; color: var(--ink); width: 40px; height: 40px;
-  border-radius: 50%; border: 1px solid rgba(170, 215, 255, .3); background: rgba(2, 4, 10, .45);
+  border-radius: 50%; border: 1px solid rgba(var(--rgb), .3); background: rgba(var(--bgrgb), .45);
 }
 .hint {
   position: fixed; z-index: 4; left: 0; right: 0; text-align: center;
@@ -75,17 +77,17 @@ body.wall { cursor: none; }
 .wall-title {
   position: fixed; left: 4vw; top: 4.5vh; z-index: 4;
   font-family: var(--serif); font-weight: 300; font-size: 4.2vw; letter-spacing: .01em;
-  text-shadow: 0 0 30px rgba(120, 190, 255, .3);
+  text-shadow: 0 0 30px rgba(var(--rgb), .3);
 }
 .wall-title small { display: block; font-family: var(--mono); font-size: .9vw; letter-spacing: .3em; text-transform: uppercase; color: var(--dim); margin-top: .8vh; }
 .wall-stats { position: fixed; left: 4vw; bottom: 5vh; z-index: 4; }
-.wall-stats .big { font-family: var(--serif); font-size: 7vw; line-height: .9; font-weight: 300; text-shadow: 0 0 36px rgba(120, 190, 255, .35); }
+.wall-stats .big { font-family: var(--serif); font-size: 7vw; line-height: .9; font-weight: 300; text-shadow: 0 0 36px rgba(var(--rgb), .35); }
 .wall-stats .big span { font-size: .45em; color: var(--dim); }
 .wall-stats .lede { font-size: 1.9vw; }
 .wall-stats .meta { font-size: .85vw; }
 .wall-qr {
   position: fixed; right: 4vw; bottom: 5vh; z-index: 4; text-align: center;
-  padding: 1.2vw; border: 1px solid rgba(170, 215, 255, .25); border-radius: 1vw; background: rgba(2, 4, 10, .55);
+  padding: 1.2vw; border: 1px solid rgba(var(--rgb), .25); border-radius: 1vw; background: rgba(var(--bgrgb), .55);
 }
 .wall-qr svg { width: 10vw; height: 10vw; display: block; }
 .wall-qr p { font-size: .8vw; letter-spacing: .2em; text-transform: uppercase; color: var(--dim); margin-top: .8vw; }
@@ -94,9 +96,15 @@ body.wall { cursor: none; }
 .wall-map canvas { position: absolute; left: 6vw; top: 14vh; width: 88vw; height: 66vh; }
 .start {
   position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; text-align: center;
-  background: rgba(2, 4, 10, .78); cursor: pointer;
+  background: rgba(var(--bgrgb), .78); cursor: pointer;
 }
 .start p { font-family: var(--serif); font-style: italic; font-size: 2.4vw; }
 .start small { display: block; font-family: var(--mono); font-size: .9vw; color: var(--dim); margin-top: 1.2vh; letter-spacing: .1em; }
 .netdot { position: fixed; right: 1.2vw; top: 1.2vw; width: 8px; height: 8px; border-radius: 50%; background: #c55; z-index: 6; opacity: .7; }
 .netdot.ok { background: #5c8; }
+
+/* black ink on white paper (?ink) */
+html.ink { --rgb: 14, 14, 16; --bgrgb: 244, 243, 240; --ink: #0e0e10; --bg: #f4f3f0; }
+html.ink .world h1, html.ink .wall-title, html.ink .wall-stats .big { text-shadow: none; }
+.vignette { position: fixed; inset: 0; z-index: 2; pointer-events: none;
+  background: radial-gradient(130% 100% at 50% 45%, transparent 55%, rgba(var(--bgrgb), .55) 100%); }
