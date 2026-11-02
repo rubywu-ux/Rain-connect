@@ -88,6 +88,11 @@ const PAL = INK
   ? { bg: '244,243,240', ink: '12,12,14', comp: 'source-over', fade: 0.24 }
   : { bg: '4,4,5', ink: '236,237,240', comp: 'lighter', fade: 0.26 };
 if (INK) document.documentElement.classList.add('ink');
+/* one colour per phone (strands stay black & white; a person's touches carry their colour) */
+const COLORS = INK
+  ? ['214,74,58', '196,132,20', '30,150,110', '40,110,200', '130,80,200', '200,70,140', '90,150,30', '20,140,160']
+  : ['255,122,107', '255,198,96', '112,228,182', '110,182,255', '198,152,255', '255,140,200', '170,232,100', '96,222,232'];
+function colorOf(i) { return i == null ? PAL.ink : COLORS[((i % COLORS.length) + COLORS.length) % COLORS.length]; }
 const RAIN_TOP = -600;     // world y where drops start
 const LANE = 16;           // world px between strand lanes
 const TAIL = 18;           // samples per strand
@@ -105,6 +110,7 @@ class RainRenderer {
     this.ripples = [];                     // taps -> ink blooms
     this.flashes = [];                     // joins -> orbit threads
     this.river = null;                     // {cy, since, speed} while phones are joined
+    this.trails = [];                      // coloured glints along drags
     this.bright = 0;
     this.fresh = true;
     this.resize();
@@ -125,6 +131,7 @@ class RainRenderer {
   addImpulse(e) { this.impulses.push(e); if (this.impulses.length > 60) this.impulses.shift(); }
   addRipple(e) { this.ripples.push(e); if (this.ripples.length > 30) this.ripples.shift(); }
   addFlash(e) { this.flashes.push(e); }
+  addTrail(e) { this.trails.push(e); if (this.trails.length > 160) this.trails.shift(); }
 
   /* displacement at world (x,y): drags push AND swirl strands around the finger */
   disp(x, y, T) {
@@ -306,7 +313,20 @@ class RainRenderer {
     for (const r of this.ripples) {
       const age = T - r.t; if (age < 0) continue;
       const k = r.k || 1;
-      this._bloom(c, r.x, r.y, age, r.seed || 1, { n: 40, life: 3.2, speed: [60 * k, 260 * k], flat: 1, sink: 26, alpha: 0.42, lw, core: true });
+      this._bloom(c, r.x, r.y, age, r.seed || 1, { n: r.echo ? 26 : 40, life: 3.2, speed: [60 * k, 260 * k], flat: 1, sink: 26,
+        alpha: r.echo ? 0.3 : 0.42, lw, core: true, col: colorOf(r.c) });
+    }
+
+    // drags leave a fading trail of glints in the dragger's colour
+    this.trails = this.trails.filter(d => T - d.t < 1.6);
+    for (const d of this.trails) {
+      const age = T - d.t; if (age < 0) continue;
+      const [sx, sy] = this._toScreen(d.x, d.y);
+      if (sx < -40 || sy < -40 || sx > this.w + 40 || sy > this.h + 40) continue;
+      const a = Math.pow(1 - age / 1.6, 1.5), rr = (5 + age * 10) * s;
+      const g = c.createRadialGradient(sx, sy, 0, sx, sy, rr);
+      g.addColorStop(0, `rgba(${colorOf(d.c)},${0.55 * a})`); g.addColorStop(1, `rgba(${colorOf(d.c)},0)`);
+      c.fillStyle = g; c.beginPath(); c.arc(sx, sy, rr, 0, 6.283); c.fill();
     }
 
     // joins: a luminous orbit thread drawn across the connected screens
@@ -339,19 +359,21 @@ class RainRenderer {
         if (n === 0) path.moveTo(sx, sy); else path.lineTo(sx, sy);
       }
     }
-    c.strokeStyle = `rgba(${PAL.ink},${o.alpha * fade})`;
+    const col = o.col || PAL.ink;
+    c.strokeStyle = `rgba(${col},${o.alpha * fade})`;
     c.lineWidth = o.lw * 0.7;
     c.stroke(path);
     if (o.core) {
       const [sx, sy] = this._toScreen(x, y);
       const R = (24 + 40 * age) * s;
       const g = c.createRadialGradient(sx, sy, 0, sx, sy, R);
-      g.addColorStop(0, `rgba(${PAL.ink},${0.5 * fade})`); g.addColorStop(0.35, `rgba(${PAL.ink},${0.16 * fade})`); g.addColorStop(1, `rgba(${PAL.ink},0)`);
+      g.addColorStop(0, `rgba(${col},${0.5 * fade})`); g.addColorStop(0.35, `rgba(${col},${0.16 * fade})`); g.addColorStop(1, `rgba(${col},0)`);
       c.fillStyle = g; c.beginPath(); c.arc(sx, sy, R, 0, 6.283); c.fill();
     }
   }
 
   _orbit(c, f, age, lw) {
+    const col = colorOf(f.c);
     const reveal = Math.min(1, age / 1.4);
     const fade = age < 1.4 ? 1 : Math.max(0, 1 - (age - 1.4) / 3.6);
     const sd = Math.floor(f.x * 3 + f.y * 7);
@@ -371,12 +393,12 @@ class RainRenderer {
       if (n === 0) path.moveTo(x, y); else path.lineTo(x, y);
     }
     [[7, 0.06], [3, 0.18], [1.1, 0.95]].forEach(([w, a]) => {
-      c.strokeStyle = `rgba(${PAL.ink},${a * fade})`; c.lineWidth = w * lw; c.stroke(path);
+      c.strokeStyle = `rgba(${col},${a * fade})`; c.lineWidth = w * lw; c.stroke(path);
     });
     for (const u of [0.18, 0.5, 0.82]) {
       if (u > reveal) continue;
       const [x, y] = this._toScreen(...pt(u));
-      c.fillStyle = `rgba(${PAL.ink},${0.85 * fade})`;
+      c.fillStyle = `rgba(${col},${0.85 * fade})`;
       for (let q = 0; q < 40; q++) {
         const th = hash(q * 13 + sd) * 6.283, ph = Math.acos(2 * hash(q * 17 + sd) - 1), r = 9 * this.scale;
         c.fillRect(x + Math.cos(th) * Math.sin(ph) * r, y + Math.cos(ph) * r, lw, lw);
@@ -384,10 +406,28 @@ class RainRenderer {
     }
     const [hx, hy] = this._toScreen(...pt(reveal));
     const g = c.createRadialGradient(hx, hy, 0, hx, hy, 18 * lw);
-    g.addColorStop(0, `rgba(${PAL.ink},${0.9 * fade})`); g.addColorStop(1, `rgba(${PAL.ink},0)`);
+    g.addColorStop(0, `rgba(${col},${0.9 * fade})`); g.addColorStop(1, `rgba(${col},0)`);
     c.fillStyle = g; c.beginPath(); c.arc(hx, hy, 18 * lw, 0, 6.283); c.fill();
   }
 }
+
+/* ------------------------------------------------------------------ shared music */
+const MUSIC = {
+  chordSecs: 8,                    // chord changes every 8 s, the same on every phone
+  pulse: 60 / 84 / 2,              // notes land on a soft 84 bpm eighth-note pulse
+  // Dmaj9 -> Bm9 -> Gmaj9 -> A6sus: all within D major, so every voice blends
+  chords: [[62, 66, 69, 73, 76], [59, 62, 66, 69, 73], [55, 59, 62, 66, 69], [57, 62, 64, 66, 69]],
+  voices: [   // one per colour: coral, amber, mint, sky, lilac, pink, lime, cyan
+    { name: 'bell',       reg: 12,  gain: 0.8, attack: 0.004, partials: [[1, 1, 2.6], [2.76, 0.25, 0.9], [5.4, 0.1, 0.3]] },
+    { name: 'marimba',    reg: 0,   gain: 1.0, attack: 0.003, partials: [[1, 1, 1.0], [4, 0.3, 0.12], [10, 0.08, 0.04]] },
+    { name: 'glass',      reg: 12,  gain: 0.7, attack: 0.09,  partials: [[1, 1, 2.8], [2, 0.18, 1.6]] },
+    { name: 'kalimba',    reg: 0,   gain: 0.9, attack: 0.003, partials: [[1, 1, 1.5], [5.4, 0.22, 0.07], [2, 0.12, 0.5]] },
+    { name: 'felt piano', reg: -12, gain: 1.1, attack: 0.012, partials: [[1, 1, 2.2], [2, 0.35, 1.2], [3, 0.12, 0.6]], wave: 'triangle', lp: 1100 },
+    { name: 'music box',  reg: 24,  gain: 0.55, attack: 0.002, partials: [[1, 1, 1.3], [3, 0.2, 0.4], [6.2, 0.06, 0.12]] },
+    { name: 'soft flute', reg: 12,  gain: 0.6, attack: 0.07,  partials: [[1, 1, 1.4], [2, 0.12, 0.9]], breath: 0.05 },
+    { name: 'vibraphone', reg: 0,   gain: 0.8, attack: 0.004, partials: [[1, 1, 2.8], [4, 0.18, 0.5]], trem: 5.2 },
+  ],
+};
 
 /* ------------------------------------------------------------------ sound (Web Audio, no files) */
 class RainSound {
@@ -454,6 +494,87 @@ class RainSound {
     else { g.connect(this.master); }
     o.start(t); o.stop(t + 0.12);
   }
+
+  /* ---------------- the shared music: one instrument per colour, one chord for everyone ----------------
+     All phones share the same clock, so they agree on the current chord and on the beat.
+     Every note anyone plays is a tone of the current chord, placed on the next soft pulse. */
+  static chordAt(T) { return MUSIC.chords[Math.floor(T / MUSIC.chordSecs) % MUSIC.chords.length]; }
+  static nextPulse(T) { const g = MUSIC.pulse; return Math.ceil(T / g + 0.001) * g; }
+
+  /* note for voice ci at position u (0..1 left->right), at shared time T */
+  static noteFor(ci, u, T) {
+    const v = MUSIC.voices[((ci || 0) % MUSIC.voices.length + MUSIC.voices.length) % MUSIC.voices.length];
+    const ch = RainSound.chordAt(T);
+    const idx = clamp(Math.floor(u * (ch.length + 2)), 0, ch.length + 1);
+    return ch[idx % ch.length] + 12 * Math.floor(idx / ch.length) + v.reg;
+  }
+
+  /* play voice ci (a colour) at shared time Tplay; nowT = shared time right now */
+  voice(ci, midi, Tplay, nowT, vol = 0.2, pan = 0.5) {
+    const a = this.ctx; if (!a || a.state === 'closed') return;
+    const now = a.currentTime, t = now + Math.max(0, Tplay - nowT);
+    this._recent = (this._recent || []).filter(x => Tplay - x < 1);
+    if (this._recent.length > 8) return;                     // keep it gentle: at most ~8 notes a second
+    this._recent.push(Tplay);
+    const v = MUSIC.voices[((ci || 0) % MUSIC.voices.length + MUSIC.voices.length) % MUSIC.voices.length];
+    const f = 440 * Math.pow(2, (midi - 69) / 12);
+    const out = a.createGain(); out.gain.value = vol * v.gain;
+    let dest = out;
+    if (a.createStereoPanner) { const p = a.createStereoPanner(); p.pan.value = clamp(pan * 2 - 1, -1, 1) * 0.7; out.connect(p); dest = p; }
+    dest.connect(this.master); dest.connect(this.wet);
+    let pre = out;
+    if (v.lp) { const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = v.lp; lp.connect(out); pre = lp; }
+    let end = t;
+    for (const [m, amp, dec] of v.partials) {
+      const o = a.createOscillator(), g = a.createGain();
+      o.type = v.wave || 'sine';
+      o.frequency.value = f * m;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(amp, t + v.attack);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + v.attack + dec);
+      if (v.trem) {                                             // vibraphone shimmer
+        const l = a.createOscillator(), lg = a.createGain();
+        l.frequency.value = v.trem; lg.gain.value = amp * 0.35; l.connect(lg); lg.connect(g.gain);
+        l.start(t); l.stop(t + v.attack + dec + 0.1);
+      }
+      o.connect(g); g.connect(pre);
+      o.start(t); o.stop(t + v.attack + dec + 0.1);
+      end = Math.max(end, t + v.attack + dec);
+    }
+    if (v.breath) {                                             // flute breath
+      const n = a.createBufferSource(), b = a.createBuffer(1, a.sampleRate * 0.4, a.sampleRate), d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (a.sampleRate * 0.12));
+      const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * 2; bp.Q.value = 2;
+      const g = a.createGain(); g.gain.value = v.breath;
+      n.buffer = b; n.connect(bp); bp.connect(g); g.connect(pre); n.start(t);
+    }
+  }
+
+  /* a very quiet pad holding the current chord's root and fifth, so everything sits on one harmony */
+  startPad(getT) {
+    const a = this.ctx; if (!a || this.pad) return;
+    const g = a.createGain(); g.gain.value = 0.0001;
+    const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 620;
+    lp.connect(g); g.connect(this.master); g.connect(this.wet);
+    const oscs = [0, 7, 12].map((iv, k) => {
+      const o = a.createOscillator(); o.type = 'triangle'; o.detune.value = (k - 1) * 6;
+      const og = a.createGain(); og.gain.value = k === 1 ? 0.5 : 0.7; o.connect(og); og.connect(lp); o.start();
+      return [o, iv];
+    });
+    this.pad = { g, oscs, chord: -1 };
+    g.gain.setTargetAtTime(0.05, a.currentTime, 3);
+    const tick = () => {
+      const T = getT(), ci = Math.floor(T / MUSIC.chordSecs);
+      if (ci !== this.pad.chord) {
+        this.pad.chord = ci;
+        const root = RainSound.chordAt(T)[0] - 24;
+        for (const [o, iv] of oscs) o.frequency.setTargetAtTime(440 * Math.pow(2, (root + iv - 69) / 12), a.currentTime, 0.8);
+      }
+      setTimeout(tick, 250);
+    };
+    tick();
+  }
+
   /* glassy bell for a phone joining */
   chime(note = 0, when = 0, vol = 0.32) {
     const a = this.ctx; if (!a) return;

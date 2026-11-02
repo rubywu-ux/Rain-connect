@@ -13,6 +13,14 @@
   let gid = ME;
   let members = [{ id: ME, ox: 0, oy: 0, w: innerWidth, h: innerHeight, num: 1 }];
   let entered = false;
+  let myColor = Math.floor(hash(parseInt(ME, 36) | 0) * 8);   // until the wall assigns one
+  /* everyone's notes: their own instrument, the shared chord, on the shared pulse; softer in bigger groups */
+  function play(ci, u, tEvent, level) {
+    const now = T(), at = RainSound.nextPulse(Math.max(tEvent || now, now - 0.05));
+    const vol = 0.32 * level / Math.sqrt(Math.max(1, members.length));
+    S.voice(ci, RainSound.noteFor(ci, clamp(u, 0, 1), at), at, now, vol, clamp(u, 0, 1));
+  }
+  let lastDragNote = 0;
   let snap = null;
 
   const hubNow = () => Date.now() + clockOff;
@@ -44,12 +52,15 @@
       }
     } else if (topic === 'g/' + gid) {
       if (m.from === ME) return;
-      if (m.type === 'wind') R.addImpulse(m);
+      if (m.type === 'wind') { R.addImpulse(m); R.addTrail({ x: m.x, y: m.y, t: m.t, c: m.c }); if (m.note && entered) play(m.c, m.u, m.t, 0.25); }
       if (m.type === 'tap') {
         R.addRipple(m); R.addImpulse({ kind: 'radial', x: m.x, y: m.y, s: 70, r: 120, t: m.t });
         const v = R.view;
-        if (entered && m.x > v.x - 60 && m.x < v.x + R.worldW + 60 && m.y > v.y - 60 && m.y < v.y + R.worldH + 60)
-          S.plip(clamp((m.x - v.x) / R.worldW, 0, 1), 0.3);
+        const inView = m.x > v.x - 60 && m.x < v.x + R.worldW + 60 && m.y > v.y - 60 && m.y < v.y + R.worldH + 60;
+        // a tap on someone else's screen also echoes here, at the same spot, in their colour
+        if (!inView && m.u != null)
+          R.addRipple({ x: v.x + m.u * R.worldW, y: v.y + m.v * R.worldH, t: m.t, seed: m.seed + 7, c: m.c, k: 0.6, echo: true });
+        if (entered) play(m.c, m.u != null ? m.u : 0.5, m.t, inView ? 0.55 : 0.3);
       }
     } else if (topic === 'rainnow') {
       setSnap(m);
@@ -71,15 +82,20 @@
       since: m.since ? (m.since - EPOCH) / 1000 : T(), speed: 150,
     } : null;
     const n = members.length;
-    $('pill').textContent = n > 1 ? `${n} phones · one rain` : 'alone in the rain';
+    myColor = me.color != null ? me.color : myColor;
+    document.documentElement.style.setProperty('--me', colorOf(myColor));
+    const dots = [...members].sort((a, b) => a.ox - b.ox || a.oy - b.oy)
+      .map(p => `<i class="dot${p.id === ME ? ' me' : ''}" style="--c:${colorOf(p.color)}"></i>`).join('');
+    $('pill').innerHTML = dots + (n > 1 ? `${n} phones · one rain` : 'alone in the rain');
     $('pill').classList.toggle('lit', n > 1);
     if (n > before && m.seam) {
       // someone joined: light sweeps from the seam; every phone rings its own note, left to right
-      R.addFlash({ x: m.seam.x, y: m.seam.y, t: T() });
+      const jm = members.find(p => p.id === m.joined);
+      R.addFlash({ x: m.seam.x, y: m.seam.y, t: T(), c: jm ? jm.color : null });
       R.bright = 1.4;
       const minX = Math.min(...members.map(p => p.ox));
       const order = [...members].sort((a, b) => a.ox - b.ox || a.oy - b.oy).findIndex(p => p.id === ME);
-      if (entered) S.chime(order + Math.floor(Math.random() * 2), (me.ox - minX) / 1400);
+      if (entered) { const now = T(); play(myColor, (order + 0.5) / members.length, now + (me.ox - minX) / 1400, 0.9); }
       if (navigator.vibrate) navigator.vibrate(30);
     }
   }
@@ -110,7 +126,8 @@
     if (!entered) {
       $('hint').classList.remove('hidden');
       setTimeout(() => $('hint').classList.add('hidden'), 9000);
-      S.chime(0, 0.2, 0.22);
+      S.startPad(T);
+      play(myColor, 0.4, T() + 0.3, 0.8);
       try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
     }
     entered = true;
@@ -146,8 +163,10 @@
       lastSend = now;
       const q = drag.pts[0], len = Math.hypot(e.clientX - q[0], e.clientY - q[1]) || 1;
       const w = toWorld(e.clientX, e.clientY);
-      const ev = { type: 'wind', from: ME, x: w.x, y: w.y, dx: (e.clientX - q[0]) / len * 55, dy: (e.clientY - q[1]) / len * 55, r: 90, t: T() };
-      R.addImpulse(ev); net.pub('g/' + gid, ev);
+      const ev = { type: 'wind', from: ME, c: myColor, x: w.x, y: w.y, dx: (e.clientX - q[0]) / len * 55, dy: (e.clientY - q[1]) / len * 55, r: 90, t: T(),
+                   u: +(e.clientX / innerWidth).toFixed(3) };
+      if (now - lastDragNote > 340) { lastDragNote = now; ev.note = 1; play(myColor, ev.u, ev.t, 0.5); }
+      R.addImpulse(ev); R.addTrail({ x: w.x, y: w.y, t: ev.t, c: myColor }); net.pub('g/' + gid, ev);
     }
   });
   function end(e) {
@@ -156,10 +175,12 @@
     const x = e.clientX, y = e.clientY;
     if (drag.moved < 10 && dur < 350) {
       const w = toWorld(x, y);
-      const ev = { type: 'tap', from: ME, x: w.x, y: w.y, seed: Math.floor(Math.random() * 1e6), t: T() };
+      const ev = { type: 'tap', from: ME, c: myColor, x: w.x, y: w.y, u: x / innerWidth, v: y / innerHeight,
+                   seed: Math.floor(Math.random() * 1e6), t: T() };
       R.addRipple(ev); R.addImpulse({ kind: 'radial', x: w.x, y: w.y, s: 70, r: 120, t: ev.t });
       net.pub('g/' + gid, ev);
-      S.plip(x / innerWidth, 0.35);
+      S.plip(x / innerWidth, 0.3);
+      play(myColor, ev.u, ev.t, 1);
     } else {
       const side = edgeOf(x, y);
       // finger left the screen through an edge after travelling toward it
@@ -192,6 +213,7 @@
     requestAnimationFrame(frame);
   }
   R.floor = innerHeight;
+  document.documentElement.style.setProperty('--me', colorOf(myColor));
   requestAnimationFrame(frame);
 
   if (RC.debug) window.__rc = { R, get members() { return members; }, get gid() { return gid; }, ME, net, T,

@@ -42,7 +42,7 @@
 
   const groupMembers = g => [...clients.values()].filter(c => c.gid === g);
   function sendAssign(g, extra = {}) {
-    const mem = groupMembers(g).map(c => ({ id: c.id, ox: c.ox, oy: c.oy, w: c.w, h: c.h, num: c.num }));
+    const mem = groupMembers(g).map(c => ({ id: c.id, ox: c.ox, oy: c.oy, w: c.w, h: c.h, num: c.num, color: c.color }));
     if (mem.length > 1 && !since.has(g)) since.set(g, Date.now());
     if (mem.length < 2) since.delete(g);
     for (const c of groupMembers(g)) net.pub('c/' + c.id, { type: 'assign', gid: g, members: mem, since: since.get(g), ...extra });
@@ -63,7 +63,10 @@
     let c = clients.get(m.id);
     if (m.type === 'ping') { net.pub('c/' + m.id, { type: 'pong', t0: m.t0, hub: Date.now() }); }
     if (!c && (m.type === 'hello' || m.type === 'hb')) {
-      c = { id: m.id, w: m.w || 390, h: m.h || 844, gid: m.id, ox: 0, oy: 0, num: nextNum++, seen: Date.now() };
+      // give each phone a colour nobody online is using (8 colours, then they repeat)
+      const used = new Set([...clients.values()].map(o => o.color));
+      let col = 0; while (used.has(col) && col < 8) col++;
+      c = { id: m.id, w: m.w || 390, h: m.h || 844, gid: m.id, ox: 0, oy: 0, num: nextNum++, color: col < 8 ? col : (nextNum % 8), seen: Date.now() };
       clients.set(m.id, c);
       joins++; try { localStorage.setItem('rc_joins', joins); } catch (e) {}
       sendAssign(c.gid);
@@ -114,6 +117,7 @@
                  e.side === 'left' ? { x: a.ox, y: a.oy + e.pos } :
                  e.side === 'bottom' ? { x: a.ox + e.pos, y: a.oy + a.h } : { x: a.ox + e.pos, y: a.oy };
     sendAssign(a.gid, { seam, joined: b.id });
+    lastJoinColor = b.color;
     anchors.delete(oldG);
     wallJoin(a.gid, groupMembers(a.gid).length);
     stats();
@@ -139,16 +143,17 @@
     if (!mem.length) return;
     const minX = Math.min(...mem.map(c => c.ox)), minY = Math.min(...mem.map(c => c.oy));
     const x = a.x + (m.x - minX) * 0.45, y = a.y + (m.y - minY) * 0.3;
-    if (m.type === 'tap') { R.addRipple({ x, y, t: T(), seed: m.seed || 1, k: 0.8 }); S.plip(clamp(x / R.worldW, 0, 1), 0.18); }
-    if (m.type === 'wind') R.addImpulse({ x, y, dx: m.dx * 0.8, dy: m.dy * 0.8, r: 70, t: T() });
+    if (m.type === 'tap') { R.addRipple({ x, y, t: T(), seed: m.seed || 1, k: 0.8, c: m.c }); S.plip(clamp(x / R.worldW, 0, 1), 0.18); { const at = RainSound.nextPulse(T()); S.voice(m.c, RainSound.noteFor(m.c, clamp(x / R.worldW, 0, 1), at), at, T(), 0.12, clamp(x / R.worldW, 0, 1)); } }
+    if (m.type === 'wind') { R.addImpulse({ x, y, dx: m.dx * 0.8, dy: m.dy * 0.8, r: 70, t: T() }); R.addTrail({ x, y, t: T(), c: m.c }); }
     // simple feed for TouchDesigner: positions 0..1 on the wall
     if (m.type === 'tap' || m.type === 'wind')
       net.pub('td', { type: m.type, u: +clamp(x / R.worldW, 0, 1).toFixed(3), v: +clamp(y / R.worldH, 0, 1).toFixed(3),
-                      du: m.dx ? +(m.dx / 55).toFixed(2) : 0, dv: m.dy ? +(m.dy / 55).toFixed(2) : 0, n: mem.length });
+                      du: m.dx ? +(m.dx / 55).toFixed(2) : 0, dv: m.dy ? +(m.dy / 55).toFixed(2) : 0, n: mem.length, c: m.c });
   }
+  let lastJoinColor = null;
   function wallJoin(g, n) {
     const a = anchor(g);
-    R.addFlash({ x: a.x, y: a.y, t: T() });
+    R.addFlash({ x: a.x, y: a.y, t: T(), c: lastJoinColor });
     R.addRipple({ x: a.x, y: a.y, t: T(), seed: Math.random() * 1e6 | 0, k: 1.4 });
     R.bright = 1.2;
     S.chime(n - 1, 0, 0.26);

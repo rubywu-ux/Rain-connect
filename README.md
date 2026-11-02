@@ -9,6 +9,13 @@ the strands converge into one horizontal river that flows across all the screens
 draws a glowing orbit thread and plays a chime; taps bloom like ink in water and drags swirl
 the strands, on every connected screen, echoed on the wall.
 
+- Each phone gets its own colour (edge glow, status-pill dot, its blooms, swirl trails and
+  join thread) and its own instrument: bell, marimba, glass, kalimba, felt piano, music
+  box, soft flute, vibraphone. All phones share one clock, so every note is a tone of the
+  same slowly changing chord (Dmaj9 → Bm9 → Gmaj9 → A6sus, 8 s each) and lands on a shared
+  84 bpm pulse. A quiet pad holds the chord, and each phone plays softer in bigger groups,
+  so everyone's touches blend into one piece of music. A tap also echoes, smaller and in
+  the tapper's colour, on every other connected screen.
 - Looks: white light on black (default), or black ink on white paper: add `?ink` to the wall
   URL (its QR code then sends phones to the ink version too).
 
