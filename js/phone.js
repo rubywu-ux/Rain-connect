@@ -61,8 +61,6 @@
     } else if (topic === 'g/' + gid) {
       if (m.from === ME) return;
       if (m.type === 'wind') { R.addImpulse(m); R.addTrail({ x: m.x, y: m.y, t: m.t, c: m.c }); if (m.note && entered) play(m.c, m.u, m.t, 0.25); }
-      if (m.type === 'hold') R.addHold(m);
-      if (m.type === 'fling') { R.addFling(m); if (entered) { S.gust(0.18); play(m.c, m.u, m.t, 0.3); } }
       if (m.type === 'tap') {
         R.addRipple(m); R.addImpulse({ kind: 'radial', x: m.x, y: m.y, s: 70, r: 120, t: m.t });
         const v = R.view;
@@ -219,14 +217,8 @@
   rainCv.addEventListener('pointerdown', e => {
     if (!entered) return;
     rainCv.setPointerCapture(e.pointerId);
-    drag = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, t0: performance.now(), pts: [[e.clientX, e.clientY, performance.now()]], moved: 0, hold: false };
+    drag = { x0: e.clientX, y0: e.clientY, t0: performance.now(), pts: [[e.clientX, e.clientY, performance.now()]], moved: 0 };
     const side = edgeOf(e.clientX, e.clientY);
-    // keep a finger on the glass -> it becomes an umbrella (not at the edges: those are for joining)
-    if (!side) drag.timer = setTimeout(() => {
-      if (!drag || drag.moved > 25) return;
-      drag.hold = true; drag.since = T(); drag.seed = Math.floor(Math.random() * 1e6);
-      sendHold(); if (navigator.vibrate) navigator.vibrate(8);
-    }, 170);
     if (side) net.pub('hub/in', { type: 'enter', id: ME, side, pos: side === 'left' || side === 'right' ? e.clientY : e.clientX });
   });
   rainCv.addEventListener('pointermove', e => {
@@ -236,9 +228,7 @@
     drag.moved += Math.hypot(dx, dy);
     drag.pts.push([e.clientX, e.clientY, performance.now()]);
     if (drag.pts.length > 6) drag.pts.shift();
-    drag.x = e.clientX; drag.y = e.clientY;
     const now = performance.now();
-    if (drag.hold && now - lastHold > 90) sendHold();
     if (now - lastSend > 60 && Math.hypot(dx, dy) > 1) {
       lastSend = now;
       const q = drag.pts[0], len = Math.hypot(e.clientX - q[0], e.clientY - q[1]) || 1;
@@ -249,26 +239,10 @@
       R.addImpulse(ev); R.addTrail({ x: w.x, y: w.y, t: ev.t, c: myColor }); net.pub('g/' + gid, ev);
     }
   });
-  let lastHold = 0;
-  function sendHold(off) {
-    lastHold = performance.now();
-    const w = toWorld(drag.x, drag.y);
-    const ev = { type: 'hold', from: ME, id: ME, c: myColor, x: w.x, y: w.y, since: drag.since, seed: drag.seed, t: T(),
-                 u: +(drag.x / innerWidth).toFixed(3), v: +(drag.y / innerHeight).toFixed(3) };
-    if (off) ev.off = 1;
-    R.addHold(ev); net.pub('g/' + gid, ev);
-  }
-  setInterval(() => { if (drag && drag.hold && performance.now() - lastHold > 150) sendHold(); }, 160);   // still finger: keep it open
   function end(e) {
     if (!drag) return;
-    clearTimeout(drag.timer);
-    if (drag.hold) sendHold(true);
     const dur = performance.now() - drag.t0;
     const x = e.clientX, y = e.clientY;
-    // how fast the finger was moving as it let go (px/s)
-    const p0 = drag.pts.find(p => performance.now() - p[2] < 90) || drag.pts[0];
-    const ft = Math.max(0.016, (performance.now() - p0[2]) / 1000), fdx = x - p0[0], fdy = y - p0[1];
-    const fsp = Math.hypot(fdx, fdy) / ft;
     if (drag.moved < 10 && dur < 350) {
       const w = toWorld(x, y);
       const ev = { type: 'tap', from: ME, c: myColor, x: w.x, y: w.y, u: x / innerWidth, v: y / innerHeight,
@@ -283,14 +257,6 @@
       const toward = { left: drag.x0 - x, right: x - drag.x0, top: drag.y0 - y, bottom: y - drag.y0 }[side];
       if (side && toward > 40)
         net.pub('hub/in', { type: 'exit', id: ME, side, pos: side === 'left' || side === 'right' ? y : x });
-      else if (fsp > 650 && Math.hypot(fdx, fdy) > 20) {
-        // a flick throws the rain: a spray of drops arcs away and splashes down
-        const w = toWorld(x, y), len = Math.hypot(fdx, fdy);
-        const ev = { type: 'fling', from: ME, c: myColor, x: w.x, y: w.y, dx: +(fdx / len).toFixed(3), dy: +(fdy / len).toFixed(3),
-                     sp: Math.round(clamp(fsp * 0.55, 350, 1100)), seed: Math.floor(Math.random() * 1e6), t: T(), u: +(x / innerWidth).toFixed(3) };
-        R.addFling(ev); net.pub('g/' + gid, ev);
-        S.gust(0.3); play(myColor, ev.u, ev.t, 0.7);
-      }
     }
     drag = null;
   }
@@ -303,7 +269,6 @@
   document.addEventListener('gesturestart', e => e.preventDefault());
 
   /* ---------------- render loop */
-  let lastPatter = 0;
   function frame() {
     const t = T();
     if (!hubSeen || Date.now() - hubSeen > 15000) {           // no wall/hub: solo rain
@@ -312,11 +277,6 @@
     }
     R.storm += (stormTarget - R.storm) * 0.04;
     R.draw(t);
-    if (R.hits) {                                  // rain drumming on an umbrella
-      const now = performance.now();
-      if (entered && now - lastPatter > 55) { lastPatter = now; S.plip(0.3 + Math.random() * 0.4, 0.035 + Math.random() * 0.035, undefined, 1500 + Math.random() * 2200); }
-      R.hits = 0;
-    }
     if (!$('world').classList.contains('hidden')) {
       const r = mapCv.getBoundingClientRect();
       M.draw(t, r.width, r.height, Math.min(devicePixelRatio || 1, 2));

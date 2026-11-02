@@ -4,18 +4,10 @@ A rain installation for phones. Open the wall page on the projector laptop. Visi
 the phone page by tapping an NFC sticker or scanning the QR code. Their phone shows how
 much of Earth is under rain right now (live data from Open-Meteo), then catches the rain.
 Put phones side by side and swipe one finger across both screens: they join into one
-continuous canvas. The rain falls with simple physics: each drop starts from rest, speeds up
-to its terminal velocity, streaks as a fine line of dots, slants with the wind and splashes
-where it lands. Once phones are joined most drops fall into one horizontal river that flows
-across all the screens. Each join draws a glowing orbit thread and plays a chime.
-
-How to play (everything shows on every joined screen and is echoed on the wall):
-- **Tap**: a fountain of fine threads leaps up from your finger, opens like a flower and rains back down (plus a note).
-- **Hold a finger still**: it becomes an umbrella in your colour. Rain drums on it (you hear the pitter-patter),
-  there's a dry patch underneath, and water drips off its edges, speeding up as it falls. Move it around.
-- **Drag**: sweep and swirl the rain (and play notes).
-- **Flick**: throw the rain: a spray of drops arcs away under gravity and splashes down.
-- **Blow** into the mic (≋ button): a gust; 2+ people blowing = a storm with lightning.
+continuous canvas. Black-and-white plumes of fine, flowing dotted filaments bloom, breathe and slowly dissolve, their sparkling rims falling as rain; once phones are joined
+the rain converges into one horizontal river that flows across all the screens. Each join
+draws a glowing orbit thread and plays a chime; taps bloom like ink in water and drags swirl
+the strands, on every connected screen, echoed on the wall.
 
 - Each phone gets its own colour (status-pill dot, its blooms, swirl trails and
   join thread) and its own instrument: bell, marimba, glass, kalimba, felt piano, music
@@ -25,8 +17,8 @@ How to play (everything shows on every joined screen and is echoed on the wall):
   so everyone's touches blend into one piece of music. A tap also echoes, smaller and in
   the tapper's colour, on every other connected screen.
 - Breath storm: tap ≋ on the phone to let it hear your breath (microphone, opt-in). Blowing
-  sends a gust through your own rain. When 2+ people blow at the same time (any phones)
-  a storm starts on every phone and on the wall: a quiet storm wind, rain slanting,
+  sends a gust through your own strands. When 2+ people blow at the same time (any phones)
+  a storm starts on every phone and on the wall: a quiet storm wind, strands leaning,
   white lightning in sync on all screens, and thunder. More people blowing = louder and more
   lightning. Breath is told apart from voices/music by its noisy, low-heavy spectrum.
 - Looks: white light on black (default), or black ink on white paper: add `?ink` to the wall

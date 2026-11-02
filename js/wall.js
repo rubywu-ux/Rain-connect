@@ -3,7 +3,7 @@
  * and fetches + shares the live world rain snapshot. Keep exactly one wall open. */
 (() => {
   const $ = id => document.getElementById(id);
-  const R = new RainRenderer($('rain'), { scale: 1.6 });
+  const R = new RainRenderer($('rain'), { scale: 1.6, detail: +(new URLSearchParams(location.search).get('detail') || 0.6) });
   const M = new WorldMap($('map'));
   const S = new RainSound();
   const T = () => (Date.now() - EPOCH) / 1000;
@@ -168,12 +168,6 @@
     return anchors.get(g);
   }
   let lastPhone = -1e9;                // ms; any phone tap / drag / join
-  const holdStart = new Map();         // phone umbrella -> when it opened on the wall clock
-  function holdSince(m) {
-    const k = m.id + ':' + m.since;
-    if (!holdStart.has(k)) { holdStart.set(k, T()); if (holdStart.size > 50) holdStart.delete(holdStart.keys().next().value); }
-    return holdStart.get(k);
-  }
   function echo(g, m) {
     lastPhone = Date.now();
     if (!m || !clients.size) return;
@@ -187,10 +181,8 @@
     const x = R.view.x + (0.05 + 0.9 * gu) * R.worldW, y = R.view.y + (0.08 + 0.84 * gv) * R.worldH;
     if (m.type === 'tap') { R.addRipple({ x, y, t: T(), seed: m.seed || 1, k: 0.8, c: m.c }); S.plip(clamp(x / R.worldW, 0, 1), 0.18); { const at = RainSound.nextPulse(T()); S.voice(m.c, RainSound.noteFor(m.c, clamp(x / R.worldW, 0, 1), at), at, T(), 0.2, clamp(x / R.worldW, 0, 1)); } }
     if (m.type === 'wind') { R.addImpulse({ x, y, dx: m.dx * 0.8, dy: m.dy * 0.8, r: 70, t: T() }); R.addTrail({ x, y, t: T(), c: m.c }); }
-    if (m.type === 'hold') R.addHold(Object.assign({}, m, { x, y, t: T(), id: 'w' + m.id, since: holdSince(m) }));
-    if (m.type === 'fling') R.addFling(Object.assign({}, m, { x, y, t: T(), sp: m.sp * 0.8 }));
     // simple feed for TouchDesigner: positions 0..1 on the wall
-    if (m.type === 'tap' || m.type === 'wind' || m.type === 'hold' || m.type === 'fling')
+    if (m.type === 'tap' || m.type === 'wind')
       net.pub('td', { type: m.type, u: +clamp(x / R.worldW, 0, 1).toFixed(3), v: +clamp(y / R.worldH, 0, 1).toFixed(3),
                       du: m.dx ? +(m.dx / 55).toFixed(2) : 0, dv: m.dy ? +(m.dy / 55).toFixed(2) : 0, n: mem.length, c: m.c });
   }
@@ -262,7 +254,6 @@
   });
   function frame() {
     const t = T();
-    R.floor = R.view.y + R.worldH - 3;   // rain splashes along the bottom of the wall
     R.draw(t);
     if (mapOn || $('wallmap').classList.contains('on')) {
       const r = $('map').getBoundingClientRect();
