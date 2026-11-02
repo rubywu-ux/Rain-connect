@@ -8,6 +8,8 @@
   const S = new RainSound();
   const T = () => (Date.now() - EPOCH) / 1000;
   R.floor = null;
+  // the wall stays black & white: colours are only for the phones
+  ['addRipple', 'addTrail', 'addFlash'].forEach(k => { const f = R[k].bind(R); R[k] = e => f(Object.assign({}, e, { c: null })); });
   // ?td : running inside TouchDesigner's Web Render TOP -> no click-to-start, TD makes the sound
   const TDMODE = new URLSearchParams(location.search).has('td');
 
