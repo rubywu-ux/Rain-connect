@@ -17,7 +17,7 @@
   /* everyone's notes: their own instrument, the shared chord, on the shared pulse; softer in bigger groups */
   function play(ci, u, tEvent, level) {
     const now = T(), at = RainSound.nextPulse(Math.max(tEvent || now, now - 0.05));
-    const vol = 0.32 * level / Math.sqrt(Math.max(1, members.length));
+    const vol = 0.5 * level / Math.sqrt(Math.max(1, members.length));   // melodies up front
     S.voice(ci, RainSound.noteFor(ci, clamp(u, 0, 1), at), at, now, vol, clamp(u, 0, 1));
   }
   let lastDragNote = 0;
@@ -179,7 +179,7 @@
                    seed: Math.floor(Math.random() * 1e6), t: T() };
       R.addRipple(ev); R.addImpulse({ kind: 'radial', x: w.x, y: w.y, s: 70, r: 120, t: ev.t });
       net.pub('g/' + gid, ev);
-      S.plip(x / innerWidth, 0.3);
+      S.plip(x / innerWidth, 0.08);
       play(myColor, ev.u, ev.t, 1);
     } else {
       const side = edgeOf(x, y);

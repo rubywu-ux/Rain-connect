@@ -437,7 +437,9 @@ class RainSound {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     const a = this.ctx = new AC();
-    this.master = a.createGain(); this.master.gain.value = 0.9; this.master.connect(a.destination);
+    this.master = a.createGain(); this.master.gain.value = 0.9;
+    const comp = a.createDynamicsCompressor(); comp.threshold.value = -16; comp.ratio.value = 3; comp.attack.value = 0.01; comp.release.value = 0.25;
+    this.master.connect(comp); comp.connect(a.destination);
     // reverb-ish: feedback delay network kept simple
     this.wet = a.createGain(); this.wet.gain.value = 0.35;
     const d1 = a.createDelay(), d2 = a.createDelay(), fb = a.createGain(), lp = a.createBiquadFilter();
@@ -456,7 +458,7 @@ class RainSound {
     }
     const src = a.createBufferSource(); src.buffer = buf; src.loop = true;
     const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 350;
-    const lp2 = a.createBiquadFilter(); lp2.type = 'lowpass'; lp2.frequency.value = 6500;
+    const lp2 = a.createBiquadFilter(); lp2.type = 'lowpass'; lp2.frequency.value = 3200;
     this.amb = a.createGain(); this.amb.gain.value = 0;
     src.connect(hp); hp.connect(lp2); lp2.connect(this.amb); this.amb.connect(this.master);
     src.start();
@@ -466,14 +468,14 @@ class RainSound {
   /* overall rain loudness 0..1 (tied to how much of Earth is raining) */
   setRain(v) {
     this.level = v;
-    if (this.amb) this.amb.gain.setTargetAtTime(0.18 + v * 0.6, this.ctx.currentTime, 1.5);
+    if (this.amb) this.amb.gain.setTargetAtTime(0.025 + v * 0.05, this.ctx.currentTime, 1.5);   // rain stays in the background
   }
   _ticks() {           // sparse droplet ticks on top of the hiss
     const a = this.ctx;
     const go = () => {
       if (a.state === 'running') {
         const n = 1 + Math.floor(Math.random() * 3 * (0.4 + (this.level || 0.2)));
-        for (let k = 0; k < n; k++) this.plip(Math.random(), 0.04 + Math.random() * 0.05, a.currentTime + Math.random() * 0.25, 1800 + Math.random() * 2500);
+        for (let k = 0; k < n; k++) if (Math.random() < 0.45) this.plip(Math.random(), 0.008 + Math.random() * 0.012, a.currentTime + Math.random() * 0.25, 1800 + Math.random() * 2500);
       }
       setTimeout(go, 180 + Math.random() * 260);
     };
