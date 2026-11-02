@@ -137,13 +137,15 @@
     if (!anchors.has(g)) anchors.set(g, { x: (0.12 + Math.random() * 0.76) * R.worldW, y: (0.18 + Math.random() * 0.45) * R.worldH });
     return anchors.get(g);
   }
+  let lastPhone = -1e9;                // ms; any phone tap / drag / join
   function echo(g, m) {
+    lastPhone = Date.now();
     if (!m || !clients.size) return;
     const a = anchor(g), mem = groupMembers(g);
     if (!mem.length) return;
     const minX = Math.min(...mem.map(c => c.ox)), minY = Math.min(...mem.map(c => c.oy));
     const x = a.x + (m.x - minX) * 0.45, y = a.y + (m.y - minY) * 0.3;
-    if (m.type === 'tap') { R.addRipple({ x, y, t: T(), seed: m.seed || 1, k: 0.8, c: m.c }); S.plip(clamp(x / R.worldW, 0, 1), 0.18); { const at = RainSound.nextPulse(T()); S.voice(m.c, RainSound.noteFor(m.c, clamp(x / R.worldW, 0, 1), at), at, T(), 0.12, clamp(x / R.worldW, 0, 1)); } }
+    if (m.type === 'tap') { R.addRipple({ x, y, t: T(), seed: m.seed || 1, k: 0.8, c: m.c }); S.plip(clamp(x / R.worldW, 0, 1), 0.18); { const at = RainSound.nextPulse(T()); S.voice(m.c, RainSound.noteFor(m.c, clamp(x / R.worldW, 0, 1), at), at, T(), 0.2, clamp(x / R.worldW, 0, 1)); } }
     if (m.type === 'wind') { R.addImpulse({ x, y, dx: m.dx * 0.8, dy: m.dy * 0.8, r: 70, t: T() }); R.addTrail({ x, y, t: T(), c: m.c }); }
     // simple feed for TouchDesigner: positions 0..1 on the wall
     if (m.type === 'tap' || m.type === 'wind')
@@ -156,6 +158,7 @@
     R.addFlash({ x: a.x, y: a.y, t: T(), c: lastJoinColor });
     R.addRipple({ x: a.x, y: a.y, t: T(), seed: Math.random() * 1e6 | 0, k: 1.4 });
     R.bright = 1.2;
+    lastPhone = Date.now();
     S.chime(n - 1, 0, 0.26);
     net.pub('td', { type: 'join', n, u: +clamp(a.x / R.worldW, 0, 1).toFixed(3), v: +clamp(a.y / R.worldH, 0, 1).toFixed(3), online: clients.size });
   }
@@ -184,8 +187,33 @@
   setInterval(() => { mapOn = true; $('wallmap').classList.add('on'); setTimeout(() => { mapOn = false; $('wallmap').classList.remove('on'); }, 20000); }, 90000);
 
   /* ---------------- start + loop */
-  $('start').onclick = () => { S.start(); if (snap) S.setRain(clamp(snap.pct / 30, 0, 1)); $('start').remove(); };
-  if (TDMODE) $('start').remove();
+  $('start').onclick = () => { S.start(); if (snap) S.setRain(clamp(snap.pct / 30, 0, 1)); S.startPad(T); $('start').remove(); };
+  if (TDMODE) {
+    // inside TouchDesigner: no overlay; sound starts at once, or on the first click TouchDesigner sends
+    $('start').remove();
+    const kick = () => { S.start(); if (snap) S.setRain(clamp(snap.pct / 30, 0, 1)); S.startPad(T); };
+    kick();
+    addEventListener('pointerdown', kick); addEventListener('click', kick); addEventListener('keydown', kick);
+  }
+
+  /* ---------------- auto music: the world's rain, played softly where it is raining right now.
+     It pauses while phones are playing and comes back after a few quiet seconds. */
+  let duck = 1;
+  setInterval(() => {
+    const quiet = (Date.now() - lastPhone) / 1000;
+    const target = quiet < 4 ? 0 : 1;
+    duck += (target - duck) * (target < duck ? 0.6 : 0.06);
+    if (!snap || !S.ctx || S.ctx.state !== 'running' || duck < 0.04) return;
+    const wet = snap.pts.filter(p => isRaining(p[2], p[3]));
+    if (!wet.length || Math.random() > 0.14 + snap.pct / 100) return;
+    const [lat, lon, mm] = wet[Math.floor(Math.random() * wet.length)];
+    const u = (lon + 180) / 360, v = (90 - lat) / 180;
+    const ci = lat >= 0 ? 2 : 4;                         // north: glass, south: felt piano
+    const at = RainSound.nextPulse(T());
+    S.voice(ci, RainSound.noteFor(ci, u, at), at, T(), 0.16 * duck * (0.6 + 0.4 * Math.min(1, (mm || 0.3) / 4)), u);
+    // and a quiet bloom where that rain is falling (longitude across, latitude down)
+    R.addRipple({ x: R.view.x + u * R.worldW, y: R.view.y + (0.12 + v * 0.76) * R.worldH, t: at, seed: Math.floor(Math.random() * 1e6), k: 0.45, echo: true });
+  }, MUSIC.pulse * 1000);
   addEventListener('keydown', e => {
     if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
     if (e.key === 'm') { mapOn = !mapOn; $('wallmap').classList.toggle('on', mapOn); }
