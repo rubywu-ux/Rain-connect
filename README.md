@@ -9,7 +9,7 @@ the strands converge into one horizontal river that flows across all the screens
 draws a glowing orbit thread and plays a chime; taps bloom like ink in water and drags swirl
 the strands, on every connected screen, echoed on the wall.
 
-- Each phone gets its own colour (edge glow, status-pill dot, its blooms, swirl trails and
+- Each phone gets its own colour (status-pill dot, its blooms, swirl trails and
   join thread) and its own instrument: bell, marimba, glass, kalimba, felt piano, music
   box, soft flute, vibraphone. All phones share one clock, so every note is a tone of the
   same slowly changing chord (Dmaj9 → Bm9 → Gmaj9 → A6sus, 8 s each) and lands on a shared

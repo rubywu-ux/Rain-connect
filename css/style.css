@@ -109,10 +109,8 @@ html.ink .world h1, html.ink .wall-title, html.ink .wall-stats .big { text-shado
 .vignette { position: fixed; inset: 0; z-index: 2; pointer-events: none;
   background: radial-gradient(130% 100% at 50% 45%, transparent 55%, rgba(var(--bgrgb), .55) 100%); }
 
-/* each phone's own colour: a soft glow around the screen edge + dots in the status pill */
+/* each phone's own colour: dots in the status pill */
 :root { --me: 236, 237, 240; }
-.edge { position: fixed; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit;
-  box-shadow: inset 0 0 0 2px rgba(var(--me), .55), inset 0 0 36px rgba(var(--me), .22); transition: box-shadow 1s; }
 .pill .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px;
   background: rgb(var(--c)); box-shadow: 0 0 8px rgba(var(--c), .8); }
 .pill .dot.me { width: 9px; height: 9px; outline: 1px solid rgba(var(--rgb), .7); outline-offset: 2px; }
