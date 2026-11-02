@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Connect the Rain — Wall</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=IBM+Plex+Mono:wght@300;400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body class="wall">
+<canvas id="rain"></canvas>
+<div class="wall-map" id="wallmap"><canvas id="map"></canvas></div>
+
+<div class="wall-title">Connect the Rain<small>bring your phone close · join the rain</small></div>
+<div class="wall-stats">
+  <div class="big"><b id="pct">—</b><span>%</span></div>
+  <p class="lede">of Earth is under rain right now</p>
+  <p class="meta" id="meta">gathering the world's rain…</p>
+</div>
+<div class="wall-qr"><div id="qr"></div><p>scan or tap here</p></div>
+<div class="netdot" id="netdot" title="relay connection"></div>
+<div class="start" id="start"><div><p>Click anywhere to begin</p><small>(starts sound, then press F for full screen)</small></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.15.2/dist/mqtt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@2.0.4/dist/qrcode.js"></script>
+<script src="js/common.js"></script>
+<script src="js/wall.js"></script>
+</body>
+</html>

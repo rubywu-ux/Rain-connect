@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#02040a">
+<title>Connect the Rain</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=IBM+Plex+Mono:wght@300;400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body class="phone">
+<canvas id="rain"></canvas>
+
+<section id="world" class="world">
+  <canvas id="map"></canvas>
+  <div class="world-text">
+    <p class="eyebrow">Right now, across the planet</p>
+    <h1><span id="pct">—</span><span class="pct-sign">%</span></h1>
+    <p class="lede" id="lede">of Earth is under rain</p>
+    <p class="meta" id="meta">gathering the world's rain…</p>
+  </div>
+  <div class="world-foot">
+    <p class="meta" id="shared"></p>
+    <button id="enter" class="btn">Catch the rain</button>
+  </div>
+</section>
+
+<div id="hud" class="hud hidden">
+  <div id="pill" class="pill">alone in the rain</div>
+  <button id="globe" class="icon-btn" aria-label="World rain map">◎</button>
+</div>
+<p id="hint" class="hint hidden">Tap or drag the rain.<br>Place another phone beside yours and<br>swipe one finger across both screens.</p>
+
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.15.2/dist/mqtt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script src="js/common.js"></script>
+<script src="js/phone.js"></script>
+</body>
+</html>
