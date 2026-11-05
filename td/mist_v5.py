@@ -364,7 +364,10 @@ def onFrameStart(frame):
 	else:
 		Hv = 0.0
 	W['hv'] = Hv
-	if Hv > 0.02: W['ht'] = absTime.seconds
+	# in a lit room it must also reach over the pot (an arm does; a head leaning in to blow doesn't).
+	# In the dark an arm barely shows, so any big change around the pot counts.
+	reach = r2 is not None and bool((handzone & (r2 < 1.3)).any())
+	if Hv > 0.02 and (W.get('dk') or reach): W['ht'] = absTime.seconds
 	handnow = absTime.seconds - W.get('ht', -99.0) < 0.8
 	fl = W['flick'] if W['flick'] is not None and W['flick'].shape == lum.shape else np.zeros_like(lum)
 	if not handnow: fl = fl * 0.93 + dm * 0.07        # ~1.5 s memory of how much each pixel flickers
