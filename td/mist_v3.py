@@ -133,7 +133,7 @@ px.text = px.text.replace("""		W = op('mist_weather').module.W
 			print('mist calibrated: empty-room picture stored (%dx%d). Now turn the mist on.' % (bg.shape[1], bg.shape[0]))""",
 """		op('mist_weather').module.reset()
 		print('mist detector: forgot the old oval, finding the mist again')""")
-op('mist_weather').module.reset() if hasattr(op('mist_weather').module, 'reset') else None
+CR.op('mist_weather').module.reset()
 me.time.play = True
 d = os.path.expanduser('~/Desktop/ConnectTheRain')
 nums = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r'ConnectTheRain\\.(\\d+)\\.toe$', f)] if m]
