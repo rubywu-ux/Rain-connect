@@ -270,13 +270,13 @@
     S.setCalm(calm);
     if (!blowers.size || stormLevel < mistStorm) S.setStorm(Math.max(stormLevel, mistStorm));
     if (mistStorm > 0.05 && now - lastGust > 1400 - 900 * mistStorm && Math.random() < 0.5) { lastGust = now; S.gust(0.3 + 0.7 * mistStorm); }
-    // mist storm: lightning across the wall and a small crackle of thunder (wall only, phones never see it)
+    // mist storm: lightning across the wall and deep, rolling thunder (wall only, phones never see it)
     if (mistStorm > 0.08 && now - lastMistBolt > 900 && Math.random() < 0.04 + 0.2 * mistStorm) {
       lastMistBolt = now;
       const b = { seed: Math.floor(Math.random() * 1e9), u: +(0.06 + Math.random() * 0.88).toFixed(3), power: +(0.4 + 0.6 * mistStorm * (0.5 + 0.5 * Math.random())).toFixed(2),
                   across: Math.random() < 0.55, t: T() };
       R.addBolt(b);
-      S.crackle(b.power, 0.04 + Math.random() * (1 - mistStorm) * 0.7);
+      S.thunder(b.power, 0.08 + Math.random() * (1 - mistStorm) * 0.9, 1.15);        // deep, crisp, loud
       net.pub('td', { type: 'strike', source: 'mist', u: b.u, power: b.power });
     }
     $('mist').textContent = !mistOn ? 'mist · off' : `mist · ${w < 0.25 ? 'calm' : w < 0.6 ? 'rain' : 'storm'}`;

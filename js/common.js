@@ -862,7 +862,7 @@ class RainSound {
   /* a very quiet pad holding the current chord's root and fifth, so everything sits on one harmony */
   /* storm: dark gusting wind bed whose loudness follows how many people are blowing */
   _noiseBuffer(sec, brown) {
-    const a = this.ctx, len = a.sampleRate * sec, buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+    const a = this.ctx, len = Math.max(64, Math.round(a.sampleRate * sec)), buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
     let last = 0;
     for (let i = 0; i < len; i++) {
       const w = Math.random() * 2 - 1;
@@ -890,40 +890,66 @@ class RainSound {
     this.storm.lp.frequency.setTargetAtTime(380 + level * 700, a.currentTime, 1);
   }
   /* thunder after a strike: low rumble (+ a crack when it is close) */
-  crackle(power = 0.5, delay = 0.1) {
+  /* thunder, built like the real thing:
+       1. the crack  - a crisp, broadband rip of noise (no clicks), brighter when the strike is close
+       2. the boom   - a deep falling thump you feel more than hear
+       3. the rumble - a long roll of low noise that swells several times as the sound arrives
+                       from different parts of the bolt, then dies away into the room
+     power 0..1 = how close / big; loud scales the whole thing */
+  thunder(power = 0.6, delay = 0.6, loud = 1) {
     const a = this.ctx; if (!a) return;
-    let t = a.currentTime + delay;
-    const n = 5 + Math.floor(power * 9 + Math.random() * 4);
-    const out = a.createGain(); out.gain.value = 0.11 + 0.14 * power;
-    const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800;
-    out.connect(hp); hp.connect(this.master); hp.connect(this.wet);
-    for (let i = 0; i < n; i++) {
-      const src = a.createBufferSource(); src.buffer = this._noiseBuffer(0.06, false);
-      const g = a.createGain(), d = 0.008 + Math.random() * 0.03, v = 0.4 + Math.random() * 0.6;
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
-      src.connect(g); g.connect(out); src.start(t); src.stop(t + d + 0.02);
-      t += 0.012 + Math.random() * 0.05 * (1 - power * 0.5);
+    const t0 = a.currentTime + Math.max(0, delay), near = Math.min(1, Math.max(0, power));
+    const dur = 3.6 + 3 * near + Math.random() * 1.2;
+    const bus = a.createGain(); bus.gain.value = 0.95 * loud;
+    const warm = a.createWaveShaper();                                 // gentle saturation: lows read on small speakers
+    const curve = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; curve[i] = Math.tanh(x * 1.8) / Math.tanh(1.8); }
+    warm.curve = curve;
+    bus.connect(warm); warm.connect(this.master);
+    const send = a.createGain(); send.gain.value = 0.55; warm.connect(send); send.connect(this.wet);
+    // 1. crack
+    const crack = (f, q, peak, decay, at) => {
+      const src = a.createBufferSource(); src.buffer = this._noiseBuffer(decay + 0.3, false);
+      const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+      const g = a.createGain(); g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(peak, at + 0.006); g.gain.exponentialRampToValueAtTime(peak * 0.35, at + decay * 0.25);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+      src.connect(bp); bp.connect(g); g.connect(bus); src.start(at); src.stop(at + decay + 0.3);
+    };
+    crack(1800 + 1400 * near, 0.6, 0.18 + 0.55 * near * near, 0.28 + 0.2 * near, t0);       // the crisp top
+    crack(520, 0.7, 0.35 + 0.45 * near, 0.6 + 0.4 * near, t0 + 0.012);                      // the body of the crack
+    // 2. boom
+    const boom = (type, f0, f1, peak, len) => {
+      const o = a.createOscillator(), g = a.createGain(); o.type = type;
+      o.frequency.setValueAtTime(f0, t0); o.frequency.exponentialRampToValueAtTime(f1, t0 + len);
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(peak, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
+      o.connect(g); g.connect(bus); o.start(t0); o.stop(t0 + len + 0.05);
+    };
+    boom('sine', 58, 30, 0.55 + 0.35 * near, 1.4 + 0.6 * near);
+    boom('triangle', 110, 52, 0.16 + 0.12 * near, 0.9);
+    // 3. rumble: brown noise, low-passed, with a rolling envelope of several swells
+    const src = a.createBufferSource(); src.buffer = this._noiseBuffer(dur + 0.5, true);
+    const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.7;
+    lp.frequency.setValueAtTime(700 + 900 * near, t0); lp.frequency.exponentialRampToValueAtTime(260, t0 + 0.6); lp.frequency.exponentialRampToValueAtTime(90, t0 + dur);
+    const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 28;
+    const g = a.createGain(); g.gain.value = 0;
+    const N = 256, env = new Float32Array(N), bumps = [];
+    const nb = 3 + Math.floor(Math.random() * 4);
+    bumps.push([0.06 + 0.1 * (1 - near), 0.12 + 0.1 * (1 - near), 1]);                    // the first big roll
+    for (let k = 1; k < nb; k++) bumps.push([0.3 + Math.random() * dur * 0.6, 0.15 + Math.random() * 0.5, 0.35 + Math.random() * 0.55]);
+    let mx = 0;
+    for (let i = 0; i < N; i++) {
+      const t = i / (N - 1) * dur;
+      let v = 0.18;
+      for (const [c, w, h] of bumps) v += h * Math.exp(-(((t - c) / w) ** 2));
+      v *= Math.exp(-t / (dur * 0.42)) * Math.min(1, t / 0.03);
+      env[i] = v; mx = Math.max(mx, v);
     }
-    this.thunder(0.25 + 0.35 * power, t - a.currentTime + 0.05);   // and a low roll after the crackle
-  }
-  thunder(power = 0.6, delay = 0.6) {
-    const a = this.ctx; if (!a) return;
-    const t = a.currentTime + delay;
-    const src = a.createBufferSource(); src.buffer = this._noiseBuffer(3, true);
-    const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.setValueAtTime(260 + power * 300, t);
-    lp.frequency.exponentialRampToValueAtTime(90, t + 2.4);
-    const g = a.createGain(); g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.25 + 0.55 * power, t + 0.08 + (1 - power) * 0.25);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.8);
-    src.connect(lp); lp.connect(g); g.connect(this.master); g.connect(this.wet);
-    src.start(t); src.stop(t + 3);
-    if (power > 0.6) {                                       // close strike: a short crack first
-      const cs = a.createBufferSource(); cs.buffer = this._noiseBuffer(0.3, false);
-      const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1500;
-      const cg = a.createGain(); cg.gain.setValueAtTime(0.0001, t - 0.05);
-      cg.gain.exponentialRampToValueAtTime(0.12 * power, t - 0.04); cg.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-      cs.connect(hp); hp.connect(cg); cg.connect(this.master); cs.start(t - 0.05); cs.stop(t + 0.25);
-    }
+    const peak = 0.55 + 0.45 * near;
+    for (let i = 0; i < N; i++) env[i] = env[i] / mx * peak;
+    env[N - 1] = 0;
+    g.gain.setValueCurveAtTime(env, t0 + 0.01, dur);
+    src.connect(lp); lp.connect(hp); hp.connect(g); g.connect(bus);
+    src.start(t0); src.stop(t0 + dur + 0.4);
   }
   /* calm weather (no mist): rain gives way to leaves rustling and small birds. 0 = off, 1 = full */
   setCalm(level) {

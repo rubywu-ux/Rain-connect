@@ -52,7 +52,7 @@ receive the weather, so their rain, music and breath storm are untouched.
 |---|---|
 | none (generator off / mist cleared) | rain stops, the room brightens to light mode, leaves rustle, small birds |
 | present but still | the usual rain, dark |
-| moving frantically | gusts of wind, dark, the rain leans, lightning across the wall with a small crackle of thunder; more and louder the harder the mist moves |
+| moving frantically | gusts of wind, dark, the rain leans, lightning across the wall with deep rolling thunder; more and louder the harder the mist moves |
 
 Setup, once (TouchDesigner, with ConnectTheRain open): paste this into the Textport
 (Dialogs > Textport and DATs) and press Return (TouchDesigner's Python uses the Mac's own
