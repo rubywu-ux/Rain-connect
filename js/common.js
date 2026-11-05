@@ -628,6 +628,29 @@ class RainRenderer {
     }
     const col = INK ? '20,20,24' : '255,255,255';
     const main = new Path2D(), branches = new Path2D();
+    if (b.across) {
+      // sideways: from one side of the sky to the other, with forks dropping toward the ground
+      let x = W * (0.02 + 0.2 * hash(sd + 3)), y = H * (0.08 + 0.3 * hash(sd + 4));
+      const endX = W * (0.7 + 0.28 * hash(sd + 5)), step = 22 + 14 * hash(sd + 6);
+      main.moveTo(x, y);
+      let n = 0;
+      while (x < endX) {
+        x += step * (0.6 + 0.8 * hash(sd + 20 + n));
+        y += (hash(sd + 30 + n) - 0.5) * 38 + (hash(sd + 31 + n) - 0.5) * 8;
+        main.lineTo(x, y);
+        if (hash(sd + 40 + n) < 0.16) {
+          let bx = x, by = y; branches.moveTo(bx, by);
+          const len = 3 + Math.floor(hash(sd + 50 + n) * 7);
+          for (let k = 0; k < len; k++) { bx += (hash(sd + 60 + n * 13 + k) - 0.5) * 30; by += 12 + 16 * hash(sd + 70 + n * 13 + k); branches.lineTo(bx, by); }
+        }
+        n++;
+      }
+      [[11, 0.07], [4.5, 0.24], [1.7, 1]].forEach(([w, a]) => {
+        c.strokeStyle = `rgba(${col},${a * fl})`; c.lineWidth = w * lw; c.stroke(main);
+        c.lineWidth = w * lw * 0.5; c.stroke(branches);
+      });
+      return;
+    }
     let x = b.u * W, y = -10;
     const endY = H * (0.55 + 0.45 * hash(sd + 1));
     const step = 16 + 10 * hash(sd + 2);
@@ -867,6 +890,22 @@ class RainSound {
     this.storm.lp.frequency.setTargetAtTime(380 + level * 700, a.currentTime, 1);
   }
   /* thunder after a strike: low rumble (+ a crack when it is close) */
+  crackle(power = 0.5, delay = 0.1) {
+    const a = this.ctx; if (!a) return;
+    let t = a.currentTime + delay;
+    const n = 5 + Math.floor(power * 9 + Math.random() * 4);
+    const out = a.createGain(); out.gain.value = 0.11 + 0.14 * power;
+    const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800;
+    out.connect(hp); hp.connect(this.master); hp.connect(this.wet);
+    for (let i = 0; i < n; i++) {
+      const src = a.createBufferSource(); src.buffer = this._noiseBuffer(0.06, false);
+      const g = a.createGain(), d = 0.008 + Math.random() * 0.03, v = 0.4 + Math.random() * 0.6;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      src.connect(g); g.connect(out); src.start(t); src.stop(t + d + 0.02);
+      t += 0.012 + Math.random() * 0.05 * (1 - power * 0.5);
+    }
+    this.thunder(0.25 + 0.35 * power, t - a.currentTime + 0.05);   // and a low roll after the crackle
+  }
   thunder(power = 0.6, delay = 0.6) {
     const a = this.ctx; if (!a) return;
     const t = a.currentTime + delay;
