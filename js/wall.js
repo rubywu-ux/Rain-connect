@@ -295,7 +295,7 @@
     S.setRain(rainLevel * (1 - calm) * (1 + 0.6 * mistStorm));
     S.setCalm(calm);
     if (!blowers.size || stormLevel < mistStorm) S.setStorm(Math.max(stormLevel, mistStorm));
-    if (mistStorm > 0.05 && now - lastGust > 1400 - 900 * mistStorm && Math.random() < 0.5) { lastGust = now; S.gust(0.3 + 0.7 * mistStorm); }
+    if (mistStorm > 0.05 && now - lastGust > 2600 - 1200 * mistStorm && Math.random() < 0.35) { lastGust = now; S.gust(0.25 + 0.5 * mistStorm * Math.random()); }
     // mist storm: lightning across the wall and deep, rolling thunder (wall only, phones never see it)
     if (mistStorm > 0.08 && now - lastMistBolt > 900 && Math.random() < 0.04 + 0.2 * mistStorm) {
       lastMistBolt = now;

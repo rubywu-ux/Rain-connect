@@ -871,23 +871,64 @@ class RainSound {
     const f = Math.min(4000, len >> 2); for (let i = 0; i < f; i++) { const t = i / f; d[i] = d[i] * t + d[len - f + i] * (1 - t); }
     return buf;
   }
+  /* storm wind: airy noise (no low drone), shaped by random gusts that rise and fall at their own
+     pace, plus a faint whistle that glides around. Nothing repeats on a fixed cycle. */
+  _pinkBuffer(sec) {
+    const a = this.ctx, len = Math.round(a.sampleRate * sec), buf = a.createBuffer(2, len, a.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch); let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+      for (let i = 0; i < len; i++) {
+        const w = Math.random() * 2 - 1;
+        b0 = 0.99886 * b0 + w * 0.0555179; b1 = 0.99332 * b1 + w * 0.0750759; b2 = 0.969 * b2 + w * 0.153852;
+        b3 = 0.8665 * b3 + w * 0.3104856; b4 = 0.55 * b4 + w * 0.5329522; b5 = -0.7616 * b5 - w * 0.016898;
+        d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11; b6 = w * 0.115926;
+      }
+      const f = 6000; for (let i = 0; i < f; i++) { const t = i / f; d[i] = d[i] * t + d[len - f + i] * (1 - t); }
+    }
+    return buf;
+  }
   setStorm(level) {
     const a = this.ctx; if (!a) return;
     if (!this.storm) {
-      const src = a.createBufferSource(); src.buffer = this._noiseBuffer(6, true); src.loop = true;
-      const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; lp.Q.value = 0.7;
-      const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 700; bp.Q.value = 0.6;
-      const gust = a.createOscillator(), gg = a.createGain(); gust.frequency.value = 0.13; gg.gain.value = 260;
-      gust.connect(gg); gg.connect(lp.frequency); gust.start();
-      const air = a.createGain(); air.gain.value = 0.25;
-      const g = a.createGain(); g.gain.value = 0.0001;
-      src.connect(lp); lp.connect(g); src.connect(bp); bp.connect(air); air.connect(g);
-      g.connect(this.master); src.start();
-      this.storm = { g, lp };
+      const out = a.createGain(); out.gain.value = 0.0001; out.connect(this.master);
+      const send = a.createGain(); send.gain.value = 0.25; out.connect(send); send.connect(this.wet);
+      // two long noise beds of different lengths, so their loops never line up
+      const bed = (sec, f, q, gain) => {
+        const src = a.createBufferSource(); src.buffer = this._pinkBuffer(sec); src.loop = true;
+        const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 220;
+        const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
+        const g = a.createGain(); g.gain.value = gain;
+        src.connect(hp); hp.connect(bp); bp.connect(g); g.connect(out); src.start(a.currentTime, Math.random() * sec);
+        return { bp, g };
+      };
+      const body = bed(11.3, 650, 0.55, 0.9), air = bed(7.7, 2200, 0.7, 0.35);
+      // the whistle: a narrow resonance that wanders
+      const wsrc = a.createBufferSource(); wsrc.buffer = this._pinkBuffer(9.1); wsrc.loop = true;
+      const wbp = a.createBiquadFilter(); wbp.type = 'bandpass'; wbp.frequency.value = 1100; wbp.Q.value = 14;
+      const wg = a.createGain(); wg.gain.value = 0.0001;
+      wsrc.connect(wbp); wbp.connect(wg); wg.connect(out); wsrc.start(a.currentTime, Math.random() * 9);
+      this.storm = { out, body, air, wbp, wg, level: 0 };
+      // gusts: every so often pick a new strength and tone, and glide there at a random pace
+      const step = () => {
+        const st = this.storm, lv = st.level, t = a.currentTime;
+        if (lv > 0.01) {
+          const lull = Math.random() < 0.25;                            // sometimes the wind drops right off
+          const strength = lull ? 0.05 + 0.15 * Math.random() : 0.35 + 0.65 * Math.random(), pace = 0.5 + Math.random() * 2;
+          st.body.g.gain.setTargetAtTime(0.15 + 1.25 * strength, t, pace);
+          st.body.bp.frequency.setTargetAtTime(380 + 520 * strength + 350 * lv, t, pace * 1.2);
+          st.air.g.gain.setTargetAtTime(0.12 + 0.4 * strength * lv, t, pace);
+          st.air.bp.frequency.setTargetAtTime(1600 + 1400 * Math.random(), t, pace * 1.5);
+          st.wbp.frequency.setTargetAtTime(800 + 900 * Math.random() + 400 * strength, t, pace * 2);
+          st.wg.gain.setTargetAtTime(Math.random() < 0.55 ? (0.05 + 0.12 * strength) * lv : 0.0001, t, pace * 1.5);
+        }
+      };
+      this.storm.step = step;
+      const gusts = () => { step(); setTimeout(gusts, 600 + Math.random() * 2600); };
+      gusts();
     }
     // 0 = calm; 2 people ~ quiet; more people = louder
-    this.storm.g.gain.setTargetAtTime(level <= 0 ? 0.0001 : 0.06 + level * 0.42, a.currentTime, level > 0 ? 0.8 : 1.2);
-    this.storm.lp.frequency.setTargetAtTime(380 + level * 700, a.currentTime, 1);
+    this.storm.level = level;
+    this.storm.out.gain.setTargetAtTime(level <= 0 ? 0.0001 : 0.12 + level * 0.6, a.currentTime, level > 0 ? 1.2 : 1.6);
   }
   /* thunder after a strike: low rumble (+ a crack when it is close) */
   /* thunder, built like the real thing, and different every time:
@@ -1029,15 +1070,23 @@ class RainSound {
   }
   /* one person blowing: a soft whoosh */
   gust(strength = 0.5) {
+    // one breath of wind: airy noise that swells and fades at a random pace and pitch
     const a = this.ctx; if (!a) return;
-    const t = a.currentTime;
-    const src = a.createBufferSource(); src.buffer = this._noiseBuffer(1.2, false);
-    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.8;
-    bp.frequency.setValueAtTime(500, t); bp.frequency.exponentialRampToValueAtTime(1400, t + 0.5); bp.frequency.exponentialRampToValueAtTime(600, t + 1.1);
+    const t = a.currentTime, rise = 0.35 + Math.random() * 0.6, fall = 0.9 + Math.random() * 1.4, len = rise + fall;
+    const src = a.createBufferSource(); src.buffer = this._pinkBuffer(len + 0.2);
+    const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 240;
+    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.5 + Math.random() * 0.5;
+    const f0 = 450 + Math.random() * 400, f1 = f0 * (1.4 + Math.random() * 0.8);
+    bp.frequency.setValueAtTime(f0, t); bp.frequency.linearRampToValueAtTime(f1, t + rise); bp.frequency.linearRampToValueAtTime(f0 * 0.9, t + len);
     const g = a.createGain(); g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.05 + 0.08 * strength, t + 0.25); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.15);
-    src.connect(bp); bp.connect(g); g.connect(this.master); src.start(t); src.stop(t + 1.2);
+    g.gain.linearRampToValueAtTime(0.04 + 0.07 * strength, t + rise); g.gain.linearRampToValueAtTime(0.0001, t + len);
+    const p = a.createStereoPanner ? a.createStereoPanner() : null;
+    src.connect(hp); hp.connect(bp); bp.connect(g);
+    if (p) { p.pan.setValueAtTime(Math.random() * 1.2 - 0.6, t); p.pan.linearRampToValueAtTime(Math.random() * 1.2 - 0.6, t + len); g.connect(p); p.connect(this.master); }
+    else g.connect(this.master);
+    src.start(t); src.stop(t + len + 0.1);
   }
+
 
   startPad(getT) {
     const a = this.ctx; if (!a || this.pad) return;
