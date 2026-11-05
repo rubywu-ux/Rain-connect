@@ -13,7 +13,7 @@ CR.par.Potauto.label = 'Find the pot by its rim (automatic)'
 _pg0 = next((p for p in CR.customPages if p.name == 'Mist'), None)
 if getattr(CR.par, 'Stormx', None) is None:
 	_sx = _pg0.appendFloat('Stormx', label='Storm when mist moves this many times more than when still')[0]
-	_sx.default = 2.0; _sx.val = 2.0; _sx.normMin, _sx.normMax = 1.3, 5
+	_sx.default = 2.5; _sx.val = 2.5; _sx.normMin, _sx.normMax = 1.5, 6
 if abs(CR.par.Motionhigh.eval() - 0.03) < 1e-6: CR.par.Motionhigh = 0.045
 _pg = next((p for p in CR.customPages if p.name == 'Mist'), None)
 if getattr(CR.par, 'Teststorm', None) is None: _pg.appendPulse('Teststorm', label='Test storm (5 s of lightning + thunder)')
@@ -144,7 +144,7 @@ def _set(k, v):
 	t = op('state')
 	if t is not None and t.row(k) is not None: t[k, 1] = v
 def reset():
-	W['flick'] = None; W['ell'] = None; W['prev'] = None; W['pot'] = None; W['bad'] = 0; W['pm'] = 0.0; W['ps'] = 0.0; W['mb'] = None; W['mbn'] = 0
+	W['flick'] = None; W['ell'] = None; W['prev'] = None; W['pot'] = None; W['bad'] = 0; W['pm'] = 0.0; W['ps'] = 0.0; W['mb'] = None; W['eh'] = []; W['es'] = 0.0; W['mh'] = 0.0
 def _oval(h, w, cx, cy, a, b, th):
 	yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
 	dx, dy = xx - cx, yy - cy
@@ -239,25 +239,32 @@ def onFrameStart(frame):
 	moving = inside & mistmap & ~handzone
 	m = float(dm[moving].mean()) if moving.any() else 0.0
 	lo, hi = float(c.par.Motionlow), float(c.par.Motionhigh)
-	# how much more the mist is moving than when it is left alone: the detector learns the "still"
-	# level by itself (it differs with every camera, light and mist maker), so blowing always reads
-	mb = W.get('mb')
-	if m > 0 and W.get('pm', 0) > 0.2:
-		if mb is None: mb = m
-		elif m < mb * 1.6: mb = mb * 0.99 + m * 0.01
-		else: mb = mb * 0.9995 + m * 0.0005
-		W['mb'] = mb; W['mbn'] = W.get('mbn', 0) + 1
-	ref = max(lo * 0.5, mb if mb else lo)
-	sx = max(1.3, float(c.par.Stormx))
-	mot_rel = max(0.0, min(1.0, (m / ref - 1.15) / (sx - 1.15)))
-	mot_abs = max(0.0, min(1.0, (m - lo) / max(1e-4, hi - lo)))
-	mot = mot_rel if (mb and W.get('mbn', 0) > 30) else mot_abs      # learned level once it has seen ~3 s of mist
+	# how much more the mist is moving than when it is left alone. The total movement inside the oval
+	# (steadier than a per-pixel average) is smoothed a little, and compared with what the detector has
+	# learned is "still" for THIS camera, light and mist maker: the quiet end of the last ~20 s.
+	E = float(dm[inside & ~handzone].mean()) if (inside & ~handzone).any() else 0.0
+	W['es'] = W.get('es', 0.0) * 0.7 + E * 0.3
+	es = W['es']
+	eh = W.get('eh')
+	if eh is None: eh = W['eh'] = []
+	if W.get('pm', 0) > 0.2:
+		eh.append(es)
+		if len(eh) > 200: del eh[:20]
+	mb = float(np.percentile(eh, 25)) if len(eh) >= 30 else None
+	W['mb'] = mb
+	sx = max(1.5, float(c.par.Stormx))
+	if mb:
+		mot_now = max(0.0, min(1.0, (es / max(mb, 1e-4) - 1.4) / (sx - 1.4)))
+	else:                                                    # still learning (first ~3 s of mist): fixed levels
+		mot_now = max(0.0, min(1.0, (m - lo) / max(1e-4, hi - lo)))
+	W['mh'] = max(mot_now, W.get('mh', 0.0) * 0.9)           # a blow is gusty: hold it for a moment
+	mot = W['mh']
 	# where in the pot the mist is moving (for the art modes): -1..1 across the oval
 	if moving.any() and ell is not None:
 		ys_, xs_ = np.nonzero(moving); wt_ = dm[ys_, xs_] + 1e-6
 		W['mx'] = float(((xs_ * wt_).sum() / wt_.sum() - ell[0]) / max(1.0, ell[2]))
 		W['my'] = float(((ys_ * wt_).sum() / wt_.sum() - ell[1]) / max(1.0, ell[3]))
-	W['e'] = W.get('e', 0.0) * 0.6 + mot * 0.4
+	W['e'] = W.get('e', 0.0) * 0.5 + mot_now * 0.5
 	# blowing hard clears mist out of the pot for a moment: remember that there WAS mist for a few
 	# seconds, so a hard blow reads as a storm instead of "no mist"
 	W['ps'] = W.get('ps', 0.0) * 0.9 + pres * 0.1                   # steady mist, not a brief flicker (a hand passing)
@@ -267,7 +274,7 @@ def onFrameStart(frame):
 	raw = 0.0 if pm < 0.15 else 0.3 * min(1.0, pm / 0.5) + 0.7 * mot
 	hist = W.get('hist')
 	if hist is None: hist = W['hist'] = []
-	hist.append((round(frac, 3), round(m, 4), round(mot, 2), round(pm, 2), round(W['w'], 2)))
+	hist.append((round(frac, 3), round(es, 4), round(mot, 2), round(pm, 2), round(W['w'], 2)))
 	if len(hist) > 400: del hist[:100]
 	if W.get('test', 0) > absTime.seconds: raw = 1.0                  # Test storm button
 	k = float(c.par.Smooth)
@@ -292,7 +299,7 @@ def onFrameStart(frame):
 		t = op('mist_dbg_text')
 		if t is not None:
 			t.par.text = ('%s\\nmist fills %3.0f%% of the oval   presence %.2f\\nmist motion %.3f (still %.3f) -> %.2f\\nhands ignored %3.0f%%\\nweather %.2f   %s'
-				% (label, frac * 100, pres, m, W.get('mb') or 0, mot, hand * 100, W['w'], ('pot: found by its rim' if W['pot'] is not None else 'pot: looking...') if c.par.Potauto else 'oval: from settings'))
+				% (label, frac * 100, pres, es, W.get('mb') or 0, mot, hand * 100, W['w'], ('pot: found by its rim' if W['pot'] is not None else 'pot: looking...') if c.par.Potauto else 'oval: from settings'))
 	W['n'] += 1
 	if W['n'] % 2: return                                                    # ~5 messages a second
 	try:
