@@ -150,22 +150,6 @@ def onFrameStart(frame):
 	W['prev'] = lum
 	d = np.abs(lum - prev)
 	d = np.maximum(0, d - np.median(d))               # the camera's own brightness shifts affect everything: remove them
-	solid = d > float(c.par.Solid)                    # a hand / an arm: big, sudden
-	near = solid.copy()                               # ...and the blurry edges around it
-	for dy in (-2, -1, 1, 2):
-		near |= np.roll(solid, dy, 0)
-	for dx in (-2, -1, 1, 2):
-		near |= np.roll(near, dx, 1)
-	sm = W.get('solidmem')
-	sm = near.astype(np.float32) if sm is None or sm.shape != near.shape else np.maximum(sm * 0.75, near.astype(np.float32))
-	W['solidmem'] = sm                                # where a hand was a moment ago stays ignored briefly
-	handzone = sm > 0.2
-	dm = np.where(handzone, 0, d)
-	fl = W['flick'] if W['flick'] is not None and W['flick'].shape == lum.shape else np.zeros_like(lum)
-	fl = fl * 0.93 + dm * 0.07                        # ~1.5 s memory of how much each pixel flickers
-	W['flick'] = fl
-	noise = float(np.median(fl)) + 1e-4
-	mistmap = (fl > noise * float(c.par.Mistlevel)) & (fl > 0.003)
 	# the oval: automatic = the pot itself, found by its dark rim and body (fixed, unlike the mist maker);
 	# looked for every ~2 s, so tilting the camera (round <-> oval) is followed. Otherwise from the settings.
 	if c.par.Potauto:
@@ -198,6 +182,32 @@ def onFrameStart(frame):
 		inside = r2 < 1
 	else:
 		r2 = None; inside = np.zeros(lum.shape, bool)
+	# a hand / an arm = a big, sudden change that reaches in from OUTSIDE the pot (an arm always does).
+	# Big changes that stay inside the rim are the mist being blown or stirred: they count.
+	big = d > float(c.par.Solid)
+	solid = big & ~inside
+	if big.any() and inside.any():
+		lab, info = components(big)
+		out = r2 > 1.15                               # clearly outside the rim
+		for cnt, n, border in info:
+			comp = lab == n
+			if (comp & ~inside).any() and (comp & out).sum() >= 2: solid |= comp
+	solid |= d > 2.6 * float(c.par.Solid)             # something very sudden anywhere (lights, a sleeve) 
+	near = solid.copy()                               # ...and the blurry edges around it
+	for dy in (-2, -1, 1, 2):
+		near |= np.roll(solid, dy, 0)
+	for dx in (-2, -1, 1, 2):
+		near |= np.roll(near, dx, 1)
+	sm = W.get('solidmem')
+	sm = near.astype(np.float32) if sm is None or sm.shape != near.shape else np.maximum(sm * 0.75, near.astype(np.float32))
+	W['solidmem'] = sm                                # where a hand was a moment ago stays ignored briefly
+	handzone = sm > 0.2
+	dm = np.where(handzone, 0, d)
+	fl = W['flick'] if W['flick'] is not None and W['flick'].shape == lum.shape else np.zeros_like(lum)
+	fl = fl * 0.93 + dm * 0.07                        # ~1.5 s memory of how much each pixel flickers
+	W['flick'] = fl
+	noise = float(np.median(fl)) + 1e-4
+	mistmap = (fl > noise * float(c.par.Mistlevel)) & (fl > 0.003)
 	area = max(1, int(inside.sum()))
 	frac = float((mistmap & inside).sum()) / area
 	pres = min(1.0, frac / max(1e-3, float(c.par.Presence))) if ell is not None else 0.0

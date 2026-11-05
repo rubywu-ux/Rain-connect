@@ -101,7 +101,7 @@ Run once in the Textport (it updates the project in place and saves the next ver
   (round from above, oval from an angle) and measures mist just inside it. The black mist maker can
   move anywhere inside; it's ignored.
 - **Mist = flicker** inside that oval (mist is never still). **Motion** = how strongly it changes.
-- **Hands are ignored**: big sudden changes, and the area around them for a moment, are left out (red).
+- **Hands are ignored**: a big sudden change that reaches in from outside the pot (an arm always does) is left out (red), with the area around it for a moment. Big changes that stay inside the rim are the mist being blown or stirred, and they count.
 - **Debug view** (Mist page > Debug view): camera with yellow = pot rim found, cyan = where mist is
   measured, cyan fill = mist, green = mist moving, red = hands ignored, plus live numbers.
 - **Art mode** can be switched from TouchDesigner too: Mist page > Art mode.
