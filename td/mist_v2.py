@@ -29,7 +29,9 @@ _f('Solid', 'Ignore sudden changes bigger than (hands)', 0.3, 0.05, 1)
 _f('Roix', 'View box left', 0, 0, 1); _f('Roiy', 'View box top', 0, 0, 1)
 _f('Roiw', 'View box width', 1, 0.05, 1); _f('Roih', 'View box height', 1, 0.05, 1)
 if getattr(CR.par, 'Debug', None) is None: page.appendToggle('Debug', label='Debug view (what the camera counts)')
-# the old knobs, re-meant for the new detector
+# the old knobs, re-meant for the new detector (they could have been left at 0 by the first setup)
+for _n, _v in (('Presence', 0.15), ('Motionlow', 0.008), ('Motionhigh', 0.05), ('Smooth', 0.75)):
+	if abs(getattr(CR.par, _n).eval()) < 1e-9: setattr(CR.par, _n, _v)
 CR.par.Presence.label = 'Mist amount for full (share of view box)'; CR.par.Presence.normMax = 0.6
 if abs(CR.par.Presence.eval() - 0.05) < 1e-6: CR.par.Presence = 0.15
 CR.par.Motionlow.label = 'Mist motion: still below'
@@ -150,8 +152,9 @@ def onValueChange(par, prev):
 """
 _sp(px, op=CR.path, pars='Calibrate Cam Mist Debug', onpulse=True, valuechange=True, active=True)
 me.time.play = True
+import re
 d = os.path.expanduser('~/Desktop/ConnectTheRain')
-n = 6
-while os.path.exists(os.path.join(d, 'ConnectTheRain.%d.toe' % n)): n += 1
+nums = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r'ConnectTheRain\.(\d+)\.toe$', f)] if m]
+n = max(nums + [5]) + 1                                    # always one above the newest, so the biggest number is the latest
 project.save(os.path.join(d, 'ConnectTheRain.%d.toe' % n))
 print('MIST v2 READY: turn the generator OFF, press Calibrate, then switch on Debug and turn the mist on.')

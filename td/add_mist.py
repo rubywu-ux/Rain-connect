@@ -24,6 +24,7 @@ def _par(kind, name, label, default, lo=None, hi=None):
 		p = getattr(page, 'append' + kind)(name, label=label)[0]
 	if kind in ('Float', 'Int'):
 		p.default = default
+		if p.eval() == 0 and default != 0: p.val = default          # new parameters start at their default
 		if lo is not None: p.normMin, p.min = lo, lo
 		if hi is not None: p.normMax, p.max = hi, hi
 	elif kind == 'Toggle':
