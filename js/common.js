@@ -588,7 +588,11 @@ class RainRenderer {
     this._artT = T;
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     c.globalCompositeOperation = 'source-over';
-    c.fillStyle = `rgba(${PAL.bg},${this.fresh ? 1 : 0.045 + 0.05 * this.storm})`;
+    // long trails need a very soft fade, but on 8-bit pixels a very soft fade never quite reaches the
+    // background (faint tinted ghosts stay behind). Every 4th frame a stronger pass clears them.
+    this._artN = (this._artN || 0) + 1;
+    const fa = this.fresh ? 1 : (this._artN % 4 === 0 ? 0.16 : 0.055) + 0.05 * this.storm;
+    c.fillStyle = `rgba(${PAL.bg},${fa})`;
     c.fillRect(0, 0, Wd, Hd);
     this.fresh = false;
     this.bright = Math.max(0, this.bright - 0.01);
@@ -642,7 +646,7 @@ class RainRenderer {
     for (const z of src) {
       const pulse = 0.75 + 0.25 * Math.sin(T * (0.6 + z.k) + z.id), r = (1.5 + 5 * z.k) * this.scale * pulse;
       const g = c.createRadialGradient(z.x, z.y, 0, z.x, z.y, r * 3);
-      g.addColorStop(0, `rgba(${PAL.ink},${(0.012 + 0.03 * z.k) * (0.4 + 0.6 * pres)})`); g.addColorStop(1, `rgba(${PAL.ink},0)`);
+      g.addColorStop(0, `rgba(${PAL.ink},${(0.012 + 0.03 * z.k) * (0.4 + 0.6 * pres) * (INK ? 0.45 : 1)})`); g.addColorStop(1, `rgba(${PAL.ink},0)`);
       c.fillStyle = g; c.beginPath(); c.arc(z.x, z.y, r * 3, 0, 6.283); c.fill();
       c.fillStyle = `rgba(${PAL.ink},${0.12 + 0.25 * z.k})`; c.fillRect(z.x - lw * 0.7, z.y - lw * 0.7, lw * 1.4, lw * 1.4);
     }
