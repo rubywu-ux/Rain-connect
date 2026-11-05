@@ -41,3 +41,32 @@ topic `rainconnect/rubywu-ux-k7q2/gallery/td`, as `{type: tap|wind|join, u, v, .
 u and v from 0 to 1 on the wall. The live data is on `.../rainnow` and `.../stats`, both
 retained. Listen with an MQTT Client DAT at `tcp://broker.emqx.io:1883`.
 Run only ONE wall: either the browser one or the one in TouchDesigner, never both.
+
+## Mist weather (webcam -> TouchDesigner -> the wall)
+
+A mist generator stands in front of a webcam. Visitors blow at the mist or wave through it;
+TouchDesigner watches it and the wall's weather follows. This is wall-only: the phones never
+receive the weather, so their rain, music and breath storm are untouched.
+
+| mist | wall |
+|---|---|
+| none (generator off / mist cleared) | rain stops, the room brightens to light mode, leaves rustle, small birds |
+| present but still | the usual rain, dark |
+| moving frantically | gusts of wind, dark, the rain leans; louder the harder the mist moves |
+
+Setup, once (TouchDesigner, with ConnectTheRain open): paste this into the Textport
+(Dialogs > Textport and DATs) and press Return:
+
+    import urllib.request as u; exec(u.urlopen('https://rubywu-ux.github.io/Rain-connect/td/add_mist.py').read().decode('utf-8'))
+
+It adds `cam -> cam_small -> cam_diff -> bright_chop / motion_chop -> mist_weather` inside
+`/project1/connect_rain`, a **Mist** page of settings on the container (Mist on/off, Camera,
+thresholds, Calibrate), and saves `ConnectTheRain.6.toe`.
+
+Using it: point the webcam at the mist against a dark background (a black cloth), with a lamp
+lighting the mist from the side. On the Mist page: pick the **Camera**, press **Calibrate** with
+the mist off (the room's baseline), then start the generator. `cam_diff` shows what it sees as
+motion. If "calm" never comes, raise **Presence**; if "storm" comes too easily, raise
+**Motion: frantic**. The wall shows `mist · calm / rain / storm` bottom-left; **Mist** on the
+container (or the W key / that button on the wall page) switches the whole feature off.
+

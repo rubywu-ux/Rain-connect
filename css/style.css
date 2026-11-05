@@ -102,6 +102,14 @@ body.wall { cursor: none; }
 .start small { display: block; font-family: var(--mono); font-size: .9vw; color: var(--dim); margin-top: 1.2vh; letter-spacing: .1em; }
 .netdot { position: fixed; right: 1.2vw; top: 1.2vw; width: 8px; height: 8px; border-radius: 50%; background: #c55; z-index: 6; opacity: .7; }
 .netdot.ok { background: #5c8; }
+/* mist weather switch: wall only */
+.mist { position: fixed; left: 2.4vw; bottom: 1.6vw; z-index: 6; font: 300 .75vw var(--mono); letter-spacing: .2em; text-transform: uppercase;
+  color: var(--faint); background: none; border: 1px solid rgba(var(--rgb), .18); border-radius: 999px; padding: .5vw 1vw; cursor: pointer; }
+.mist.on { color: var(--ink); border-color: rgba(var(--rgb), .5); }
+/* a soft fade while the room changes between light and dark */
+.veil { position: fixed; inset: 0; z-index: 5; pointer-events: none; opacity: 0; transition: opacity .65s ease; }
+.veil.on { opacity: 1; }
+html, body.wall { transition: background .8s ease, color .8s ease; }
 
 /* black ink on white paper (?ink) */
 html.ink { --rgb: 14, 14, 16; --bgrgb: 244, 243, 240; --ink: #0e0e10; --bg: #f4f3f0; }

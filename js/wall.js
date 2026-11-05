@@ -18,13 +18,17 @@
   if (RC.base.split('/').pop() !== 'gallery') phoneUrl.searchParams.set('room', RC.base.split('/').pop());
   new URLSearchParams(location.search).get('broker') && phoneUrl.searchParams.set('broker', RC.broker);
   if (INK) phoneUrl.searchParams.set('ink', '');
-  try {
-    const qr = qrcode(0, 'M'); qr.addData(phoneUrl.href); qr.make();
-    $('qr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
-    const svg = $('qr').querySelector('svg');
-    svg.querySelectorAll('rect').forEach(r => r.setAttribute('fill', `rgb(${PAL.bg})`));
-    svg.querySelectorAll('path').forEach(p => p.setAttribute('fill', `rgb(${PAL.ink})`));
-  } catch (e) { $('qr').textContent = phoneUrl.href; }
+  function drawQR() {
+    try {
+      const qr = qrcode(0, 'M'); qr.addData(phoneUrl.href); qr.make();
+      $('qr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+      const svg = $('qr').querySelector('svg');
+      svg.querySelectorAll('rect').forEach(r => r.setAttribute('fill', `rgb(${PAL.bg})`));
+      svg.querySelectorAll('path').forEach(p => p.setAttribute('fill', `rgb(${PAL.ink})`));
+    } catch (e) { $('qr').textContent = phoneUrl.href; }
+  }
+  drawQR();
+  addEventListener('inkchange', () => { drawQR(); R.fresh = true; });
 
   /* ---------------- hub state */
   const clients = new Map();   // id -> {id,w,h,gid,ox,oy,num,seen}
@@ -41,6 +45,7 @@
   });
   net.sub('hub/in');
   net.sub('g/+');
+  net.sub('weather');          // from TouchDesigner: how the mist is moving
   net.connect();
 
   const groupMembers = g => [...clients.values()].filter(c => c.gid === g);
@@ -57,6 +62,7 @@
   }
 
   function onMsg(topic, m) {
+    if (topic === 'weather') return onWeather(m);
     if (topic === 'hub/in') return hub(m);
     if (topic.startsWith('g/')) return echo(topic.slice(2), m);
   }
@@ -140,7 +146,7 @@
       stormN = n; stormLevel = level; lastStormPub = now;
       net.pub('storm', { n, level: +level.toFixed(2) });
       net.pub('td', { type: 'storm', n, level: +level.toFixed(2) });
-      S.setStorm(level);
+      S.setStorm(Math.max(level, mistStorm));
     }
     if (level > 0 && Math.random() < (0.3 + level * 2.2) * 0.25) {
       const strike = { seed: Math.floor(Math.random() * 1e9), u: +(0.08 + Math.random() * 0.84).toFixed(3), power: +(0.45 + 0.55 * level * Math.random()).toFixed(2) };
@@ -150,8 +156,53 @@
       S.thunder(strike.power, 0.25 + hash(strike.seed + 3) * 0.9);
     }
   }, 250);
-  const tickStorm = () => { R.storm += (stormLevel - R.storm) * 0.04; requestAnimationFrame(tickStorm); };
+  const tickStorm = () => { R.storm += (Math.max(stormLevel, mistStorm) - R.storm) * 0.04; requestAnimationFrame(tickStorm); };
   requestAnimationFrame(tickStorm);
+
+  /* ---------------- mist weather (wall only). TouchDesigner watches the mist through the webcam and
+     sends w = 0 (no mist) .. 1 (mist thrown about). The wall answers with the weather:
+       calm  (w < 0.25): the rain stops, the room brightens to light mode, leaves rustle, small birds
+       rain  (0.25-0.6): the usual rain, dark
+       storm (w > 0.6):  gusts of wind, darker, the rain leans; louder the harder the mist moves
+     Nothing here goes to the phones: their rain, music and breath storm are untouched. */
+  let mistOn = false, wTarget = 0, w = 0, mistStorm = 0, light = false, lastGust = 0, baseDensity = 1.2, mistSeen = 0;
+  function onWeather(m) {
+    if (!m || typeof m !== 'object') return;
+    mistSeen = Date.now();
+    if (m.on != null) setMist(!!m.on, true);
+    if (m.w != null) wTarget = clamp(+m.w, 0, 1);
+  }
+  function setMist(on, fromTD) {
+    if (on === mistOn) return;
+    mistOn = on;
+    if (!on) { wTarget = 0; }
+    $('mist').classList.toggle('on', on);
+    if (!fromTD) net.pub('weather', { on: on ? 1 : 0, w: +wTarget.toFixed(2) }, true);
+  }
+  function setLight(on) {
+    if (on === light) return;
+    light = on;
+    const veil = $('veil');
+    veil.style.background = on ? '#f4f3f0' : '#040405';
+    veil.classList.add('on');
+    setTimeout(() => { setInk(on); veil.classList.remove('on'); }, 650);
+  }
+  setInterval(() => {
+    const now = Date.now();
+    if (mistOn && now - mistSeen > 20000) wTarget = 0.4;       // TouchDesigner went quiet: fall back to plain rain
+    w += (wTarget - w) * 0.12;
+    const active = mistOn && S.ctx;
+    const calm = active ? clamp((0.25 - w) / 0.25, 0, 1) : 0;
+    mistStorm = active ? clamp((w - 0.6) / 0.4, 0, 1) : 0;
+    setLight(active && (light ? w < 0.3 : w < 0.18));
+    R.density = baseDensity * (1 - 0.97 * calm);
+    S.setRain(rainLevel * (1 - calm) * (1 + 0.6 * mistStorm));
+    S.setCalm(calm);
+    if (!blowers.size || stormLevel < mistStorm) S.setStorm(Math.max(stormLevel, mistStorm));
+    if (mistStorm > 0.05 && now - lastGust > 1400 - 900 * mistStorm && Math.random() < 0.5) { lastGust = now; S.gust(0.3 + 0.7 * mistStorm); }
+    $('mist').textContent = !mistOn ? 'mist · off' : `mist · ${w < 0.25 ? 'calm' : w < 0.6 ? 'rain' : 'storm'}`;
+  }, 250);
+  let rainLevel = 0.25;
 
   // forget phones that closed the page
   setInterval(() => {
@@ -203,8 +254,10 @@
     snap = s; M.setSnapshot(s);
     $('pct').textContent = s.pct.toFixed(1);
     $('meta').textContent = `${s.raining} of ${s.n} evenly spread points on Earth report rain · Open-Meteo · ${fmtTime(s.t)}`;
-    S.setRain(clamp(s.pct / 30, 0, 1));
-    R.density = 0.9 + clamp(s.pct / 25, 0, 1) * 0.6;
+    rainLevel = clamp(s.pct / 30, 0, 1);
+    S.setRain(rainLevel);
+    baseDensity = 0.9 + clamp(s.pct / 25, 0, 1) * 0.6;
+    R.density = baseDensity;
     net.pub('rainnow', s, true);
   }
   async function refresh() {
@@ -251,6 +304,7 @@
   addEventListener('keydown', e => {
     if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
     if (e.key === 'm') { mapOn = !mapOn; $('wallmap').classList.toggle('on', mapOn); }
+    if (e.key === 'w') setMist(!mistOn);
   });
   function frame() {
     const t = T();
@@ -263,5 +317,6 @@
   }
   requestAnimationFrame(frame);
 
-  if (RC.debug) window.__hub = { clients, exits, net, R, get joins() { return joins; } };
+  $('mist').onclick = () => setMist(!mistOn);
+  if (RC.debug) window.__hub = { clients, exits, net, R, S, setMist, get w() { return w; }, get light() { return light; }, get joins() { return joins; } };
 })();

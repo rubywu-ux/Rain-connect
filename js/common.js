@@ -84,16 +84,23 @@ class Net {
  * along every filament. Everything is a deterministic function of world position + shared
  * time, so plumes continue across phones placed side by side.
  * Default: white light on black.  ?ink : black ink on white paper. */
-const INK = new URLSearchParams(location.search).has('ink');
-const PAL = INK
-  ? { bg: '244,243,240', ink: '12,12,14', comp: 'source-over', fade: 0.24 }
-  : { bg: '4,4,5', ink: '236,237,240', comp: 'lighter', fade: 0.26 };
+let INK = new URLSearchParams(location.search).has('ink');
+const PAL_DARK = { bg: '4,4,5', ink: '236,237,240', comp: 'lighter', fade: 0.26 };
+const PAL_LIGHT = { bg: '244,243,240', ink: '12,12,14', comp: 'source-over', fade: 0.24 };
+const PAL = Object.assign({}, INK ? PAL_LIGHT : PAL_DARK);
 if (INK) document.documentElement.classList.add('ink');
+/* switch the whole page between light (ink on paper) and dark (light on black) while it runs */
+function setInk(on) {
+  if (on === INK) return;
+  INK = on; Object.assign(PAL, on ? PAL_LIGHT : PAL_DARK);
+  document.documentElement.classList.toggle('ink', on);
+  _spark = null;
+  dispatchEvent(new Event('inkchange'));
+}
 /* one colour per phone (strands stay black & white; a person's touches carry their colour) */
-const COLORS = INK
-  ? ['214,74,58', '196,132,20', '30,150,110', '40,110,200', '130,80,200', '200,70,140', '90,150,30', '20,140,160']
-  : ['255,122,107', '255,198,96', '112,228,182', '110,182,255', '198,152,255', '255,140,200', '170,232,100', '96,222,232'];
-function colorOf(i) { return i == null ? PAL.ink : COLORS[((i % COLORS.length) + COLORS.length) % COLORS.length]; }
+const COLORS_LIGHT = ['214,74,58', '196,132,20', '30,150,110', '40,110,200', '130,80,200', '200,70,140', '90,150,30', '20,140,160'];
+const COLORS_DARK = ['255,122,107', '255,198,96', '112,228,182', '110,182,255', '198,152,255', '255,140,200', '170,232,100', '96,222,232'];
+function colorOf(i) { const C = INK ? COLORS_LIGHT : COLORS_DARK; return i == null ? PAL.ink : C[((i % C.length) + C.length) % C.length]; }
 const PLUME_LANE = 380;    // world px between plume lanes
 const PLUME_GAP = 15;      // seconds between plumes in one lane (divided by rain density)
 const PLUME_LIFE = 24;     // seconds a plume lives (bloom -> breathe -> dissolve into rain)
@@ -785,6 +792,48 @@ class RainSound {
       const cg = a.createGain(); cg.gain.setValueAtTime(0.0001, t - 0.05);
       cg.gain.exponentialRampToValueAtTime(0.12 * power, t - 0.04); cg.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
       cs.connect(hp); hp.connect(cg); cg.connect(this.master); cs.start(t - 0.05); cs.stop(t + 0.25);
+    }
+  }
+  /* calm weather (no mist): rain gives way to leaves rustling and small birds. 0 = off, 1 = full */
+  setCalm(level) {
+    const a = this.ctx; if (!a) return;
+    if (!this.calm) {
+      const src = a.createBufferSource(); src.buffer = this._noiseBuffer(5, false); src.loop = true;
+      const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2600; bp.Q.value = 0.45;
+      const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 900;
+      // leaves: the hiss breathes slowly and flutters, like wind moving through a tree
+      const sway = a.createGain(); sway.gain.value = 0.55;
+      const lfo1 = a.createOscillator(), l1 = a.createGain(); lfo1.frequency.value = 0.11; l1.gain.value = 0.3;
+      const lfo2 = a.createOscillator(), l2 = a.createGain(); lfo2.frequency.value = 2.3; l2.gain.value = 0.12;
+      lfo1.connect(l1); l1.connect(sway.gain); lfo2.connect(l2); l2.connect(sway.gain); lfo1.start(); lfo2.start();
+      const g = a.createGain(); g.gain.value = 0.0001;
+      src.connect(hp); hp.connect(bp); bp.connect(sway); sway.connect(g); g.connect(this.master); src.start();
+      this.calm = { g, level: 0, timer: null };
+      const birds = () => {
+        const lv = this.calm.level;
+        if (lv > 0.15 && Math.random() < 0.35 + lv * 0.5) this.chirp(Math.random(), 0.05 + 0.07 * lv);
+        this.calm.timer = setTimeout(birds, 1200 + Math.random() * 4500 / Math.max(0.2, lv));
+      };
+      birds();
+    }
+    this.calm.level = level;
+    this.calm.g.gain.setTargetAtTime(level <= 0 ? 0.0001 : 0.02 + 0.06 * level, a.currentTime, level > 0 ? 2 : 1.2);
+  }
+  /* a small bird: a short phrase of 2-5 whistled notes, each a quick frequency sweep */
+  chirp(pan = 0.5, vol = 0.08) {
+    const a = this.ctx; if (!a) return;
+    const n = 2 + Math.floor(Math.random() * 4), f0 = 2200 + Math.random() * 2600;
+    let t = a.currentTime + 0.05;
+    const p = a.createStereoPanner ? a.createStereoPanner() : null;
+    const out = a.createGain(); out.gain.value = vol;
+    if (p) { p.pan.value = pan * 2 - 1; out.connect(p); p.connect(this.master); p.connect(this.wet); } else out.connect(this.master);
+    for (let i = 0; i < n; i++) {
+      const o = a.createOscillator(), g = a.createGain(); o.type = 'sine';
+      const d = 0.05 + Math.random() * 0.09, up = Math.random() < 0.6, f1 = f0 * (0.85 + Math.random() * 0.3), f2 = f1 * (up ? 1.35 : 0.72);
+      o.frequency.setValueAtTime(f1, t); o.frequency.exponentialRampToValueAtTime(f2, t + d * 0.7); o.frequency.exponentialRampToValueAtTime(f1 * 1.05, t + d);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(1, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(g); g.connect(out); o.start(t); o.stop(t + d + 0.02);
+      t += d + 0.03 + Math.random() * 0.08;
     }
   }
   /* one person blowing: a soft whoosh */
