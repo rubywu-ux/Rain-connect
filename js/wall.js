@@ -354,7 +354,7 @@
 
   // the map fades in every 90 s for 20 s
   let mapOn = false;
-  setInterval(() => { mapOn = true; $('wallmap').classList.add('on'); setTimeout(() => { mapOn = false; $('wallmap').classList.remove('on'); }, 20000); }, 90000);
+  // (the old outline map no longer fades in: the stippled world under the plumes is the map now)
 
   /* ---------------- start + loop */
   $('start').onclick = () => { S.start(); if (snap) S.setRain(clamp(snap.pct / 30, 0, 1)); S.startPad(T); $('start').remove(); };
@@ -387,13 +387,12 @@
   }, MUSIC.pulse * 1000);
   addEventListener('keydown', e => {
     if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
-    if (e.key === 'm') { mapOn = !mapOn; $('wallmap').classList.toggle('on', mapOn); }
     if (e.key === 'w') setMist(!mistOn);
   });
   function frame() {
     const t = T();
     R.draw(t);
-    if (mapOn || $('wallmap').classList.contains('on')) {
+    if (mapOn) {
       const r = $('map').getBoundingClientRect();
       M.draw(t, r.width, r.height, Math.min(devicePixelRatio || 1, 2));
     }
