@@ -911,7 +911,7 @@ class RainSound {
       const src = a.createBufferSource(); src.buffer = this._noiseBuffer(decay + 0.3, false);
       const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
       const g = a.createGain(); g.gain.setValueAtTime(0.0001, at);
-      g.gain.exponentialRampToValueAtTime(peak, at + 0.03); g.gain.exponentialRampToValueAtTime(peak * 0.35, at + decay * 0.35);
+      g.gain.exponentialRampToValueAtTime(peak, at + 0.015); g.gain.exponentialRampToValueAtTime(peak * 0.35, at + decay * 0.35);
       g.gain.exponentialRampToValueAtTime(0.0001, at + decay);
       src.connect(bp); bp.connect(g); g.connect(bus); src.start(at); src.stop(at + decay + 0.3);
     };

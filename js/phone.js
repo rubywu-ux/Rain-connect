@@ -83,7 +83,7 @@
     } else if (topic === 'strike') {
       if (!entered) return;
       R.addBolt({ u: m.u, seed: m.seed, power: m.power, t: T() });
-      S.thunder(m.power, 0.25 + hash(m.seed + 3) * 0.9);
+      S.thunder(m.power, 0);
     } else if (topic === 'rainnow') {
       setSnap(m);
     } else if (topic === 'stats') {

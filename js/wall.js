@@ -224,7 +224,7 @@
       net.pub('strike', strike);
       net.pub('td', Object.assign({ type: 'strike' }, strike));
       R.addBolt(Object.assign({ t: T() }, strike));
-      S.thunder(strike.power, 0.25 + hash(strike.seed + 3) * 0.9);
+      S.thunder(strike.power, 0);
     }
   }, 250);
   const tickStorm = () => { R.storm += (Math.max(stormLevel, mistStorm) - R.storm) * 0.04; requestAnimationFrame(tickStorm); };
@@ -276,7 +276,7 @@
       const b = { seed: Math.floor(Math.random() * 1e9), u: +(0.06 + Math.random() * 0.88).toFixed(3), power: +(0.4 + 0.6 * mistStorm * (0.5 + 0.5 * Math.random())).toFixed(2),
                   across: Math.random() < 0.55, t: T() };
       R.addBolt(b);
-      S.thunder(b.power, 0.08 + Math.random() * (1 - mistStorm) * 0.9, 1.15);        // deep, crisp, loud
+      S.thunder(b.power, 0, 1.15);        // sound starts with the flash: deep, crisp, loud
       net.pub('td', { type: 'strike', source: 'mist', u: b.u, power: b.power });
     }
     $('mist').textContent = !mistOn ? 'mist · off' : `mist · ${w < 0.25 ? 'calm' : w < 0.6 ? 'rain' : 'storm'}`;
