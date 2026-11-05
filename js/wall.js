@@ -291,7 +291,8 @@
     const calm = active ? clamp((0.25 - w) / 0.25, 0, 1) : 0;
     mistStorm = active ? clamp((w - 0.6) / 0.4, 0, 1) : 0;
     setLight(active && (light ? w < 0.3 : w < 0.18));
-    R.presence += ((1 - calm) - R.presence) * 0.08;         // the rain fades out / back in, smoothly
+    // the rain fades out / back in, smoothly; in art mode it never fully stops, so the picture stays alive
+    R.presence += (Math.max(art ? 0.45 : 0, 1 - calm) - R.presence) * 0.08;
     S.setRain(rainLevel * (1 - calm) * (1 + 0.6 * mistStorm));
     S.setCalm(calm);
     if (!blowers.size || stormLevel < mistStorm) S.setStorm(Math.max(stormLevel, mistStorm));
