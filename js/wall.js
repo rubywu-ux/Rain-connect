@@ -6,8 +6,10 @@
   const R = new RainRenderer($('rain'), { scale: 1.6, detail: +(new URLSearchParams(location.search).get('detail') || 0.6) });
   /* ---------------- the wall IS the world's rain: one plume for every place where it is raining now,
      placed like a map (east-west across, north-south down), sized by how hard it is raining there */
-  const siteX = u => R.view.x + (0.04 + 0.92 * u) * R.worldW;
-  const siteY = v => R.view.y + (0.03 + 0.52 * v) * R.worldH;
+  // the world sits centred: 180W..180E across, 80N..60S down (the poles are left out)
+  const siteX = u => R.view.x + (0.07 + 0.86 * u) * R.worldW;
+  const latV = v => clamp(((90 - v * 180) * -1 + 80) / 140, 0, 1);      // v (0 = N pole) -> 0..1 between 80N and 60S
+  const siteY = v => R.view.y + (0.16 + 0.58 * latV(v)) * R.worldH;
   let siteInfo = new Map();        // site id -> {lat, lon, mm, code, where, words}
   function buildSites(s) {
     const out = [];
@@ -30,7 +32,7 @@
     for (let r = 0; r < 90; r++) for (let c = 0; c < 180; c++) {
       if (!LAND_MASK[r * 180 + c]) continue;
       const lat = 89 - r * 2, lon = -179 + c * 2;
-      if (lat < -62) continue;                      // leave Antarctica out: it would be a long band
+      if (lat < -60 || lat > 80) continue;          // leave the poles out: they would be long bands
       const px = (siteX((lon + 180) / 360) - R.view.x) * R.scale * k, py = (siteY((90 - lat) / 180) - R.view.y) * R.scale * k;
       x.fillRect(px, py, 1, 1);
     }
@@ -45,7 +47,8 @@
     el.className = 'site-tag' + (strong ? ' strong' : '');
     el.innerHTML = `<b>${text}</b>${sub ? `<small>${sub}</small>` : ''}`;
     const x = (site.x - R.view.x) * R.scale, y = (site.y - R.view.y) * R.scale;
-    el.style.left = Math.min(innerWidth - 260, Math.max(20, x + 14)) + 'px'; el.style.top = Math.max(70, y - 8) + 'px';
+    el.style.left = Math.min(innerWidth - innerWidth * 0.24 - 20, Math.max(20, x + 18)) + 'px';
+    el.style.top = Math.min(innerHeight * 0.62, Math.max(innerHeight * 0.12, y - 10)) + 'px';
     document.body.appendChild(el);
     requestAnimationFrame(() => el.classList.add('on'));
     setTimeout(() => { el.classList.remove('on'); setTimeout(() => el.remove(), 1600); }, strong ? 6000 : 5000);
@@ -57,8 +60,9 @@
 
   /* ---------------- the rain remembers: stains where it has rained, kept across reloads, fading over a day */
   R.enableMemory();
+  R.bottomFade = 0.08;             // a little less haze where the plumes pile up at the bottom
   try {
-    const m = JSON.parse(localStorage.getItem('rc_memory') || 'null');
+    const m = JSON.parse(localStorage.getItem('rc_memory2') || 'null');
     if (m && Date.now() - m.t < 24 * 3600e3) {
       const img = new Image();
       img.onload = () => { R.memory.getContext('2d').drawImage(img, 0, 0, R.memory.width, R.memory.height); R.fadeMemory(Math.min(0.9, (Date.now() - m.t) / (24 * 3600e3))); };
@@ -68,7 +72,7 @@
   setInterval(() => {
     if (!R.memoryDirty) return;
     R.memoryDirty = false;
-    try { localStorage.setItem('rc_memory', JSON.stringify({ t: Date.now(), img: R.memory.toDataURL('image/png') })); } catch (e) {}
+    try { localStorage.setItem('rc_memory2', JSON.stringify({ t: Date.now(), img: R.memory.toDataURL('image/png') })); } catch (e) {}
   }, 60e3);
   setInterval(() => R.fadeMemory(0.03), 10 * 60e3);   // about a day for a stain to disappear
   const M = new WorldMap($('map'));

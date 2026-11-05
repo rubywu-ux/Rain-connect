@@ -436,6 +436,14 @@ class RainRenderer {
       this._bolt(c, b, age, lw);
     }
 
+    // the wall: thin the haze at the bottom a little (with the frame fade this settles at ~75%)
+    if (this.bottomFade) {
+      c.globalCompositeOperation = 'source-over';
+      const g = c.createLinearGradient(0, this.h * 0.45, 0, this.h);
+      g.addColorStop(0, `rgba(${PAL.bg},0)`); g.addColorStop(1, `rgba(${PAL.bg},${this.bottomFade})`);
+      c.fillStyle = g; c.fillRect(0, this.h * 0.45, this.w, this.h * 0.55);
+      c.globalCompositeOperation = PAL.comp;
+    }
     // joins: a luminous orbit thread drawn across the connected screens
     this.flashes = this.flashes.filter(f => T - f.t < 5);
     for (const f of this.flashes) {
