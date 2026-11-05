@@ -86,23 +86,9 @@ container (or the W key / that button on the wall page) switches the whole featu
 
 ## Art mode (wall)
 
-The **art · off/on** button (bottom-left of the wall, or the **A** key) switches the wall to a
-second view for experimenting: no map, numbers or place names. The same live raining places hang
-from one slow flowing line across the top as a curtain of bigger plumes, with long smoky trails.
-The QR code shrinks into the corner. Press again to go back; the wall remembers the choice.
-
-### Mist detection in TouchDesigner (current: `td/mist_v4.py`)
-
-Run once in the Textport (it updates the project in place and saves the next version number):
-
-    import urllib.request as U, ssl; exec(U.urlopen('https://rubywu-ux.github.io/Rain-connect/td/mist_v4.py', context=ssl.create_default_context(cafile='/etc/ssl/cert.pem')).read().decode('utf-8'), dict(globals()))
-
-- **Finds the pot by its rim**: every ~2 s it looks for the pot's dark rim and body, fits an ellipse
-  (round from above, oval from an angle) and measures mist just inside it. The black mist maker can
-  move anywhere inside; it's ignored.
-- **Mist = flicker** inside that oval (mist is never still). **Motion** = how strongly it changes.
-- **Hands are ignored**: a big sudden change that reaches in from outside the pot (an arm always does) is left out (red), with the area around it for a moment. Big changes that stay inside the rim are the mist being blown or stirred, and they count.
-- **Debug view** (Mist page > Debug view): camera with yellow = pot rim found, cyan = where mist is
-  measured, cyan fill = mist, green = mist moving, red = hands ignored, plus live numbers.
-- **Art mode** can be switched from TouchDesigner too: Mist page > Art mode.
-
+The **art · off/on** button (bottom-left of the wall), the **A** key on the wall page, or **A** in
+TouchDesigner's projector window (or Mist page > Art mode) switches the wall to **Currents**: no map,
+numbers or names. Every place where it is raining right now becomes a source on a slowly turning
+sunflower spiral; heavier rain = a brighter source that releases more ink. The ink drifts through an
+invisible current that swirls around the middle, leaving long trails. The mist storm churns and speeds
+up the current (with lightning and thunder); calm thins it to a few slow threads. Phone taps bloom.

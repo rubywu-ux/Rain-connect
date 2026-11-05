@@ -189,6 +189,7 @@ class RainRenderer {
   _toScreen(x, y) { return [(x - this.view.x) * this.scale, (y - this.view.y) * this.scale]; }
 
   draw(T) {
+    if (this.art) return this._drawArt(T);
     const c = this.ctx, s = this.scale, vx = this.view.x, vy = this.view.y;
     const W = this.worldW, H = this.worldH, lw = Math.max(1, s * 0.75);
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -576,6 +577,87 @@ class RainRenderer {
     return out;
   }
 
+  /* ---------------- art mode: "Currents". No map, no words. Every place where it is raining right now
+     becomes a source in a slowly turning sunflower spiral (in east-to-west order); heavier rain = a
+     brighter source that releases more ink. The ink drifts through an invisible current that swirls
+     around the middle, leaving long trails. A storm (the mist) churns the current and speeds it up;
+     calm thins it to a few slow threads. Taps from phones bloom; lightning still strikes. */
+  _drawArt(T) {
+    const c = this.ctx, Wd = this.w, Hd = this.h, lw = Math.max(1, this.scale * 0.75);
+    const dt = this._artT != null ? clamp(T - this._artT, 0, 0.1) : 0.016;
+    this._artT = T;
+    c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    c.globalCompositeOperation = 'source-over';
+    c.fillStyle = `rgba(${PAL.bg},${this.fresh ? 1 : 0.045 + 0.05 * this.storm})`;
+    c.fillRect(0, 0, Wd, Hd);
+    this.fresh = false;
+    this.bright = Math.max(0, this.bright - 0.01);
+    const storm = this.storm, pres = this.presence, boost = 1 + this.bright * 0.6;
+    const cx = Wd / 2, cy = Hd * 0.5, R0 = Math.min(Wd, Hd) * 0.42, rot = T * 0.012;
+    // sources: the raining places, on a golden-angle spiral
+    const sites = [...(this.sites || [])].sort((a, b) => a.u - b.u), n = sites.length;
+    const src = sites.map((z, i) => {
+      const a = i * 2.39996 + rot, r = R0 * Math.sqrt((i + 0.6) / Math.max(1, n));
+      return { x: cx + Math.cos(a) * r * 1.35, y: cy + Math.sin(a) * r * 0.82, k: z.k, id: z.id };
+    });
+    // the ink
+    const P = this._ink || (this._ink = []);
+    const MAX = 3400;
+    for (const z of src) {
+      let m = (3 + 26 * z.k * z.k) * (0.25 + pres) * (1 + 1.2 * storm) * dt;
+      while (m > 0 && P.length < MAX) {
+        if (m < 1 && Math.random() > m) break;
+        m -= 1;
+        const a = Math.random() * 6.283, r = Math.random() * (3 + 10 * z.k) * this.scale;
+        P.push({ x: z.x + Math.cos(a) * r, y: z.y + Math.sin(a) * r, px: 0, py: 0, age: 0, life: 4 + 6 * Math.random() * (0.5 + z.k), k: z.k });
+      }
+    }
+    const fq = 0.0019 / this.scale * (1 + 0.8 * storm), sp = (18 + 22 * pres + 150 * storm) * this.scale;
+    const L = [new Path2D(), new Path2D(), new Path2D()];
+    let keep = 0;
+    for (let i = 0; i < P.length; i++) {
+      const q = P[i];
+      q.age += dt;
+      if (q.age > q.life || q.x < -40 || q.y < -40 || q.x > Wd + 40 || q.y > Hd + 40) continue;
+      q.px = q.x; q.py = q.y;
+      const ang = 6.283 * fbm(q.x * fq + 3.1, q.y * fq - T * (0.03 + 0.1 * storm)) * (1.3 + storm);
+      const dx = q.x - cx, dy = q.y - cy, dd = Math.hypot(dx, dy) + 1;
+      // the current: noise + a slow swirl around the middle + a gentle drift outward
+      let vx = Math.cos(ang) * sp - dy / dd * sp * 0.55 + dx / dd * sp * 0.12;
+      let vy = Math.sin(ang) * sp + dx / dd * sp * 0.55 + dy / dd * sp * 0.12;
+      const [ix, iy] = this.disp(q.x / this.scale + this.view.x, q.y / this.scale + this.view.y, T);   // taps push the ink
+      q.x += vx * dt + ix * 0.05 * this.scale; q.y += vy * dt + iy * 0.05 * this.scale;
+      const f = q.age / q.life, env = Math.sin(Math.PI * f) * (0.45 + 0.55 * q.k);
+      const b = env > 0.55 ? 2 : env > 0.28 ? 1 : 0;
+      L[b].moveTo(q.px, q.py); L[b].lineTo(q.x, q.y);
+      P[keep++] = q;
+    }
+    P.length = keep;
+    c.globalCompositeOperation = PAL.comp;
+    c.lineCap = 'round';
+    [[0.07, 0.6], [0.16, 0.8], [0.32, 1.0]].forEach(([al, wd], b) => {
+      c.strokeStyle = `rgba(${PAL.ink},${Math.min(1, al * boost)})`; c.lineWidth = lw * wd; c.stroke(L[b]);
+    });
+    // the sources themselves: a soft breathing point, bigger where it rains harder
+    for (const z of src) {
+      const pulse = 0.75 + 0.25 * Math.sin(T * (0.6 + z.k) + z.id), r = (1.5 + 5 * z.k) * this.scale * pulse;
+      const g = c.createRadialGradient(z.x, z.y, 0, z.x, z.y, r * 3);
+      g.addColorStop(0, `rgba(${PAL.ink},${(0.012 + 0.03 * z.k) * (0.4 + 0.6 * pres)})`); g.addColorStop(1, `rgba(${PAL.ink},0)`);
+      c.fillStyle = g; c.beginPath(); c.arc(z.x, z.y, r * 3, 0, 6.283); c.fill();
+      c.fillStyle = `rgba(${PAL.ink},${0.12 + 0.25 * z.k})`; c.fillRect(z.x - lw * 0.7, z.y - lw * 0.7, lw * 1.4, lw * 1.4);
+    }
+    // taps: blooms; lightning
+    this.impulses = this.impulses.filter(m => T - m.t < 3);
+    this.ripples = this.ripples.filter(r => T - r.t < 3.2);
+    for (const r of this.ripples) {
+      const age = T - r.t; if (age < 0) continue;
+      const k = r.k || 1;
+      this._bloom(c, r.x, r.y, age, r.seed || 1, { n: r.echo ? 24 : 40, life: 3.2, speed: [60 * k, 260 * k], flat: 1, sink: 26, alpha: r.echo ? 0.05 : 0.1, lw, core: false, col: colorOf(r.c) });
+    }
+    this.bolts = this.bolts.filter(b => T - b.t < 1.2);
+    for (const b of this.bolts) { const age = T - b.t; if (age >= 0) this._bolt(c, b, age, lw); }
+    c.globalCompositeOperation = 'source-over';
+  }
   _bloom(c, x, y, age, seed, o) {
     const fade = Math.pow(Math.max(0, 1 - age / o.life), 1.4);
     if (fade <= 0) return;
@@ -622,7 +704,8 @@ class RainRenderer {
     // sky flash over the whole screen
     if (age < 0.35) {
       c.globalCompositeOperation = 'source-over';
-      c.fillStyle = INK ? `rgba(20,20,24,${0.18 * b.power * fl})` : `rgba(235,240,255,${0.22 * b.power * fl})`;
+      const fk = this.art ? 0.3 : 1;                    // art mode keeps long trails: a softer flash
+      c.fillStyle = INK ? `rgba(20,20,24,${0.18 * b.power * fl * fk})` : `rgba(235,240,255,${0.22 * b.power * fl * fk})`;
       c.fillRect(0, 0, W, H);
       c.globalCompositeOperation = PAL.comp;
     }

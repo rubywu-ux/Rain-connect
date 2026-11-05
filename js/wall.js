@@ -24,17 +24,6 @@
     });
     out.sort((a, b) => b.k - a.k);
     const sites = out.slice(0, 60);
-    if (art) {
-      // art: the same raining places, but no map. They hang from one slow, flowing line across the
-      // top (still in east-to-west order), evenly spread, bigger, like a curtain of rain
-      const byLon = [...sites].sort((a, b) => a.u - b.u), n = byLon.length;
-      byLon.forEach((z, i) => {
-        const f = n > 1 ? i / (n - 1) : 0.5;
-        z.x = R.view.x + (0.06 + 0.88 * f) * R.worldW;
-        z.y = R.view.y + (0.1 + 0.09 * Math.sin(f * 6.283 * 1.3 + 0.8) + 0.05 * hash(z.id)) * R.worldH;
-        z.big = 1.25 + 0.3 * hash(z.id + 1);
-      });
-    }
     R.sites = sites;
   }
   /* the ghost of the world: every 2° of land as a faint dot, in the same map the plumes hang from */
@@ -258,8 +247,8 @@
     $('art').classList.toggle('on', on);
     $('art').textContent = on ? 'art · on' : 'art · off';
     R.hideUnder = on;                 // the stippled map and the stains belong to the map view
-    R.fade = on ? 0.11 : 0;           // trails linger, like long exposure
-    R._pc = null; R.fresh = true;     // plumes re-form in their new places
+    R.art = on;                       // the renderer draws "Currents" instead of the map of plumes
+    R._ink = []; R._pc = null; R.fresh = true;
     if (snap) buildSites(snap);
   }
   // the switch lives here on the wall (button / W key); TouchDesigner's Mist toggle can flip it too
