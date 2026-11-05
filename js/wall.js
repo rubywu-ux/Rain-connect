@@ -11,7 +11,8 @@
   const latV = v => clamp(((90 - v * 180) * -1 + 80) / 140, 0, 1);      // v (0 = N pole) -> 0..1 between 80N and 60S
   const siteY = v => R.view.y + (0.16 + 0.58 * latV(v)) * R.worldH;
   let siteInfo = new Map();        // site id -> {lat, lon, mm, code, where, words}
-  let art = false;                 // art mode (see setArt)
+  let art = 0, lastArt = 1;        // art mode: 0 = the map of plumes, 1..N = ART_MODES (see setArt)
+  const NART = typeof ART_MODES !== 'undefined' ? ART_MODES.length : 0;
   function buildSites(s) {
     const out = [];
     siteInfo = new Map();
@@ -239,25 +240,37 @@
        rain  (0.25-0.6): the usual rain, dark
        storm (w > 0.6):  gusts of wind, darker, the rain leans; louder the harder the mist moves
      Nothing here goes to the phones: their rain, music and breath storm are untouched. */
-  /* art mode (wall only): no map, no numbers, no labels; longer smoky trails. Same live data underneath. */
-  function setArt(on) {
-    art = on;
-    try { localStorage.setItem('rc_art', on ? '1' : '0'); } catch (e) {}
-    document.body.classList.toggle('art', on);
-    $('art').classList.toggle('on', on);
-    $('art').textContent = on ? 'art · on' : 'art · off';
-    R.hideUnder = on;                 // the stippled map and the stains belong to the map view
-    R.art = on;                       // the renderer draws "Currents" instead of the map of plumes
-    R._ink = []; R._pc = null; R.fresh = true;
+  /* art modes (wall only): no map, no numbers, no labels. Same live data underneath, drawn as one of
+     several pictures (js/artmodes.js). n = 0 is the map view; true = the last mode used, false = off. */
+  function setArt(n) {
+    if (n === true) n = lastArt || 1; else if (n === false || n == null) n = 0;
+    n = clamp(Math.round(+n) || 0, 0, NART);
+    art = n; if (n) lastArt = n;
+    const mode = n ? ART_MODES[n - 1] : null;
+    try { localStorage.setItem('rc_art', String(n)); } catch (e) {}
+    document.body.classList.toggle('art', n > 0);
+    $('art').classList.toggle('on', n > 0);
+    $('art').textContent = mode ? `art · ${n} ${mode.title.toLowerCase()}` : 'art · off';
+    // modes with their own dark palette keep it in the light theme too: the page's vignette would tint their edges
+    const vig = document.querySelector('.vignette'); if (vig) vig.style.opacity = mode && mode.dark ? '0' : '';
+    R.hideUnder = n > 0;              // the stippled map and the stains belong to the map view
+    R.art = n > 0; R.artIdx = n;      // the renderer draws the art mode instead of the map of plumes
+    R._artSt = null; R._pc = null; R.fresh = true;
     if (snap) buildSites(snap);
   }
+  const cycleArt = () => setArt((art + 1) % (NART + 1));
   // the switch lives here on the wall (button / W key); TouchDesigner's Mist toggle can flip it too
   let mistOn = false, wTarget = 0, w = 0, mistStorm = 0, light = false, lastGust = 0, lastMistBolt = 0, baseDensity = 1.2, mistSeen = 0;
   try { mistOn = localStorage.getItem('rc_mist') === '1'; } catch (e) {}
+  let eT = 0, xT = 0, yT = 0;      // for the art modes: how hard the mist moves right now, and where in the pot (-1..1)
   function onWeather(m) {
     if (!m || typeof m !== 'object') return;
     if (m.set != null) setMist(!!m.set);
     if (m.w != null) { mistSeen = Date.now(); wTarget = clamp(+m.w, 0, 1); }
+    if (m.e != null) eT = clamp(+m.e || 0, 0, 1);
+    if (m.x != null) xT = clamp(+m.x || 0, -1, 1);
+    if (m.y != null) yT = clamp(+m.y || 0, -1, 1);
+    if (mistOn && S.ctx) R.mistE = Math.max(R.mistE, eT);    // a blow shows at once; it settles in the loop below
   }
   function setMist(on) {
     mistOn = on;
@@ -267,6 +280,7 @@
   function setLight(on) {
     if (on === light) return;
     light = on;
+    if (art && ART_MODES[art - 1].dark) { setInk(on); return; }    // that picture keeps its own colours: nothing to hide
     const veil = $('veil');
     veil.style.background = on ? '#f4f3f0' : '#040405';
     veil.classList.add('on');
@@ -274,11 +288,18 @@
   }
   setInterval(() => {
     const now = Date.now();
-    if (mistOn && now - mistSeen > 20000) wTarget = 0.4;       // TouchDesigner went quiet: fall back to plain rain
+    // ?debug: window.__mistOverride = {w, e, x, y} stands in for TouchDesigner (tests)
+    const ov = RC.debug && window.__mistOverride;
+    if (ov) { mistSeen = now; wTarget = clamp(+ov.w || 0, 0, 1); eT = clamp(+ov.e || 0, 0, 1); xT = clamp(+ov.x || 0, -1, 1); yT = clamp(+ov.y || 0, -1, 1); }
+    if (mistOn && now - mistSeen > 20000) { wTarget = 0.4; eT = 0; }   // TouchDesigner went quiet: fall back to plain rain
     w += (wTarget - w) * 0.12;
-    const active = mistOn && S.ctx;
+    const active = (mistOn || !!ov) && S.ctx;
     const calm = active ? clamp((0.25 - w) / 0.25, 0, 1) : 0;
     mistStorm = active ? clamp((w - 0.6) / 0.4, 0, 1) : 0;
+    // the art modes read the mist directly (0 when the mist switch is off)
+    R.mistW = active ? w : 0;
+    R.mistE += ((active ? eT : 0) - R.mistE) * 0.6;
+    R.mistX += (xT - R.mistX) * 0.5; R.mistY += (yT - R.mistY) * 0.5;
     setLight(active && (light ? w < 0.3 : w < 0.18));
     // the rain fades out / back in, smoothly; in art mode it never fully stops, so the picture stays alive
     R.presence += (Math.max(art ? 0.45 : 0, 1 - calm) - R.presence) * 0.08;
@@ -356,6 +377,7 @@
     S.setRain(rainLevel);
     baseDensity = 1;
     R.density = baseDensity;
+    R.snapPts = s.pts;               // every sample point, for the art modes
     buildSites(s);
     net.pub('rainnow', s, true);
   }
@@ -404,7 +426,8 @@
   addEventListener('keydown', e => {
     if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
     if (e.key === 'w') setMist(!mistOn);
-    if (e.key === 'a') setArt(!art);
+    if (e.key === 'a') cycleArt();                                     // off -> 1 -> 2 -> ... -> off
+    if (/^[0-9]$/.test(e.key) && +e.key <= NART) setArt(+e.key);      // 1..N pick a mode, 0 = off
   });
   function frame() {
     const t = T();
@@ -418,9 +441,9 @@
   requestAnimationFrame(frame);
 
   $('mist').onclick = () => setMist(!mistOn);
-  $('art').onclick = () => setArt(!art);
-  window.__wall = { setArt, setMist, get art() { return art; }, get mist() { return mistOn; } };   // TouchDesigner flips these
-  try { if (localStorage.getItem('rc_art') === '1') setArt(true); } catch (e) {}
+  $('art').onclick = () => cycleArt();
+  window.__wall = { setArt, cycleArt, setMist, get art() { return art; }, get mist() { return mistOn; } };   // TouchDesigner flips these
+  try { const a = +(localStorage.getItem('rc_art') || 0); if (a > 0) setArt(a); } catch (e) {}       // old '1' / '0' still work
   setMist(mistOn);
   if (RC.debug) window.__hub = { clients, exits, net, R, S, setMist, tagSite, nameOf, get w() { return w; }, get light() { return light; }, get joins() { return joins; } };
 })();
