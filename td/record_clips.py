@@ -5,6 +5,7 @@
 # Clips go to ~/Desktop/ConnectTheRain/mist_clips/<set>_<still|blow|hand>.mov
 # Later, from the Textport:
 #   op('/project1/connect_rain/rec_seq').module.start(['low'])      # only the low-light set
+#   ...module.start(['low2', 'bright2'], 'New angle. Move the camera now.', 25000)   # new camera angle
 #   op('/project1/connect_rain/rec_seq').module.one('set1_blow')    # redo one clip
 #   op('/project1/connect_rain/rec_seq').module.cancel()            # stop everything
 
@@ -19,7 +20,10 @@ WORDS = {
     'blow':  'Next: blow into the mist. Soft and hard puffs.',
     'hand':  'Next: wave your hand over the pot.',
 }
-NAMES = {'set1': 'Set one', 'set2': 'Set two', 'low': 'Low light set'}
+NAMES = {'set1': 'Set one', 'set2': 'Set two', 'low': 'Low light set',
+         'low2': 'Low light, new angle', 'bright2': 'Bright light, new angle'}
+PRE = {'low': 'Low light set next. Please dim the lights now. Starting in 20 seconds.',
+       'bright2': 'Bright set next. Turn the lights back on now. Starting in 20 seconds.'}
 
 def say(t):
     try:
@@ -73,8 +77,8 @@ def saved(name):
 
 def plan(sets, t=0):
     for s in sets:
-        if s == 'low':
-            at(t, "say('Low light set next. Please dim the lights now. Starting in 20 seconds.')")
+        if s in PRE:
+            at(t, 'say(%r)' % PRE[s])
             at(t + 12000, "say('8 seconds.')")
             t += 20000
         at(t, 'say(%r)' % (NAMES.get(s, s) + '.'))
@@ -96,11 +100,13 @@ def clip(name, t=0):
     at(t + 1000, 'saved(%r)' % name)
     return t + 2000
 
-def start(sets=('set1', 'set2', 'low')):
+def start(sets=('set1', 'set2', 'low'), intro=None, lead=4000):
     cancel()
     os.makedirs(D, exist_ok=True)
-    say('Recording mist clips. ' + NAMES.get(sets[0], sets[0]) + ' starts in a few seconds.')
-    t = plan(list(sets), 4000)
+    say(intro or ('Recording mist clips. ' + NAMES.get(sets[0], sets[0]) + ' starts in a few seconds.'))
+    if lead > 15000:
+        at(lead - 8000, "say('8 seconds.')")
+    t = plan(list(sets), lead)
     at(t, "say('All done. Thank you.')")
     at(t, "log('ALL DONE')")
     log('START %s, about %d s' % (','.join(sets), t / 1000))
