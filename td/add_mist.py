@@ -124,7 +124,7 @@ me.time.play = True                            # the webcam and the frame script
 # -- the wall page gets the latest build
 w = CR.op('wall_web')
 if w is not None:
-	w.par.url = 'https://rubywu-ux.github.io/Rain-connect/wall.html?td&v=68c58b6'
+	w.par.url = 'https://rubywu-ux.github.io/Rain-connect/wall.html?td&v=a4fc00f'
 	w.par.active = True
 try:
 	d = os.path.expanduser('~/Desktop/ConnectTheRain')
