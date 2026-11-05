@@ -55,9 +55,10 @@ receive the weather, so their rain, music and breath storm are untouched.
 | moving frantically | gusts of wind, dark, the rain leans; louder the harder the mist moves |
 
 Setup, once (TouchDesigner, with ConnectTheRain open): paste this into the Textport
-(Dialogs > Textport and DATs) and press Return:
+(Dialogs > Textport and DATs) and press Return (TouchDesigner's Python uses the Mac's own
+certificate list for the download):
 
-    import urllib.request as u; exec(u.urlopen('https://rubywu-ux.github.io/Rain-connect/td/add_mist.py').read().decode('utf-8'))
+    import urllib.request as U, ssl; exec(U.urlopen('https://rubywu-ux.github.io/Rain-connect/td/add_mist.py', context=ssl.create_default_context(cafile='/etc/ssl/cert.pem')).read().decode('utf-8'), dict(globals()))
 
 It adds `cam -> cam_small -> cam_diff -> bright_chop / motion_chop -> mist_weather` inside
 `/project1/connect_rain`, a **Mist** page of settings on the container (Mist on/off, Camera,

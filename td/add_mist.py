@@ -29,7 +29,8 @@ def _par(kind, name, label, default, lo=None, hi=None):
 	elif kind == 'Toggle':
 		p.default = default
 	return p
-_par('Toggle', 'Mist', 'Mist weather on the wall (on/off)', True)
+if getattr(CR.par, 'Mist', None) is None:
+	_par('Toggle', 'Mist', 'Mist weather on the wall (on/off)', True); CR.par.Mist = True
 _par('Int', 'Cam', 'Camera (0 = built-in, 1 = next)', 0, 0, 8)
 _par('Float', 'Presence', 'Mist presence threshold', 0.05, 0, 0.5)
 _par('Float', 'Motionlow', 'Motion: still mist', 0.006, 0, 0.2)
@@ -72,6 +73,7 @@ def _set(k, v):
 	t = op('state')
 	if t is not None and t.row(k) is not None: t[k, 1] = v
 def onFrameStart(frame):
+	frame = absTime.frame                      # keeps running even when the timeline is paused
 	if frame % 6: return
 	c = parent()
 	b = _ch('bright_chop'); m = _ch('motion_chop')
@@ -86,7 +88,7 @@ def onFrameStart(frame):
 	W['n'] += 1
 	if W['n'] % 2: return                                                        # ~5 messages a second
 	try:
-		op('mqtt').publish(BASE + 'weather', json.dumps({'w': round(W['w'], 3)}).encode(), 0, False)
+		op('mqtt').publish(BASE + 'weather', json.dumps({'w': round(W['w'], 3)}).encode())
 	except Exception as e:
 		if W['n'] % 50 == 0: print('weather publish:', e)
 """
@@ -105,7 +107,7 @@ px.text = """def onPulse(par):
 		print('mist calibrated: brightness', round(b, 3), 'motion', round(m, 4), '(room with NO mist)')
 def onValueChange(par, prev):
 	if par.name == 'Mist':                     # flips the mist switch on the wall
-		try: op('mqtt').publish('rainconnect/rubywu-ux-k7q2/gallery/weather', ('{"set": %d}' % (1 if par.eval() else 0)).encode(), 0, False)
+		try: op('mqtt').publish('rainconnect/rubywu-ux-k7q2/gallery/weather', ('{"set": %d}' % (1 if par.eval() else 0)).encode())
 		except Exception as e: print('mist switch:', e)
 	if par.name == 'Cam':
 		cam = op('cam'); n = len(cam.par.device.menuNames)
@@ -114,6 +116,10 @@ def onValueChange(par, prev):
 _sp(px, op=CR.path, pars='Calibrate Cam Mist', pulse=True, valuechange=True, active=True)
 if CR.fetch('mist_base', None) is None:
 	CR.store('mist_base', 0.0); CR.store('mist_mbase', 0.0)
+
+k = CR.op('audio_kick')
+if k is not None: k.text = k.text.replace('if frame % 600 == 120:', 'if absTime.frame % 600 == 120:')
+me.time.play = True                            # the webcam and the frame scripts need the timeline running
 
 # -- the wall page gets the latest build
 w = CR.op('wall_web')
