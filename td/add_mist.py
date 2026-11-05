@@ -29,16 +29,13 @@ def _par(kind, name, label, default, lo=None, hi=None):
 	elif kind == 'Toggle':
 		p.default = default
 	return p
-_par('Toggle', 'Mist', 'Mist detection (on/off)', True)
+_par('Toggle', 'Mist', 'Mist weather on the wall (on/off)', True)
 _par('Int', 'Cam', 'Camera (0 = built-in, 1 = next)', 0, 0, 8)
 _par('Float', 'Presence', 'Mist presence threshold', 0.05, 0, 0.5)
 _par('Float', 'Motionlow', 'Motion: still mist', 0.006, 0, 0.2)
 _par('Float', 'Motionhigh', 'Motion: frantic', 0.05, 0, 0.5)
 _par('Float', 'Smooth', 'Response (0 fast .. 1 slow)', 0.75, 0, 0.98)
 if getattr(CR.par, 'Calibrate', None) is None: page.appendPulse('Calibrate', label='Calibrate (room without mist)')
-if CR.par.Mist.val is None: CR.par.Mist = True
-try: CR.par.Mist = True
-except Exception: pass
 
 # -- webcam -> small grey image -> (a) brightness = is there mist?  (b) frame difference = is it moving?
 cam = _mk(videodeviceinTOP, 'cam', -800, 500)
@@ -52,9 +49,8 @@ small = _mk(resolutionTOP, 'cam_small', -400, 500); small.setInputs([mono])
 _sp(small, outputresolution='custom', resolutionw=64, resolutionh=36)
 blur = _mk(blurTOP, 'cam_blur', -200, 500); blur.setInputs([small]); _sp(blur, size=3)
 bright = _mk(analyzeTOP, 'bright_an', 0, 600); bright.setInputs([blur]); _sp(bright, function='average')
-cache = _mk(cacheTOP, 'cam_cache', 0, 400); cache.setInputs([blur]); _sp(cache, cachesize=4)
-prev = _mk(cacheselectTOP, 'cam_prev', 200, 400); prev.setInputs([cache]); _sp(prev, index=3)
-diff = _mk(compositeTOP, 'cam_diff', 400, 450); diff.setInputs([blur, prev]); _sp(diff, operand='difference')
+cache = _mk(cacheTOP, 'cam_prev', 200, 400); cache.setInputs([blur]); _sp(cache, cachesize=4, outputindex=-3, active=True)   # the picture from 3 frames ago
+diff = _mk(compositeTOP, 'cam_diff', 400, 450); diff.setInputs([blur, cache]); _sp(diff, operand='difference')
 motion = _mk(analyzeTOP, 'motion_an', 600, 450); motion.setInputs([diff]); _sp(motion, function='average')
 bch = _mk(toptoCHOP, 'bright_chop', 800, 600); _sp(bch, top=bright.path)
 mch = _mk(toptoCHOP, 'motion_chop', 800, 450); _sp(mch, top=motion.path)
@@ -78,7 +74,6 @@ def _set(k, v):
 def onFrameStart(frame):
 	if frame % 6: return
 	c = parent()
-	on = bool(c.par.Mist)
 	b = _ch('bright_chop'); m = _ch('motion_chop')
 	base = float(c.fetch('mist_base', 0.0)); mbase = float(c.fetch('mist_mbase', 0.0))
 	pres = max(0.0, min(1.0, (b - base - float(c.par.Presence)) / 0.12))        # 0 none .. 1 lots of mist
@@ -87,11 +82,11 @@ def onFrameStart(frame):
 	raw = 0.0 if pres < 0.08 else 0.3 * pres + 0.7 * pres * mot
 	k = float(c.par.Smooth)
 	W['w'] = W['w'] * k + raw * (1 - k)
-	_set('mist_on', 'on' if on else 'off'); _set('mist_bright', round(b - base, 3)); _set('mist_motion', round(m - mbase, 4)); _set('weather', round(W['w'], 2))
+	_set('mist_on', 'on' if c.par.Mist else 'off'); _set('mist_bright', round(b - base, 3)); _set('mist_motion', round(m - mbase, 4)); _set('weather', round(W['w'], 2))
 	W['n'] += 1
 	if W['n'] % 2: return                                                        # ~5 messages a second
 	try:
-		op('mqtt').publish(BASE + 'weather', json.dumps({'on': 1 if on else 0, 'w': round(W['w'], 3)}).encode(), 0, True)
+		op('mqtt').publish(BASE + 'weather', json.dumps({'w': round(W['w'], 3)}).encode(), 0, False)
 	except Exception as e:
 		if W['n'] % 50 == 0: print('weather publish:', e)
 """
@@ -109,11 +104,14 @@ px.text = """def onPulse(par):
 		c.store('mist_base', b); c.store('mist_mbase', m)
 		print('mist calibrated: brightness', round(b, 3), 'motion', round(m, 4), '(room with NO mist)')
 def onValueChange(par, prev):
+	if par.name == 'Mist':                     # flips the mist switch on the wall
+		try: op('mqtt').publish('rainconnect/rubywu-ux-k7q2/gallery/weather', ('{"set": %d}' % (1 if par.eval() else 0)).encode(), 0, False)
+		except Exception as e: print('mist switch:', e)
 	if par.name == 'Cam':
 		cam = op('cam'); n = len(cam.par.device.menuNames)
 		if n: cam.par.device.menuIndex = min(int(par), n - 1)
 """
-_sp(px, op=CR.path, pars='Calibrate Cam', pulse=True, valuechange=True, active=True)
+_sp(px, op=CR.path, pars='Calibrate Cam Mist', pulse=True, valuechange=True, active=True)
 if CR.fetch('mist_base', None) is None:
 	CR.store('mist_base', 0.0); CR.store('mist_mbase', 0.0)
 

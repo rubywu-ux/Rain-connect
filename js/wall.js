@@ -165,19 +165,18 @@
        rain  (0.25-0.6): the usual rain, dark
        storm (w > 0.6):  gusts of wind, darker, the rain leans; louder the harder the mist moves
      Nothing here goes to the phones: their rain, music and breath storm are untouched. */
+  // the switch lives here on the wall (button / W key); TouchDesigner's Mist toggle can flip it too
   let mistOn = false, wTarget = 0, w = 0, mistStorm = 0, light = false, lastGust = 0, baseDensity = 1.2, mistSeen = 0;
+  try { mistOn = localStorage.getItem('rc_mist') === '1'; } catch (e) {}
   function onWeather(m) {
     if (!m || typeof m !== 'object') return;
-    mistSeen = Date.now();
-    if (m.on != null) setMist(!!m.on, true);
-    if (m.w != null) wTarget = clamp(+m.w, 0, 1);
+    if (m.set != null) setMist(!!m.set);
+    if (m.w != null) { mistSeen = Date.now(); wTarget = clamp(+m.w, 0, 1); }
   }
-  function setMist(on, fromTD) {
-    if (on === mistOn) return;
+  function setMist(on) {
     mistOn = on;
-    if (!on) { wTarget = 0; }
+    try { localStorage.setItem('rc_mist', on ? '1' : '0'); } catch (e) {}
     $('mist').classList.toggle('on', on);
-    if (!fromTD) net.pub('weather', { on: on ? 1 : 0, w: +wTarget.toFixed(2) }, true);
   }
   function setLight(on) {
     if (on === light) return;
@@ -318,5 +317,6 @@
   requestAnimationFrame(frame);
 
   $('mist').onclick = () => setMist(!mistOn);
+  setMist(mistOn);
   if (RC.debug) window.__hub = { clients, exits, net, R, S, setMist, get w() { return w; }, get light() { return light; }, get joins() { return joins; } };
 })();
