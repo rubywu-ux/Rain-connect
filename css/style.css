@@ -110,7 +110,10 @@ body.wall { cursor: none; }
 /* a soft fade while the room changes between light and dark */
 .veil { position: fixed; inset: 0; z-index: 5; pointer-events: none; opacity: 0; transition: opacity .65s ease; }
 .veil.on { opacity: 1; }
-html, body.wall { transition: background .8s ease, color .8s ease; }
+html, body.wall { transition: background 1.8s ease, color 1.8s ease; }
+/* light <-> dark: the words cross over slowly with the picture (wall.js turns the canvas over in ~3.5 s) */
+.wall-qr p, .mist, .wall-title *, .wall-stats * { transition-property: color, border-color, text-shadow, background-color, opacity, transform;
+  transition-duration: 1.8s; transition-timing-function: ease; }
 
 /* black ink on white paper (?ink) */
 html.ink { --rgb: 14, 14, 16; --bgrgb: 244, 243, 240; --ink: #0e0e10; --bg: #f4f3f0; }
@@ -157,7 +160,7 @@ html.ink .wall-qr { box-shadow: 0 0 0 1px rgba(var(--rgb), .12); }
 .drop-tag small { display: block; font-family: var(--mono); font-style: normal; font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--dim); margin-top: 6px; }
 
 /* art mode on the wall: the words step back and the rain is the whole picture */
-.wall-title, .wall-stats, .wall-qr, .site-tag { transition: opacity 1.6s ease, transform 1.6s ease; }
+.wall-title, .wall-stats, .wall-qr, .site-tag { transition: opacity 1.6s ease, transform 1.6s ease, color 1.8s ease, text-shadow 1.8s ease; }
 body.art .wall-title, body.art .wall-stats, body.art .site-tag { opacity: 0 !important; pointer-events: none; }
 body.art .wall-qr { opacity: .4; transform: scale(.62); transform-origin: right bottom; }
 body.art .wall-btns { opacity: .45; }

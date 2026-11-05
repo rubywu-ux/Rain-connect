@@ -277,14 +277,57 @@
     try { localStorage.setItem('rc_mist', on ? '1' : '0'); } catch (e) {}
     $('mist').classList.toggle('on', on);
   }
+  // light <-> dark: the picture slowly turns over (about 3.5 s) while it keeps moving, instead of a flash.
+  // The two palettes are close to each other's negative, so the canvas is inverted with a CSS filter,
+  // eased 0 -> 1; at the end the palette is swapped and the pixels already drawn are inverted for real,
+  // so nothing jumps. If the weather turns back half way, it turns back from where it is.
+  const TURN_MS = 3500;
+  let turnP = 0, turnTo = null, turnRaf = 0, turnLast = 0;
+  function turnStep(now) {
+    if (art && (ART_MODES[art - 1].dark || ART_MODES[art - 1].turn === 'dissolve')) {   // switched to a picture that changes on its own
+      turnP = 0; R.cv.style.filter = ''; if (turnTo !== INK) setInk(turnTo); turnRaf = 0; return;
+    }
+    const dt = Math.min(100, now - turnLast); turnLast = now;
+    turnP = clamp(turnP + (turnTo !== INK ? 1 : -1) * dt / TURN_MS, 0, 1);
+    const k = turnP * turnP * (3 - 2 * turnP);
+    document.documentElement.classList.toggle('ink', turnP > 0.5 ? !INK : INK);   // titles and numbers cross over half way
+    if (turnP >= 1) {
+      const c = R.ctx;
+      c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'difference'; c.fillStyle = '#fff';
+      c.fillRect(0, 0, R.cv.width, R.cv.height); c.restore();
+      setInk(turnTo); R.fresh = false; turnP = 0; R.cv.style.filter = '';
+    } else R.cv.style.filter = k > 0.002 ? `invert(${k.toFixed(3)})` : '';
+    turnRaf = turnP > 0 || turnTo !== INK ? requestAnimationFrame(turnStep) : 0;
+  }
+  // colourful pictures that follow the theme (Rain Garden) would turn to their complementary colours
+  // while inverting: those dissolve instead (the last frame fades out over the new one)
+  let xfade = null;
+  function dissolve(on) {
+    if (!xfade) {
+      xfade = document.createElement('canvas'); xfade.setAttribute('aria-hidden', 'true');
+      xfade.style.cssText = 'position:fixed;left:0;top:0;pointer-events:none;opacity:0';
+      R.cv.after(xfade);
+    }
+    xfade.width = R.cv.width; xfade.height = R.cv.height;
+    xfade.style.width = R.cv.style.width || '100vw'; xfade.style.height = R.cv.style.height || '100vh';
+    xfade.getContext('2d').drawImage(R.cv, 0, 0);
+    xfade.style.transition = 'none'; xfade.style.opacity = '1';
+    void xfade.offsetWidth;
+    setInk(on);
+    xfade.style.transition = 'opacity 3s cubic-bezier(.45,0,.55,1)'; xfade.style.opacity = '0';
+  }
   function setLight(on) {
     if (on === light) return;
     light = on;
-    if (art && ART_MODES[art - 1].dark) { setInk(on); return; }    // that picture keeps its own colours: nothing to hide
-    const veil = $('veil');
-    veil.style.background = on ? '#f4f3f0' : '#040405';
-    veil.classList.add('on');
-    setTimeout(() => { setInk(on); veil.classList.remove('on'); }, 650);
+    turnTo = on;
+    const mode = art ? ART_MODES[art - 1] : null;
+    if (mode && mode.dark) { setInk(on); return; }                  // that picture keeps its own colours: nothing to hide
+    if (mode && mode.turn === 'dissolve') {
+      if (turnRaf) { cancelAnimationFrame(turnRaf); turnRaf = 0; turnP = 0; R.cv.style.filter = ''; }
+      if (on !== INK) dissolve(on);
+      return;
+    }
+    if (!turnRaf) { turnLast = performance.now(); turnRaf = requestAnimationFrame(turnStep); }
   }
   setInterval(() => {
     const now = Date.now();
@@ -427,7 +470,8 @@
     if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
     if (e.key === 'w') setMist(!mistOn);
     if (e.key === 'a') cycleArt();                                     // off -> 1 -> 2 -> ... -> off
-    if (/^[0-9]$/.test(e.key) && +e.key <= NART) setArt(+e.key);      // 1..N pick a mode, 0 = off
+    if (/^[0-9]$/.test(e.key) && (+e.key || 10) <= NART) setArt(+e.key || 10);   // 1..9 pick modes 1-9, 0 = mode 10
+    if (e.key === 'Escape' || e.key === 'x') setArt(0);                         // Esc / X = art off
   });
   function frame() {
     const t = T();

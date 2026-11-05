@@ -64,12 +64,25 @@ It adds `cam -> cam_small -> cam_diff -> bright_chop / motion_chop -> mist_weath
 `/project1/connect_rain`, a **Mist** page of settings on the container (Mist on/off, Camera,
 thresholds, Calibrate), and saves it as the next free `ConnectTheRain.N.toe` (older versions are kept).
 
-Using it: point the webcam at the mist against a dark background (a black cloth), with a lamp
-lighting the mist from the side. On the Mist page: pick the **Camera**, press **Calibrate** with
-the mist off (the room's baseline), then start the generator. `cam_diff` shows what it sees as
-motion. If "calm" never comes, raise **Presence**; if "storm" comes too easily, raise
-**Motion: frantic**. The wall shows `mist · calm / rain / storm` bottom-left; **Mist** on the
-container (or the W key / that button on the wall page) switches the whole feature off.
+Then load the current detector (v5) the same way, with `td/mist_v5.py` in the URL. It finds the pot
+by itself (the bright opening inside the dark pot, from above or from the side; in a dark room it
+keeps the pot it found with the lights on, or finds it by its glow), and was tuned on recorded clips
+(still mist, blowing, a hand waving, no mist; bright and dark rooms; two camera angles):
+
+- the mist maker's colour-changing light is ignored (each frame is matched to the last one for
+  brightness first, and one-frame jumps when the light switches colour are dropped);
+- while a hand or arm is in view the mist movement is not counted; mist it stirred still counts
+  once the hand is gone;
+- any steady mist = rain; the mist moving clearly more than its own quiet level = storm.
+
+Using it: on the Mist page press **Calibrate** once with the mist maker OFF and the pot clear, in
+the light the show will have (it learns the empty pot; kept across restarts; press again if the
+camera moves). Without it "no mist" is still recognised in a dark room, and in a lit room from
+above, but from the side in a lit room an empty pot can read as rain. **Debug** opens the camera
+view: yellow = the pot opening, cyan = mist, green = moving mist, red = a hand (ignored). The wall
+shows `mist · calm / rain / storm` bottom-left; **Mist** on the container (or the W key / that
+button on the wall page) switches the whole feature off. **Test storm** gives 5 s of lightning and
+thunder. `td/record_clips.py` records labelled 10 s clips with voice prompts, for tuning.
 
 ## The data as art (what the wall shows)
 
@@ -86,9 +99,10 @@ container (or the W key / that button on the wall page) switches the whole featu
 
 ## Art mode (wall)
 
-Five art modes, no map, numbers or names. They all use the same live rain data and the mist from
+Ten art modes, no map, numbers or names. They all use the same live rain data and the mist from
 TouchDesigner (how much it moves, and where in the pot). The **art** button (bottom-left of the wall)
-and the **A** key cycle off > 1 > 2 > 3 > 4 > 5 > off; keys **1-5** pick a mode, **0** turns art off.
+and the **A** key cycle through all modes and off; keys **1-9** pick modes 1-9, **0** picks 10, and
+**Esc** turns art off.
 In TouchDesigner use the projector window (same keys), or Mist page > Art mode (on = last mode used).
 
 1. **Currents** - every raining place is a source on a slowly turning sunflower spiral; heavier rain
@@ -102,6 +116,29 @@ In TouchDesigner use the projector window (same keys), or Mist page > Art mode (
    Breath speeds the sweep and fills the scope with static; storms tear the picture.
 5. **Glass** - a rainy window at night, the city blurred behind it. Drops land at the raining places'
    longitudes and slide down. Breath fogs the glass where the mist moved; drops wipe it clear.
+6. **Mobile** - a hanging mobile after Calder: one painted plate per raining place, size = strength,
+   colour = latitude (red tropics, black north, blue south, white near the poles, one yellow for the
+   heaviest rain); the arms balance by weight, so the data sets its whole shape. Breath blows it: the arms
+   swing away from the side you blow from and spin. Storms throw it about in a long-exposure blur;
+   lightning is a camera flash with hard shadows. Calm, the gallery lights come up and it barely turns.
+7. **Op Art** - a 1960s op-art checkerboard; every raining place swells a bulge under the squares
+   (position from longitude and latitude, size = strength) and colour rises in it by latitude. Breath
+   streams the board away from the side you blow from and raises a big bulge where the mist moved;
+   storms make the squares zigzag and the colours slip; lightning flips black and white and sends a
+   shock ring. Calm, it undulates slowly and fades toward black and white.
+8. **Strings** - a glowing string sculpture: two rails twisting across the room with a hairline for
+   each of the 320 places checked and a bundle of coloured threads for each raining place (more and
+   brighter = stronger, slant and colour = latitude). Breath plucks the threads near where you blow and
+   screws the ribbon round; storms set every thread thrashing; lightning runs light along the rails.
+9. **Maze** - Truchet tiles drawn as 1970s three-stripe supergraphics; every raining place colours a
+   stretch of the loop through its tile (longer = stronger, colour = latitude), with a bead running along
+   it. Breath turns the tiles in a wave rolling away from you, so the colours re-route; storms keep tiles
+   turning everywhere; lightning turns them in a spreading ring. Calm, a tile turns now and then.
+10. **Murmuration** - a flock of starlings over a gold-leaf folding screen; each raining place leads a
+    patch of the flock (bigger = stronger) in a formation that folds and pulses. Breath is a hawk: the
+    birds burst away from where it comes in and the flock flees the other way; storms bring falcons that
+    tear it apart; lightning startles every bird at once. Calm, the flock draws together and drifts.
 
-Lightning and thunder still follow the mist storm in every mode. Phone taps bloom.
+Lightning and thunder still follow the mist storm in every mode (modes 4-10 draw it in their own way).
+Phone taps bloom.
 

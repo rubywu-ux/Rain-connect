@@ -379,7 +379,7 @@ const ART_MODES = (() => {
     }
   }
   const garden = {
-    name: 'garden', title: 'Rain Garden',
+    name: 'garden', title: 'Rain Garden', turn: 'dissolve',
     draw(R, c, E) {
       const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), light = E.light, wx = windX(E);
       if (st.W !== W || st.H !== H || st.light !== light || !st.bg) gardenSetup(st, W, H, E.dpr, light, s);
@@ -1020,5 +1020,853 @@ const ART_MODES = (() => {
     },
   };
 
-  return [currents, planet, garden, radar, glass];
+  /* ============================================================== 6  Mobile
+     A hanging mobile, after Calder. Every raining place is a painted metal plate on a wire arm: bigger
+     where it rains harder; red in the tropics, black to the north, blue to the south, white near the poles,
+     and the heaviest rain is the one yellow plate. The arms are balanced like a real mobile, so how many
+     places there are and how hard it rains at each sets its whole shape. It turns slowly on the air of the
+     room; a breath blows it: the plates catch the air, the arms swing away from the side it came from and
+     spin. A storm throws it about (a long exposure shows the blur of it); a lightning strike is a camera
+     flash: the wall goes white and the shadows jump. A pale wall in the light theme, a dark gallery with a
+     spotlight in the dark. */
+  const CALDER = { red: [206, 42, 30], black: [24, 23, 25], yellow: [240, 178, 18], blue: [28, 68, 158], white: [240, 235, 224] };
+  const MOBILE_IDLE = Array.from({ length: 7 }, (_, i) => ({ id: 91 + i * 7, u: (i + 0.5) / 7, v: 0.25 + 0.5 * hash(i * 5 + 1), k: 0.2 + 0.6 * hash(i * 5 + 2) }));
+  function plateOutline(shape) {                       // in plate units: x across the plate, y down
+    const out = [];
+    for (let j = 0; j < 20; j++) {
+      const t = j / 20 * TAU;
+      if (shape === 0) out.push([Math.cos(t), Math.sin(t)]);
+      else if (shape === 1) out.push([Math.cos(t) * 1.3, Math.sin(t) * 0.78]);
+      else { const w = Math.pow(Math.abs(Math.sin(t / 2)), 1.3); out.push([1.1 * Math.sin(t) * w, -Math.cos(t) * 1.05]); }
+    }
+    return out;
+  }
+  /* one arm: A on one tip, B on the other, hung at the point where they balance. Either side by side, or
+     staggered (the smaller one hangs short, the other on a long thread below it), whichever keeps the
+     whole mobile closest to the shape of the screen */
+  function mobileRod(A, B, sd, aspect, rods, d) {
+    const thr = q => q.leaf ? 0 : 0.5;
+    const lay = (L, tA, tB) => { const a = L * B.wt / (A.wt + B.wt), b = L - a; return { L, a, b, tA, tB, rho: Math.max(a + A.rho, b + B.rho), h: Math.max(tA + A.h, tB + B.h) + 0.12 }; };
+    const wide = lay(A.rho + B.rho + 0.3, thr(A), thr(B));
+    const sm = A.h <= B.h ? A : B, ts = thr(sm), tl = ts + sm.h + 0.35, Ls = Math.max(sm.rho + 0.5, 1.2);
+    const stag = sm === A ? lay(Ls, ts, tl) : lay(Ls, tl, ts);
+    const score = o => Math.max(o.rho / aspect, o.h);
+    const o = score(stag) < score(wide) * (d < 2 ? 0.72 : 0.9 + 0.2 * hash(sd * 11 + 3)) ? stag : wide;
+    const n = Object.assign(o, { leaf: false, A, B, id: sd, wt: A.wt + B.wt + 0.03 * o.L, th: hash(sd * 13 + 2) * TAU, om: 0, sx: 0, sz: 0, vx: 0, vz: 0, F: [0, 0],
+                                 pitch: (hash(sd * 13 + 4) < 0.5 ? -1 : 1) * (0.5 + 0.5 * hash(sd * 13 + 5)) });   // bent plates catch the air like a sail
+    A.thr = o.tA; B.thr = o.tB;
+    rods.push(n);
+    return n;
+  }
+  function mobileBuild(sites, aspect) {
+    const src = sites.length ? [...sites] : MOBILE_IDLE.slice();
+    if (src.length === 1) src.push({ id: 77, u: 1, v: 0.3, k: 0.04 });          // one place: a little counterweight
+    let top = src[0]; for (const z of src) if (z.k > top.k) top = z;
+    const leaves = src.sort((a, b) => a.u - b.u).map(z => {
+      const lat = 90 - z.v * 180, al = Math.abs(lat), h = hash(z.id * 31 + 7), shape = h < 0.5 ? 0 : h < 0.78 ? 1 : 2;
+      const r = 0.5 + 0.95 * Math.sqrt(z.k);
+      return { leaf: true, id: z.id, k: z.k, r, wt: r * r, rho: r * 1.25, h: r * 2.2, shape, out: plateOutline(shape),
+               col: z === top ? 'yellow' : al > 55 ? 'white' : al < 23.5 ? 'red' : lat > 0 ? 'black' : 'blue',
+               off: r * (shape === 1 ? 0.8 : shape === 2 ? 1.05 : 1), tw: (hash(z.id * 31 + 8) < 0.55 ? 0 : Math.PI / 2) + (hash(z.id * 31 + 10) - 0.5) * 0.7,
+               rot: shape ? (hash(z.id * 31 + 9) - 0.5) * 1.2 : 0, thr: 0, F: [0, 0] };
+    });
+    const rods = []; let sd = 5;
+    const build = (list, d) => {
+      if (list.length === 1) return list[0];
+      const me = ++sd; let A, B;
+      if (list.length <= 3 || d >= 6 || hash(me * 7 + list.length) < 0.3) {   // the heaviest alone on one tip, the rest on the other
+        let im = 0; list.forEach((q, i) => { if (q.wt > list[im].wt) im = i; });
+        A = [list[im]]; B = list.filter((_, i) => i !== im);
+        if (hash(me * 7 + 1) < 0.5) { const t = A; A = B; B = t; }
+      } else {                                                                 // or split east / west by weight
+        const tot = list.reduce((a, q) => a + q.wt, 0); let acc = 0, m = 1;
+        for (let i = 0; i < list.length - 1; i++) { acc += list[i].wt; m = i + 1; if (acc >= tot / 2) break; }
+        A = list.slice(0, m); B = list.slice(m);
+      }
+      return mobileRod(build(A, d + 1), build(B, d + 1), me, aspect, rods, d);
+    };
+    const root = build(leaves, 0);
+    return { root, down: rods.slice().reverse(), up: rods, leaves };
+  }
+  function mobileBg(st, W, H, dpr, light) {
+    const bg = canvas(W * dpr, H * dpr), g = bg.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    let gr = g.createLinearGradient(0, 0, 0, H);
+    if (light) { gr.addColorStop(0, '#f1ede5'); gr.addColorStop(1, '#e2dccf'); }
+    else { gr.addColorStop(0, '#16161a'); gr.addColorStop(1, '#0c0c0e'); }
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    // the light: a soft wash from the upper left (paper) or a warm spotlight from above (gallery)
+    gr = light ? g.createRadialGradient(W * 0.3, H * 0.15, 0, W * 0.3, H * 0.15, W * 0.8) : g.createRadialGradient(W * 0.5, H * 0.38, 0, W * 0.5, H * 0.42, H * 0.95);
+    gr.addColorStop(0, light ? 'rgba(255,252,244,0.75)' : 'rgba(92,84,70,0.75)'); gr.addColorStop(0.5, light ? 'rgba(255,252,244,0.2)' : 'rgba(60,54,46,0.35)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    for (let i = 0; i < 7000; i++) {                  // a little grain in the plaster
+      g.fillStyle = light ? `rgba(80,64,40,${0.015 + 0.03 * hash(i * 5 + 1)})` : `rgba(255,240,220,${0.008 + 0.018 * hash(i * 5 + 1)})`;
+      g.fillRect(hash(i * 5 + 2) * W, hash(i * 5 + 3) * H, 1, 1);
+    }
+    gr = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.45, W / 2, H / 2, Math.hypot(W, H) * 0.6);
+    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, light ? 'rgba(90,70,40,0.14)' : 'rgba(0,0,0,0.5)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    return bg;
+  }
+  const mobile = {
+    name: 'mobile', title: 'Mobile', dark: true, bolts: false,
+    draw(R, c, E) {
+      const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E);
+      if (st.W !== W || st.H !== H || !st.bgD) {
+        st.W = W; st.H = H; st.bgD = mobileBg(st, W, H, E.dpr, false); st.bgL = mobileBg(st, W, H, E.dpr, true);
+        st.sh = canvas(W / 4, H / 4); st.shx = st.sh.getContext('2d');
+      }
+      // the gallery lights come up slowly in the light theme (calm), and go down again for the rain
+      st.day = st.day == null ? (E.light ? 1 : 0) : st.day + ((E.light ? 1 : 0) - st.day) * (1 - Math.exp(-dt / 1.4));
+      const day = st.day, light = day > 0.5;
+      if (st.ref !== E.sites || st.tW !== W || st.tH !== H) {
+        st.ref = E.sites; st.tW = W; st.tH = H;
+        const m = st.m = mobileBuild(E.sites, (0.56 * W) / (0.84 * H));
+        m.sc = Math.min(0.56 * W / m.root.rho, 0.84 * H / m.root.h);
+      }
+      const m = st.m, sc = m.sc, root = m.root, FOC = 2.6 * W, VY = H * 0.45, cx = W / 2;
+      const ceil = -0.04 * H, hangY = Math.max(H * 0.07, H * 0.52 - root.h * sc / 2);
+      root.thr = (hangY - ceil) / sc;
+      // ---- the air in the room: a slow drift, the breath (from where the mist moves), storm gusts
+      const bX = clamp(E.mx, -1, 1) * W * 0.45, bY = (0.5 + 0.4 * clamp(E.my, -1, 1)) * H;
+      const gust = e * 1.6 * (0.75 + 0.25 * Math.sin(T * 2.3) * Math.sin(T * 0.9 + 1));
+      const gx = gust * wx + storm * 1.7 * vnoise(T * 0.7, 3.1) + 0.05 * vnoise(T * 0.05, 1.7);
+      const gz = gust * (1 - Math.abs(wx)) * 0.9 + gust * 0.3 * Math.sin(T * 1.7) + storm * 1.3 * vnoise(T * 0.6, 8.3) + 0.04 * vnoise(T * 0.04, 6.1);
+      const airAt = (X, Y) => 0.35 + 0.65 * Math.exp(-((X - bX) * (X - bX)) / (0.25 * W * W) - ((Y - bY) * (Y - bY)) / (0.3 * H * H));
+      // ---- where everything hangs right now (top down)
+      const place = (q, ax, ay, az, th) => {
+        if (q.leaf) { q.x = ax; q.y = ay + (q.thr + q.off) * sc; q.z = az; q.ty = ay + q.thr * sc; q.ps = th + q.tw; return; }
+        const L = q.thr * sc, lim = (q === root ? 0.3 : 0.55) * L; q.sx = clamp(q.sx, -lim, lim); q.sz = clamp(q.sz, -lim, lim);
+        q.ax = ax; q.ay = ay; q.az = az;
+        q.hx = ax + q.sx; q.hy = ay + Math.sqrt(Math.max(L * L * 0.2, L * L - q.sx * q.sx - q.sz * q.sz)); q.hz = az + q.sz;
+        const ct = Math.cos(q.th), sn = Math.sin(q.th);
+        q.Ax = q.hx - q.a * sc * ct; q.Az = q.hz - q.a * sc * sn; q.Bx = q.hx + q.b * sc * ct; q.Bz = q.hz + q.b * sc * sn;
+        place(q.A, q.Ax, q.hy, q.Az, q.th); place(q.B, q.Bx, q.hy, q.Bz, q.th);
+      };
+      if (root.leaf) place(root, 0, ceil, 0, 0); else place(root, 0, ceil, 0, root.th);
+      // ---- the plates catch the air; the arms turn and swing (bottom up)
+      for (const q of m.leaves) {
+        const n0 = -Math.sin(q.ps), n2 = Math.cos(q.ps), gm = Math.hypot(gx, gz) + 1e-6;
+        const face = 0.3 + 0.7 * Math.abs((n0 * gx + n2 * gz) / gm), f = q.wt * face * airAt(q.x, q.y);
+        q.F[0] = gx * f; q.F[1] = gz * f;
+      }
+      const seenB = st.bolt || 0; let flash = 0, fb = null;
+      for (const b of R.bolts) {
+        const age = T - b.t; if (age < 0) continue;
+        // a flash bulb fires twice, then its light dies away quickly (no dim flicker in between: that would read as fog)
+        const fl = (age < 0.07 ? 1 : age < 0.12 ? 0 : age < 0.2 ? 0.9 : age < 0.45 ? 0.9 * (1 - (age - 0.2) / 0.25) : 0) * Math.min(1, 0.4 + (b.power || 0.6));
+        if (fl > flash) { flash = fl; fb = b; }
+      }
+      const newBolt = R.bolts.find(b => b.t > seenB && T >= b.t);
+      if (newBolt) st.bolt = Math.max(...R.bolts.map(b => b.t));
+      // a tap from a phone gives the nearest arms a push
+      const taps = R.ripples.filter(r => r.t > (st.rip || 0) && T >= r.t);
+      if (taps.length) st.rip = Math.max(...taps.map(r => r.t));
+      for (const q of m.up) {
+        const A = q.A, B = q.B; q.F[0] = A.F[0] + B.F[0]; q.F[1] = A.F[1] + B.F[1];
+        const ct = Math.cos(q.th), sn = Math.sin(q.th);
+        const tq = -q.a * (-sn * A.F[0] + ct * A.F[1]) + q.b * (-sn * B.F[0] + ct * B.F[1]);
+        const I = A.wt * q.a * q.a + B.wt * q.b * q.b + 0.15;
+        const turb = (e * 0.9 + storm * 1.6) * vnoise(T * 1.1 + q.id * 1.7, q.id * 0.37) + 0.3 * vnoise(T * 0.045 + q.id, q.id * 2.3);
+        const sail = q.pitch * Math.hypot(q.F[0], q.F[1]) * 2.2;            // the breath spins every arm its own way
+        q.om += ((14 * tq + sail * (q.a + q.b)) / I + 4 * turb / Math.sqrt(I) - (0.22 + 0.45 * calm) * q.om - 0.16 * q.om * Math.abs(q.om)) * dt;
+        if (newBolt) { q.om += (hash((newBolt.seed | 0) + q.id * 3) - 0.5) * 5 * (newBolt.power || 0.6); q.vx += (hash((newBolt.seed | 0) + q.id * 5) - 0.5) * 420; q.vz += (hash((newBolt.seed | 0) + q.id * 7) - 0.5) * 300; }
+        for (const r of taps) {
+          const tx = (r.x - R.view.x) * s - cx, ty = (r.y - R.view.y) * s, d = Math.hypot(tx - q.hx, ty - q.hy) / W;
+          if (d < 0.28) { q.om += 2.4 * (1 - d / 0.28) * (tx < q.hx ? 1 : -1); q.vx += (q.hx - tx) * 2; }
+        }
+        q.om = clamp(q.om, -7, 7); q.th += q.om * dt;
+        const L = Math.max(8, q.thr * sc), g = 1000, kx = 1500 / q.wt;
+        q.vx += (kx * q.F[0] - g / L * q.sx - 1.7 * q.vx) * dt; q.sx += q.vx * dt;
+        q.vz += (kx * q.F[1] - g / L * q.sz - 1.7 * q.vz) * dt; q.sz += q.vz * dt;
+      }
+      // ---- draw. A storm leaves the last frames showing through: a long exposure of the whirling plates
+      c.globalCompositeOperation = 'source-over';
+      const ga = E.fresh || flash > 0.05 ? 1 : 1 - 0.6 * storm;
+      c.globalAlpha = ga; c.drawImage(st.bgD, 0, 0, W, H);
+      if (day > 0.004) { c.globalAlpha = ga * day; c.drawImage(st.bgL, 0, 0, W, H); }
+      c.globalAlpha = 1;
+      const pr = (X, Y, Z, out) => { const k = FOC / (FOC + Z); out[0] = cx + X * k; out[1] = VY + (Y - VY) * k; return out; };
+      const p0 = [0, 0], p1 = [0, 0], p2 = [0, 0];
+      // shadows on the wall behind (soft, drawn small and scaled up); a flash throws hard ones from its side
+      const shadow = (g, Lx, Ly, Zw, wires) => {
+        const prS = (X, Y, Z, out) => { const t = (Zw - Z); return pr(X + Lx * t, Y + Ly * t, Zw, out); };
+        const path = new Path2D(), wp = new Path2D();
+        for (const q of m.leaves) {
+          const dx = Math.cos(q.ps), dz = Math.sin(q.ps), cr = Math.cos(q.rot), sr = Math.sin(q.rot), rs = q.r * sc;
+          let fx = 0, fy = 0;
+          q.out.forEach(([u, v], j) => {
+            const a = (u * cr - v * sr) * rs, b = (u * sr + v * cr) * rs;
+            prS(q.x + a * dx, q.y + b, q.z + a * dz, p0);
+            if (j) path.lineTo(p0[0], p0[1]); else { path.moveTo(p0[0], p0[1]); fx = p0[0]; fy = p0[1]; }
+          });
+          path.lineTo(fx, fy);
+        }
+        if (wires) for (const q of m.down) {
+          prS(q.ax, q.ay, q.az, p0); wp.moveTo(p0[0], p0[1]); prS(q.hx, q.hy, q.hz, p0); wp.lineTo(p0[0], p0[1]);
+          prS(q.Ax, q.hy, q.Az, p0); wp.moveTo(p0[0], p0[1]); prS(q.Bx, q.hy, q.Bz, p0); wp.lineTo(p0[0], p0[1]);
+        }
+        g.fill(path); if (wires) g.stroke(wp);
+      };
+      const Zw = 0.3 * W;
+      const sx = st.shx; sx.setTransform(1, 0, 0, 1, 0, 0); sx.clearRect(0, 0, st.sh.width, st.sh.height);
+      sx.setTransform(st.sh.width / W, 0, 0, st.sh.height / H, 0, 0);
+      sx.fillStyle = `rgb(${Math.round(70 * day)},${Math.round(56 * day)},${Math.round(40 * day)})`; sx.strokeStyle = sx.fillStyle; sx.lineWidth = 3;
+      shadow(sx, 0.3, 0.36, Zw, true);
+      c.globalAlpha = lerp(0.55, 0.2, day) * (1 - 0.7 * flash); c.drawImage(st.sh, 0, 0, W, H); c.globalAlpha = 1;
+      if (flash > 0.02) {                                   // a flash bulb: a white wall, hard shadows thrown from the strike's side
+        c.fillStyle = `rgba(255,252,246,${Math.min(0.95, 1.1 * flash)})`; c.fillRect(0, 0, W, H);
+        c.fillStyle = `rgba(20,16,12,${0.8 * flash})`; c.strokeStyle = c.fillStyle; c.lineWidth = lw * 1.2;
+        shadow(c, -((fb.u == null ? 0.5 : fb.u) - 0.5) * 1.8, 0.1, Zw * 1.2, true);
+      }
+      // the wires
+      const wire = new Path2D();
+      for (const q of m.down) {
+        pr(q.ax, q.ay, q.az, p0); pr(q.hx, q.hy, q.hz, p1); wire.moveTo(p0[0], p0[1]); wire.lineTo(p1[0], p1[1]);
+        pr(q.Ax, q.hy, q.Az, p0); pr(q.Bx, q.hy, q.Bz, p2);
+        const bow = q.L * sc * 0.07;
+        wire.moveTo(p0[0], p0[1]); wire.quadraticCurveTo(p1[0], p1[1] - bow * 2, p2[0], p2[1]);
+        for (const ch of [q.A, q.B]) if (ch.leaf) { pr(ch.x, ch.ty - (ch.thr ? ch.thr * sc : 0), ch.z, p0); pr(ch.x, ch.ty + ch.r * sc * 0.2, ch.z, p1); wire.moveTo(p0[0], p0[1]); wire.lineTo(p1[0], p1[1]); }
+      }
+      c.lineCap = 'round';
+      const wc = mix([214, 206, 192], [28, 26, 24], day);
+      c.strokeStyle = `rgba(${wc},${lerp(0.7, 0.9, day)})`; c.lineWidth = lw * 0.85; c.stroke(wire);
+      // the plates, far ones first
+      const order = m.leaves.slice().sort((a, b) => b.z - a.z);
+      for (const q of order) {
+        const dx = Math.cos(q.ps), dz = Math.sin(q.ps), cr = Math.cos(q.rot), sr = Math.sin(q.rot), rs = q.r * sc;
+        c.beginPath();
+        q.out.forEach(([u, v], j) => {
+          const a = (u * cr - v * sr) * rs, b = (u * sr + v * cr) * rs;
+          pr(q.x + a * dx, q.y + b, q.z + a * dz, p0);
+          if (j) c.lineTo(p0[0], p0[1]); else c.moveTo(p0[0], p0[1]);
+        });
+        c.closePath();
+        const face = Math.abs(dx), base = CALDER[q.col];
+        pr(q.x, q.y, q.z, p1);
+        let lit = 0.8 + 0.2 * face + 0.25 * flash;
+        lit *= lerp(clamp(1.15 - 0.55 * (((p1[0] - cx) / (0.62 * W)) ** 2 + ((p1[1] - H * 0.4) / (0.75 * H)) ** 2), 0.5, 1.15), 1, day);
+        c.fillStyle = `rgb(${Math.min(255, base[0] * lit + (q.col === 'black' ? 14 * face : 0)) | 0},${Math.min(255, base[1] * lit + (q.col === 'black' ? 14 * face : 0)) | 0},${Math.min(255, base[2] * lit + (q.col === 'black' ? 16 * face : 0)) | 0})`;
+        c.fill();
+        if (light ? q.col === 'white' : q.col === 'black') { c.strokeStyle = light ? 'rgba(40,30,20,0.28)' : 'rgba(255,245,230,0.22)'; c.lineWidth = lw * 0.6; c.stroke(); }
+      }
+    },
+  };
+
+  /* ============================================================== 7  Op Art
+     A checkerboard that swells, in the manner of 1960s op art. Every raining place pushes up a bulge under
+     the squares (across by longitude, down by latitude; bigger where it rains harder), and colour rises in
+     it: ultramarine far north, crimson in the northern tropics, orange in the southern, emerald far south.
+     It slowly undulates. A breath sends the whole board streaming away from the side it came from and
+     raises a big bulge where the mist moved; a storm makes the squares vibrate and zigzag, and the colours
+     split; a lightning strike flips black and white and sends a shock ring through the board. Calm (the
+     light theme), it undulates slowly and the colour sinks back toward black and white. */
+  const OP_HUE = [[38, 66, 214], [222, 36, 62], [246, 126, 18], [14, 158, 118]];
+  const opHueOf = lat => lat > 30 ? 0 : lat > 0 ? 1 : lat > -30 ? 2 : 3;
+  const op = {
+    name: 'op', title: 'Op Art', dark: true, bolts: false,
+    draw(R, c, E) {
+      const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E), wy = windY(E);
+      st.day = st.day == null ? (E.light ? 1 : 0) : st.day + ((E.light ? 1 : 0) - st.day) * (1 - Math.exp(-dt / 1.4));
+      const chroma = 1 - 0.7 * st.day;                                   // calm: the colour sinks back toward black and white
+      if (st.W !== W || st.H !== H || !st.X) {
+        const cs = Math.max(12, Math.round(Math.min(W, H) / 34)), nx = Math.ceil(W / cs) + 6, ny = Math.ceil(H / cs) + 6, n = (nx + 1) * (ny + 1);
+        Object.assign(st, { W, H, cs, nx, ny, X: new Float32Array(n), Y: new Float32Array(n), LX: new Float32Array(n), LY: new Float32Array(n), LG: new Float32Array(n),
+                            wv: new Float32Array(n), own: new Int16Array(n) });
+      }
+      const { cs, nx, ny, X, Y, LX, LY, LG, wv, own } = st, N1 = nx + 1, per = 2 * cs;
+      // the board streams with the breath (and creeps on its own); integrated so it never jumps
+      st.ox = (st.ox || 0) + (wx * e * 560 + 7 + 30 * storm * Math.sin(T * 0.9)) * dt;
+      st.oy = (st.oy || 0) + (wy * e * 320 + 4 * Math.sin(T * 0.05)) * dt;
+      st.ph = (st.ph || 0) + dt * (0.3 + 0.25 * (1 - calm) + 1.6 * storm + 0.9 * e);
+      const ox = ((st.ox % per) + per) % per, oy = ((st.oy % per) + per) % per;
+      // undulation everywhere, zigzag in a storm
+      const ag = cs * (0.22 + 0.18 * (1 - calm) + 0.55 * storm + 0.3 * e), zz = storm * cs * 0.42, ph = st.ph;
+      for (let j = 0, o = 0; j <= ny; j++) {
+        const by = (j - 3) * cs + oy;
+        const zx = zz * (Math.abs(((j * 0.5 + T * 2.1) % 2) - 1) * 2 - 1);
+        for (let i = 0; i <= nx; i++, o++) {
+          const bx = (i - 3) * cs + ox;
+          X[o] = bx + ag * 0.6 * Math.sin(by * 8.9 / H - ph * 0.8) + zx;
+          Y[o] = by + ag * Math.sin(bx * 6.3 / W + by * 2.6 / H - ph) + zz * 0.6 * (Math.abs(((i * 0.5 - T * 1.7) % 2 + 2) % 2 - 1) * 2 - 1);
+          wv[o] = 0; own[o] = -1; LX[o] = 0; LY[o] = 0; LG[o] = 0;
+        }
+      }
+      // the bulges: one per raining place, a big one where the breath comes in, a shock from a strike
+      const lens = (cx, cy, r, A, id) => {
+        if (A < 0.01 || r < 2) return;
+        const i0 = Math.max(0, Math.floor((cx - 2.6 * r - ox) / cs) + 3), i1 = Math.min(nx, Math.ceil((cx + 2.6 * r - ox) / cs) + 3);
+        const j0 = Math.max(0, Math.floor((cy - 2.6 * r - oy) / cs) + 3), j1 = Math.min(ny, Math.ceil((cy + 2.6 * r - oy) / cs) + 3), ir = 1 / (r * r);
+        for (let j = j0; j <= j1; j++) {
+          const by = (j - 3) * cs + oy, dy = by - cy;
+          for (let i = i0; i <= i1; i++) {
+            const dx = (i - 3) * cs + ox - cx, g = A * Math.exp(-(dx * dx + dy * dy) * ir), o = j * N1 + i;
+            if (g < 0.004) continue;
+            LX[o] += dx * g; LY[o] += dy * g; LG[o] += g;
+            if (id >= 0 && g > wv[o]) { wv[o] = g; own[o] = id; }
+          }
+        }
+      };
+      const sites = E.sites, Rb = Math.min(W, H) * 0.047;
+      for (let n = 0; n < sites.length; n++) {
+        const z = sites[n], lat = 90 - z.v * 180, lv = clamp((80 - lat) / 140, 0, 1);
+        const br = 1 + 0.1 * Math.sin(T * (0.45 + 0.3 * z.k) + z.id) * (0.4 + calm) + 0.15 * e;
+        lens(W * (0.06 + 0.88 * z.u), H * (0.08 + 0.84 * lv), Rb * (0.5 + 1.1 * z.k) * br, (0.5 + 0.7 * z.k) * (1 + 0.2 * e), n);
+      }
+      if (e > 0.01) {
+        const bxp = (0.5 + 0.44 * clamp(E.mx, -1, 1)) * W, byp = (0.5 + 0.38 * clamp(E.my, -1, 1)) * H;
+        lens(bxp + wx * e * W * 0.12, byp, Math.min(W, H) * (0.14 + 0.14 * e), 1.3 * e, -1);
+      }
+      // where bulges overlap they share the room instead of piling up
+      for (let o = 0; o < X.length; o++) if (LG[o] > 0) { const q = LG[o] > 1 ? 1 / LG[o] : 1; X[o] += LX[o] * q; Y[o] += LY[o] * q; }
+      let flash = 0;
+      for (const b of R.bolts) {
+        const age = T - b.t; if (age < 0) continue;
+        const fl = (age < 0.07 ? 1 : age < 0.12 ? 0.2 : age < 0.2 ? 0.9 : 0) * (b.power || 0.6);
+        flash = Math.max(flash, fl);
+        const cx = (b.u == null ? 0.5 : b.u) * W, cy = H * (0.3 + 0.4 * hash((b.seed | 0) + 3)), rr = W * (0.04 + 1.1 * age), A = 0.8 * Math.max(0, 1 - age / 1.2) * (b.power || 0.6);
+        if (A > 0.01) for (let o = 0; o < X.length; o++) {                     // a ring of push travelling out
+          const dx = X[o] - cx, dy = Y[o] - cy, d = Math.sqrt(dx * dx + dy * dy) + 1, q = (d - rr) / (cs * 2.2);
+          if (q > -3 && q < 3) { const g = A * Math.exp(-q * q) * cs * 1.6 / d; X[o] += dx * g; Y[o] += dy * g; }
+        }
+      }
+      // ---- draw: the paper, then the squares (tinted where a bulge rises)
+      const dark = flash > 0.45;                          // a strike flips black and white for an instant
+      const INKc = dark ? [236, 230, 218] : [16, 15, 16], PAP = dark ? [10, 10, 12] : [240, 234, 222];
+      c.globalCompositeOperation = 'source-over';
+      c.fillStyle = `rgb(${PAP})`; c.fillRect(0, 0, W, H);
+      const base = new Path2D(), tint = [], ptint = [];
+      for (let b = 0; b < 16; b++) { tint.push(null); ptint.push(null); }
+      const xmin = -cs * 2, xmax = W + cs * 2, ymin = -cs * 2, ymax = H + cs * 2;
+      for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+        const a = j * N1 + i, b = a + 1, d = a + N1, cc = d + 1;
+        const x0 = X[a]; if (x0 > xmax || X[b] < xmin) continue;
+        const y0 = Y[a]; if (y0 > ymax || Y[d] < ymin) continue;
+        let w = wv[a], ow = own[a];
+        if (wv[b] > w) { w = wv[b]; ow = own[b]; } if (wv[d] > w) { w = wv[d]; ow = own[d]; } if (wv[cc] > w) { w = wv[cc]; ow = own[cc]; }
+        const ink = ((i + j) & 1) === 0;
+        let p;
+        if (w > 0.16 && ow >= 0) {
+          const z = sites[ow], kb = opHueOf(90 - z.v * 180) * 4 + Math.min(3, Math.floor((w - 0.16) / 0.2));
+          const arr = ink ? tint : ptint; p = arr[kb] || (arr[kb] = new Path2D());
+        } else if (ink) p = base; else continue;
+        p.moveTo(x0, y0); p.lineTo(X[b], Y[b]); p.lineTo(X[cc], Y[cc]); p.lineTo(X[d], Y[d]); p.lineTo(x0, y0);   // (closePath is very slow on big paths)
+      }
+      const split = Math.min(1, storm * 1.3 + flash) * cs * 0.16;
+      if (split > 0.4) {                                  // a storm: the colours slip apart, red one side and cyan the other in turn, so it shimmers
+        st.flip = !st.flip;
+        const dx = st.flip ? split : -split, dy = dx * 0.3;
+        c.translate(dx, dy); c.fillStyle = st.flip ? 'rgb(255,40,70)' : 'rgb(0,200,255)'; c.fill(base); c.translate(-dx, -dy);
+      }
+      c.fillStyle = `rgb(${INKc})`; c.fill(base);
+      for (let kb = 0; kb < 16; kb++) {
+        const hue = OP_HUE[kb >> 2], lv = ((kb & 3) + 1) / 4;
+        if (tint[kb]) { c.fillStyle = `rgb(${mix(INKc, hue, (0.35 + 0.65 * lv) * chroma)})`; c.fill(tint[kb]); }
+        if (ptint[kb]) { c.fillStyle = `rgb(${mix(PAP, mix(hue, [255, 250, 235], dark ? 0.15 : 0.55), (0.18 + 0.5 * lv) * chroma)})`; c.fill(ptint[kb]); }
+      }
+    },
+  };
+
+  /* ============================================================== 8  Strings
+     A light sculpture of taut threads strung between two rails that twist round each other across the
+     room, like the string constructions of the 1930s and 40s. Each of the 320 places checked is a hairline
+     at its longitude; every raining place adds a bundle of glowing threads (more and brighter where it
+     rains harder), slanted by its latitude, north one way and south the other, and coloured by it: cyan in
+     the north, magenta at the equator, amber in the south. It turns slowly in the dark. A breath plucks
+     the threads near where it blows, so they ring and blur, and screws the ribbon round in its direction; a
+     storm sets every thread thrashing and shakes the whole sculpture; a lightning strike runs a pulse of
+     white light out along the rails from where it struck. Calm, it hardly turns and barely hums. */
+  const STR_NB = 7;
+  const strHue = lat => lat >= 0 ? lerp(318, 186, Math.min(1, lat / 60)) : lerp(318, 398, Math.min(1, -lat / 60));
+  const STR_COL = Array.from({ length: STR_NB }, (_, b) => hsl2rgb(186 + b * 212 / (STR_NB - 1), 96, 62).split(',').map(Number));
+  /* the room is soft and dark, so it lives on the small canvas too: one blow-up a frame draws the room and
+     the glow of the threads together */
+  function stringsSetup(st, W, H, dpr) {
+    st.W = W; st.H = H;
+    st.gc = canvas(W / 4, H / 4); st.gx = st.gc.getContext('2d');
+    st.gb = canvas(W / 4, H / 4); st.gbx = st.gb.getContext('2d'); st.blur = 'filter' in st.gbx;
+    const bg = st.bg = canvas(W / 4, H / 4), g = bg.getContext('2d');
+    g.setTransform(bg.width / W, 0, 0, bg.height / H, 0, 0);
+    let gr = g.createRadialGradient(W / 2, H * 0.48, 0, W / 2, H * 0.5, Math.hypot(W, H) * 0.6);
+    gr.addColorStop(0, '#140d26'); gr.addColorStop(0.45, '#080614'); gr.addColorStop(1, '#010103');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    gr = g.createLinearGradient(0, H * 0.74, 0, H);                    // a floor far below catches a little light
+    gr.addColorStop(0, 'rgba(90,60,150,0)'); gr.addColorStop(1, 'rgba(70,44,120,0.2)');
+    g.fillStyle = gr; g.fillRect(0, H * 0.74, W, H * 0.26);
+  }
+  function stringsThreads(st, E) {
+    st.ref = E.pts; st.ref2 = E.sites;
+    const th = [], P = E.pts;
+    const n = P.length || 160;
+    for (let i = 0; i < n; i++) th.push({ t: P.length ? (P[i][1] + 180) / 360 : (i + 0.5) / n, sl: 0.03 + 0.03 * hash(i * 3 + 1), b: -1, amp: 0, hot: 0, ph: hash(i * 3 + 2) * TAU, fr: 16 + 14 * hash(i * 3 + 3), m: 1 });
+    for (const z of E.sites) {
+      const lat = 90 - z.v * 180, b = clamp(Math.round((strHue(lat) - 186) / 212 * (STR_NB - 1)), 0, STR_NB - 1), nb = 1 + Math.round(3.5 * z.k);
+      for (let j = 0; j < nb; j++) {
+        const o = j - (nb - 1) / 2, h = hash(z.id * 17 + j);
+        th.push({ t: z.u + o * 0.0045, sl: (lat / 90) * 0.36 + o * 0.012, b, k: z.k, amp: 0, hot: 0, ph: h * TAU, fr: 13 + 18 * z.k + 6 * h, m: h < 0.3 ? 2 : 1 });
+      }
+    }
+    st.th = th;
+  }
+  const strings = {
+    name: 'strings', title: 'Strings', dark: true, bolts: false,
+    draw(R, c, E) {
+      const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E), wy = windY(E);
+      if (st.W !== W || st.H !== H || !st.bg) stringsSetup(st, W, H, E.dpr);
+      if (st.ref !== E.pts || st.ref2 !== E.sites || !st.th) stringsThreads(st, E);
+      // the ribbon screws round slowly; the breath turns it in the direction it blows, a storm jerks it about
+      const dir = Math.abs(wx) > 0.1 ? Math.sign(wx) : (st.dir || 1); st.dir = dir;
+      st.ph = (st.ph == null ? (T * 0.08) % TAU : st.ph) + dt * (0.07 + 0.06 * (1 - calm) + 0.7 * storm * Math.sin(T * 0.37) + 2.4 * e * dir);
+      st.lean = (st.lean || 0) + (wx * e * 0.45 - (st.lean || 0)) * (1 - Math.exp(-dt * 3));
+      const yaw = 0.34 * Math.sin(T * 0.043) + st.lean + storm * 0.06 * Math.sin(T * 5.3);
+      const pitch = 0.17 + 0.07 * Math.sin(T * 0.061) + wy * e * 0.18;
+      const ky = Math.cos(yaw), sy = Math.sin(yaw), kp = Math.cos(pitch), sp = Math.sin(pitch);
+      const FOC = 2.1 * W, L = W * 0.41, cx = W / 2 + storm * 5 * s * (rnd() - 0.5), cy = H * 0.5 + storm * 4 * s * (rnd() - 0.5);
+      const proj = (X, Y, Z, out) => {
+        const x1 = X * ky + Z * sy, z1 = -X * sy + Z * ky, y2 = Y * kp - z1 * sp, z2 = Y * sp + z1 * kp, k = FOC / (FOC + z2);
+        out[0] = cx + x1 * k; out[1] = cy + y2 * k; out[2] = k; return out;
+      };
+      const TW = 1.75 * Math.PI, ph = st.ph, hum = 1 + 0.03 * Math.sin(T * 0.4);
+      const rail = (t, side, out) => {
+        const a = ph + TW * (t - 0.5) + storm * 0.5 * Math.sin(t * 9 - T * 2.6) + e * 0.7 * Math.sin(Math.PI * t) * dir;
+        const h = H * 0.32 * (0.78 + 0.22 * Math.sin(Math.PI * t)) * hum * side, ay = H * 0.035 * Math.sin(TAU * t + T * 0.11);
+        return proj((t - 0.5) * 2 * L, ay - h * Math.cos(a), h * Math.sin(a), out);
+      };
+      // a strike: pulses of light running out along the ribbon both ways from where it struck
+      const fronts = [];
+      for (const b of R.bolts) { const age = T - b.t; if (age >= 0 && age < 1.2) fronts.push([b.u == null ? 0.5 : b.u, age * 1.1, (b.power || 0.6) * (1 - age / 1.2)]); }
+      const bxs = (0.5 + 0.44 * clamp(E.mx, -1, 1)) * W, decay = Math.exp(-dt * (1.3 + 1.4 * calm));
+      const hair = new Path2D(), hairV = new Path2D(), lo = [], hi = [];
+      for (let b = 0; b < STR_NB; b++) { lo.push(new Path2D()); hi.push(new Path2D()); }
+      const p1 = [0, 0, 0], p2 = [0, 0, 0];
+      for (const q of st.th) {
+        const t2 = q.t + q.sl > 1 || q.t + q.sl < 0 ? q.t - q.sl : q.t + q.sl;
+        rail(q.t, 1, p1); rail(t2, -1, p2);
+        const xm = (p1[0] + p2[0]) / 2;
+        // energy in: the breath plucks the threads near where it blows, a storm all of them, a strike as its pulse passes
+        let ex = e * 300 * (0.22 + Math.exp(-((xm - bxs) * (xm - bxs)) / (0.06 * W * W))) + storm * 190 * (0.3 + rnd());
+        for (const [tu, rr, pw] of fronts) if (Math.abs(Math.abs(q.t - tu) - rr) < 0.035) { ex += 1600 * pw; q.hot = 1; }
+        q.amp = Math.min(24 * s, q.amp * decay + ex * dt * s * (q.b < 0 ? 0.5 : 1));
+        q.hot *= Math.exp(-dt * 5);
+        const path = q.b < 0 ? (q.amp > 2 || q.hot > 0.2 ? hairV : hair) : lo[q.b];
+        path.moveTo(p1[0], p1[1]);
+        const ring = q.b >= 0 && (q.amp > 3.5 || q.hot > 0.2) ? hi[q.b] : null;
+        if (ring) ring.moveTo(p1[0], p1[1]);
+        if (q.amp < 0.6) { path.lineTo(p2[0], p2[1]); if (ring) ring.lineTo(p2[0], p2[1]); continue; }
+        // a ringing thread: plucked, it bends into one bow (or two, for the second harmonic) swinging from side to side.
+        // Straight pieces, not curves: curves are far slower to draw
+        const dx = p2[0] - p1[0], dy = p2[1] - p1[1], ln = Math.hypot(dx, dy) + 1e-6, w = q.amp * Math.sin(T * q.fr + q.ph), nx = -dy / ln * w, ny = dx / ln * w;
+        for (const pa of ring ? [path, ring] : [path]) {
+          if (q.b < 0) pa.lineTo(p1[0] + dx * 0.5 + nx, p1[1] + dy * 0.5 + ny);
+          else if (q.m === 1) { pa.lineTo(p1[0] + dx * 0.25 + nx * 0.7, p1[1] + dy * 0.25 + ny * 0.7); pa.lineTo(p1[0] + dx * 0.5 + nx, p1[1] + dy * 0.5 + ny); pa.lineTo(p1[0] + dx * 0.75 + nx * 0.7, p1[1] + dy * 0.75 + ny * 0.7); }
+          else { pa.lineTo(p1[0] + dx * 0.25 + nx, p1[1] + dy * 0.25 + ny); pa.lineTo(p1[0] + dx * 0.75 - nx, p1[1] + dy * 0.75 - ny); }
+          pa.lineTo(p2[0], p2[1]);
+        }
+      }
+      const breathe = 0.86 + 0.14 * Math.sin(T * 0.7), heat = Math.min(1, storm * 0.3 + fronts.reduce((a, f) => Math.max(a, f[2]), 0) * 0.3);
+      // the small canvas: the room, then every coloured thread and the rails as hairlines, softened and blown up
+      // to the screen as the glow (strokes under a pixel wide take the fast hairline path)
+      const gx = st.gx, gthin = 0.95 * W / st.gc.width, thin = 0.95 / E.dpr;
+      gx.setTransform(1, 0, 0, 1, 0, 0); gx.globalCompositeOperation = 'copy'; gx.drawImage(st.bg, 0, 0);
+      gx.setTransform(st.gc.width / W, 0, 0, st.gc.height / H, 0, 0); gx.globalCompositeOperation = 'lighter'; gx.lineWidth = gthin;
+      const cols = [];
+      for (let b = 0; b < STR_NB; b++) {
+        const col = cols[b] = mix(STR_COL[b], [255, 255, 255], heat).join(',');
+        gx.strokeStyle = `rgb(${col})`; gx.stroke(lo[b]); gx.stroke(hi[b]);
+      }
+      const rp = [new Path2D(), new Path2D()];
+      for (let side = 0; side < 2; side++) for (let j = 0; j <= 96; j++) { rail(j / 96, side ? -1 : 1, p1); if (j) rp[side].lineTo(p1[0], p1[1]); else rp[side].moveTo(p1[0], p1[1]); }
+      gx.strokeStyle = `rgba(255,224,200,${breathe})`; gx.stroke(rp[0]); gx.stroke(rp[1]);
+      let gsrc = st.gc;
+      if (st.blur) { const g2 = st.gbx; g2.fillStyle = '#020104'; g2.fillRect(0, 0, st.gb.width, st.gb.height); g2.filter = 'blur(1.3px)'; g2.drawImage(st.gc, 0, 0); g2.filter = 'none'; gsrc = st.gb; }
+      c.globalCompositeOperation = 'source-over'; c.drawImage(gsrc, 0, 0, W, H);
+      // then the threads themselves, sharp (plain blending: adding light up is far slower to draw, and the glow
+      // underneath already adds up where they cross)
+      c.lineCap = 'round';
+      c.strokeStyle = `rgba(190,182,255,${0.1 * breathe})`; c.lineWidth = lw * 0.55 / E.dpr; c.stroke(hair);
+      c.strokeStyle = `rgba(226,218,255,${0.24 * breathe})`; c.lineWidth = lw * 0.7 / E.dpr; c.stroke(hairV);
+      c.lineWidth = thin;
+      for (let b = 0; b < STR_NB; b++) {
+        c.strokeStyle = `rgba(${mix(STR_COL[b], [255, 255, 255], 0.15).join(',')},${0.78 * breathe})`; c.stroke(lo[b]);
+        c.strokeStyle = `rgb(${mix(STR_COL[b], [255, 255, 255], 0.4 + heat * 0.5).join(',')})`; c.stroke(hi[b]);
+      }
+      // the two rails, and the strike's pulses running along them
+      c.strokeStyle = `rgba(255,240,228,${0.7 * breathe})`; c.lineWidth = lw * 1.3; c.stroke(rp[0]); c.stroke(rp[1]);
+      c.globalCompositeOperation = 'lighter';
+      const gs = glow('255,246,236', 64, 0.3);
+      for (const [tu, rr, pw] of fronts) for (const t of [tu - rr, tu + rr]) {
+        if (t < 0 || t > 1) continue;
+        for (const side of [1, -1]) { rail(t, side, p1); const z = (40 + 80 * pw) * s * p1[2]; c.globalAlpha = Math.min(1, pw * 1.4); c.drawImage(gs, p1[0] - z / 2, p1[1] - z / 2, z, z); }
+      }
+      c.globalAlpha = 1;
+      if (fronts.length) { const f = fronts[fronts.length - 1], a = f[1] < 0.07 ? 1 : f[1] < 0.12 ? 0.3 : f[1] < 0.2 ? 0.8 : 0; if (a) { c.fillStyle = `rgba(150,120,255,${0.12 * a * f[2]})`; c.fillRect(0, 0, W, H); } }
+      c.globalCompositeOperation = 'source-over';
+    },
+  };
+
+  /* ============================================================== 9  Maze
+     A floor of Truchet tiles (two quarter-circle arcs in each square) that join up into long winding loops,
+     drawn as three-stripe 1970s supergraphics. Every raining place sits on one tile (across by longitude,
+     down by latitude) and colours a stretch of the loop that runs through it, longer where it rains harder:
+     blue far north, teal north, orange in the tropics, magenta south, mustard far south; a bead of light
+     runs up and down each stretch. A breath turns the tiles over in a wave rolling away from the side it
+     came from, so the loops break and re-join and the colours run off along new paths; a storm keeps tiles
+     turning everywhere; a lightning strike turns them in a ring spreading from where it struck. Calm, a
+     tile turns only now and then and the beads glow and fade slowly. */
+  const MAZE_FAM = [[[70, 124, 246], [176, 208, 255]], [[22, 178, 160], [164, 242, 216]], [[252, 118, 38], [255, 212, 124]], [[238, 60, 122], [255, 178, 202]], [[242, 186, 42], [255, 240, 178]]];
+  const mazeFam = lat => lat > 40 ? 0 : lat > 12 ? 1 : lat > -12 ? 2 : lat > -40 ? 3 : 4;
+  //               corner x, y, start angle, edge at the start, edge at the end        (orientation 0: arcs 0, 1; orientation 1: arcs 0, 1)
+  const MAZE_ARC = [[[0, 0, 0, 'T', 'L'], [1, 1, Math.PI, 'B', 'R']], [[1, 0, Math.PI / 2, 'R', 'T'], [0, 1, Math.PI * 1.5, 'L', 'B']]];
+  const MAZE_IN = [{ T: 0, L: 0, B: 1, R: 1 }, { T: 0, R: 0, B: 1, L: 1 }];       // which arc of a tile touches each edge
+  const MAZE_STEP = { T: [0, -1, 'B'], B: [0, 1, 'T'], L: [-1, 0, 'R'], R: [1, 0, 'L'] };
+  function mazeSetup(st, W, H, dpr) {
+    st.W = W; st.H = H;
+    const cs = st.cs = Math.round(Math.min(W, H) / 11.5), cols = st.cols = Math.ceil(W / cs) + 1, rows = st.rows = Math.ceil(H / cs) + 1;
+    st.x0 = (W - cols * cs) / 2; st.y0 = (H - rows * cs) / 2;
+    const n = cols * rows;
+    st.o = new Uint8Array(n); st.a0 = new Float32Array(n).fill(-99); st.dr = new Int8Array(n);
+    for (let i = 0; i < n; i++) st.o[i] = hash(i * 17 + 3) < 0.5 ? 1 : 0;
+    st.fr = []; st.topo = 1;
+    // one quarter-circle of three stripes per colour, drawn once (blitting them is far cheaper than stroking ~700 arcs a frame)
+    const r0 = cs / 2, dd = cs * 0.15, sw = cs * 0.085, S = Math.ceil(r0 + dd + sw), NEU = [66, 54, 92];
+    const sprite = (o, m) => {
+      const cv = canvas(S * dpr, S * dpr), x = cv.getContext('2d');
+      x.setTransform(dpr, 0, 0, dpr, 0, 0); x.lineCap = 'butt';
+      x.strokeStyle = `rgb(${o})`; x.lineWidth = sw; x.beginPath(); x.arc(0, 0, r0 - dd, 0, Math.PI / 2); x.moveTo(r0 + dd, 0); x.arc(0, 0, r0 + dd, 0, Math.PI / 2); x.stroke();
+      x.strokeStyle = `rgb(${m})`; x.lineWidth = sw * 1.15; x.beginPath(); x.arc(0, 0, r0, 0, Math.PI / 2); x.stroke();
+      return cv;
+    };
+    st.S = S; st.spr = [sprite(NEU, NEU)];
+    for (const q of [1, 0.55]) for (const f of MAZE_FAM) st.spr.push(sprite(mix(NEU, f[0], q), mix(NEU, f[1], q)));
+    const bg = st.bg = canvas(W * dpr, H * dpr), g = bg.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    let gr = g.createLinearGradient(0, 0, W, H);
+    gr.addColorStop(0, '#1d1630'); gr.addColorStop(1, '#130e1f');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    for (let i = 0; i < 9000; i++) { g.fillStyle = `rgba(255,230,200,${0.01 + 0.025 * hash(i * 3 + 1)})`; g.fillRect(hash(i * 3 + 2) * W, hash(i * 3 + 3) * H, 1, 1); }
+    gr = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.4, W / 2, H / 2, Math.hypot(W, H) * 0.6);
+    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.42)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    // the floor as it stands: tiles at rest are drawn here, and only a tile that changes is drawn again
+    st.floor = canvas(W * dpr, H * dpr); st.flx = st.floor.getContext('2d'); st.flx.drawImage(bg, 0, 0);
+    st.cur = new Int16Array(n * 2).fill(-1);
+  }
+  const maze = {
+    name: 'maze', title: 'Maze', dark: true, bolts: false,
+    draw(R, c, E) {
+      const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E);
+      if (st.W !== W || st.H !== H || !st.bg) mazeSetup(st, W, H, E.dpr);
+      const { cs, cols, rows, x0, y0, o, a0, dr } = st, N = cols * rows, DUR = 0.32;
+      const flip = (t, d) => { if (T - a0[t] < DUR) return; o[t] ^= 1; a0[t] = T; dr[t] = d; st.topo++; };
+      // ---- what turns the tiles: waves from the breath, a strike or a tap; the storm everywhere; calm now and then
+      const bx = (0.5 + 0.45 * clamp(E.mx, -1, 1)) * W, by = (0.5 + 0.42 * clamp(E.my, -1, 1)) * H;
+      if (e > 0.2 && T - (st.lastFr || -9) > 0.7 - 0.25 * e) {
+        st.lastFr = T;
+        const d = Math.abs(wx) > 0.15 ? Math.sign(wx) : 0;
+        st.fr.push(d ? { line: true, x: bx - d * cs, d, v: (0.75 + 0.9 * e) * W, y: by, hh: H * (0.2 + 0.35 * e), p: 0.4 + 0.35 * e, sd: rnd() * 1e6 | 0 }
+                     : { x: bx, y: by, r: 0, v: (0.5 + 0.6 * e) * W, rmax: W * (0.25 + 0.4 * e), p: 0.4 + 0.35 * e, sd: rnd() * 1e6 | 0, d: rnd() < 0.5 ? 1 : -1 });
+      }
+      for (const b of R.bolts) if (b.t > (st.bolt || 0) && T >= b.t) {
+        st.bolt = b.t;
+        st.fr.push({ x: (b.u == null ? 0.5 : b.u) * W, y: H * (0.3 + 0.4 * hash((b.seed | 0) + 1)), r: 0, v: 1.5 * W, rmax: Math.hypot(W, H), p: 0.95, sd: b.seed | 0, d: 1 });
+      }
+      for (const r of R.ripples) if (r.t > (st.rip || 0) && T >= r.t) {
+        st.rip = r.t;
+        st.fr.push({ x: (r.x - R.view.x) * s, y: (r.y - R.view.y) * s, r: 0, v: 0.6 * W, rmax: W * 0.16, p: 0.9, sd: (r.seed || 1) | 0, d: 1 });
+      }
+      for (const f of st.fr) {
+        if (f.line) {
+          const xa = f.x; f.x += f.d * f.v * dt;
+          const lo = Math.min(xa, f.x), hi = Math.max(xa, f.x);
+          for (let t = 0; t < N; t++) {
+            const tx = x0 + (t % cols + 0.5) * cs, ty = y0 + (Math.floor(t / cols) + 0.5) * cs;
+            if (tx > lo && tx <= hi && Math.abs(ty - f.y) < f.hh * (0.6 + 0.4 * hash(t * 7 + f.sd)) && hash(t * 13 + f.sd) < f.p) flip(t, f.d);
+          }
+          f.dead = f.x < -cs || f.x > W + cs;
+        } else {
+          const ra = f.r; f.r += f.v * dt;
+          for (let t = 0; t < N; t++) {
+            const d = Math.hypot(x0 + (t % cols + 0.5) * cs - f.x, y0 + (Math.floor(t / cols) + 0.5) * cs - f.y);
+            if (d > ra && d <= f.r && hash(t * 13 + f.sd) < f.p) flip(t, f.d);
+          }
+          f.dead = f.r > f.rmax;
+        }
+      }
+      st.fr = st.fr.filter(f => !f.dead);
+      let nf = (storm * 0.42 + 0.012 + 0.04 * (1 - calm)) * N * dt * (storm > 0.05 ? 1 : 0.25);
+      while (nf > 0) { if (nf < 1 && rnd() > nf) break; nf -= 1; flip(Math.floor(rnd() * N), rnd() < 0.5 ? 1 : -1); }
+      // ---- the loops: from each raining place, walk along its loop both ways, arc by arc through the tiles;
+      //      the stretch it colours is longer where it rains harder
+      if (st.sref !== E.sites || st.done !== st.topo && (T - (st.doneT || 0) > 0.05 || T < (st.doneT || 0))) {    // (at most 20 times a second)
+        st.done = st.topo; st.doneT = T; st.sref = E.sites;
+        const walk = (t, a, ein, max) => {
+          const out = [];
+          for (let n = 0; n < max; n++) {
+            const A = MAZE_ARC[o[t]][a], fwd = A[3] === ein, eout = fwd ? A[4] : A[3];
+            out.push([t, a, fwd]);
+            const [di, dj, enext] = MAZE_STEP[eout], i = t % cols + di, j = (t - t % cols) / cols + dj;
+            if (i < 0 || j < 0 || i >= cols || j >= rows) break;
+            t = j * cols + i; ein = enext; a = MAZE_IN[o[t]][ein];
+            if (t === out[0][0] && a === out[0][1]) break;
+          }
+          return out;
+        };
+        const col = st.col = new Map();
+        st.seeds = [];
+        for (const z of E.sites) {
+          const lat = 90 - z.v * 180, i = clamp(Math.floor((0.03 + 0.94 * z.u) * cols), 0, cols - 1), j = clamp(Math.floor((0.05 + 0.9 * clamp((80 - lat) / 140, 0, 1)) * rows), 0, rows - 1);
+          const t = j * cols + i, a = hash(z.id * 3) < 0.5 ? 0 : 1, fam = mazeFam(lat), len = Math.round(5 + 26 * z.k), A = MAZE_ARC[o[t]][a];
+          const fw = walk(t, a, A[3], len + 1), bw = walk(t, a, A[4], len + 1);
+          const path = bw.slice(1).reverse().map(([tt, aa, f]) => [tt, aa, !f]).concat(fw);
+          path.forEach(([tt, aa], n) => {
+            const key = tt * 2 + aa, tail = Math.min(n, path.length - 1 - n) < len * 0.3 ? 1 : 0, cur = col.get(key);
+            if (!cur || z.k > cur.k) col.set(key, { fam, k: z.k, tail });
+          });
+          st.seeds.push({ path, k: z.k, fam, id: z.id });
+        }
+      }
+      // ---- draw: three stripes along every arc; a raining place's stretch in its family's colours
+      c.globalCompositeOperation = 'source-over';
+      const geo = (t, a, out) => {                          // an arc's centre and start angle, turned with its tile
+        const i = t % cols, j = (t - i) / cols, A = MAZE_ARC[o[t]][a], p = clamp((T - a0[t]) / DUR, 0, 1);
+        const rot = p < 1 ? -dr[t] * (Math.PI / 2) * (1 - p * p * (3 - 2 * p)) : 0;
+        const mx = x0 + (i + 0.5) * cs, my = y0 + (j + 0.5) * cs, ux = (A[0] - 0.5) * cs, uy = (A[1] - 0.5) * cs, cr = Math.cos(rot), sr = Math.sin(rot);
+        out[0] = mx + ux * cr - uy * sr; out[1] = my + ux * sr + uy * cr; out[2] = A[2] + rot; return out;
+      };
+      // a tile at rest lives on the floor canvas (drawn again only when it changes); a tile turning is stroked on top
+      const r0 = cs / 2, dd = cs * 0.15, sw = cs * 0.085, g3 = [0, 0, 0], NF = MAZE_FAM.length, S = st.S, dpr = E.dpr, spr = st.spr;
+      const flr = st.flx, cur = st.cur;
+      if (E.fresh) cur.fill(-1);
+      const strokes = spr.map(() => [new Path2D(), new Path2D()]);
+      const arcTo = (p, r, a1) => {                     // a turning arc as four straight pieces: the motion hides them, and they draw much faster
+        p.moveTo(g3[0] + r * Math.cos(a1), g3[1] + r * Math.sin(a1));
+        for (let k = 1; k <= 4; k++) { const a = a1 + k * Math.PI / 8; p.lineTo(g3[0] + r * Math.cos(a), g3[1] + r * Math.sin(a)); }
+      };
+      for (let t = 0; t < N; t++) {
+        const turning = T - a0[t] < DUR, k0 = t * 2;
+        const c0 = st.col.get(k0), c1 = st.col.get(k0 + 1), s0 = turning ? -2 : c0 ? 1 + c0.fam + c0.tail * NF : 0, s1 = turning ? -2 : c1 ? 1 + c1.fam + c1.tail * NF : 0;
+        if (s0 !== cur[k0] || s1 !== cur[k0 + 1]) {           // this tile changed: draw its square of the floor again
+          cur[k0] = s0; cur[k0 + 1] = s1;
+          const i = t % cols, j = (t - i) / cols, X = x0 + i * cs, Y = y0 + j * cs;
+          flr.setTransform(1, 0, 0, 1, 0, 0); flr.drawImage(st.bg, X * dpr, Y * dpr, cs * dpr, cs * dpr, X * dpr, Y * dpr, cs * dpr, cs * dpr);
+          if (!turning) for (let a = 0; a < 2; a++) {
+            const A = MAZE_ARC[o[t]][a], q = Math.round(A[2] / (Math.PI / 2)) & 3, ca = [1, 0, -1, 0][q], sa = [0, 1, 0, -1][q];
+            flr.setTransform(ca * dpr, sa * dpr, -sa * dpr, ca * dpr, (X + A[0] * cs) * dpr, (Y + A[1] * cs) * dpr);
+            flr.drawImage(spr[a ? s1 : s0], 0, 0, S, S);
+          }
+        }
+        if (turning) for (let a = 0; a < 2; a++) {
+          geo(t, a, g3);
+          const cl = a ? c1 : c0, [po, pm] = strokes[cl ? 1 + cl.fam + cl.tail * NF : 0];
+          arcTo(po, r0 - dd, g3[2]); arcTo(po, r0 + dd, g3[2]); arcTo(pm, r0, g3[2]);
+        }
+      }
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      c.drawImage(st.floor, 0, 0, W, H);
+      c.lineCap = 'butt';
+      strokes.forEach(([po, pm], si) => {
+        const f = si ? MAZE_FAM[(si - 1) % NF] : null, q = si > NF ? 0.55 : 1, NEU = [66, 54, 92];
+        c.strokeStyle = `rgb(${f ? mix(NEU, f[0], q) : NEU})`; c.lineWidth = sw; c.stroke(po);
+        c.strokeStyle = `rgb(${f ? mix(NEU, f[1], q) : NEU})`; c.lineWidth = sw * 1.15; c.stroke(pm);
+      });
+      const breathe = 1 + 0.25 * Math.sin(T * 0.8) * (0.4 + calm);
+      // ---- a bead of light runs up and down each coloured stretch, faster where it rains harder
+      const spd = 0.6 + 1.1 * (1 - calm) + 5 * e + 6 * storm;
+      st.run = (st.run || 0) + dt * spd;
+      const beads = new Path2D(), trail = new Path2D(), gl = [];
+      for (const sd of st.seeds || []) {
+        const walk = sd.path, n = walk.length; if (!n) continue;
+        const q0 = (st.run * (0.6 + 0.8 * sd.k) + hash(sd.id) * n) % (2 * n), pos = q0 < n ? q0 : 2 * n - q0 - 1e-3, back = q0 < n ? 1 : -1;
+        for (let k = 0; k < 3; k++) {
+          const q = pos - back * k * 0.4; if (q < 0 || q >= n) break;
+          const [tt, aa, fw] = walk[Math.floor(q)], fr = q - Math.floor(q);
+          geo(tt, aa, g3);
+          const ang = g3[2] + (fw ? fr : 1 - fr) * Math.PI / 2, x = g3[0] + r0 * Math.cos(ang), y = g3[1] + r0 * Math.sin(ang);
+          if (!k) { const rr = sw * (1.1 + 0.5 * sd.k); gl.push([x, y, sd.fam, sd.k]); beads.moveTo(x + rr, y); beads.arc(x, y, rr, 0, TAU); }
+          else trail.rect(x - sw * 0.5, y - sw * 0.5, sw, sw);
+        }
+      }
+      for (const [x, y, f, k] of gl) { const z = cs * (0.75 + 0.6 * k) * breathe; c.globalAlpha = 0.42; c.drawImage(glow(MAZE_FAM[f][1].join(','), 64, 0.25), x - z / 2, y - z / 2, z, z); }
+      c.globalAlpha = 1;
+      c.fillStyle = 'rgba(255,248,232,0.55)'; c.fill(trail);
+      c.fillStyle = '#fffaf0'; c.fill(beads);
+      // a strike: the floor flashes
+      let fl = 0;
+      for (const b of R.bolts) { const age = T - b.t; if (age >= 0) fl = Math.max(fl, (age < 0.07 ? 1 : age < 0.12 ? 0.25 : age < 0.2 ? 0.8 : Math.max(0, 0.8 - (age - 0.2) * 2)) * (b.power || 0.6)); }
+      if (fl > 0.01) { c.globalCompositeOperation = 'lighter'; c.fillStyle = `rgba(255,200,150,${0.22 * fl})`; c.fillRect(0, 0, W, H); c.globalCompositeOperation = 'source-over'; }
+    },
+  };
+
+  /* ============================================================== 10  Murmuration
+     A murmuration of starlings over a gold-leaf folding screen. Every raining place leads a patch of the
+     flock (bigger where it rains harder), and the patches hold a formation set by where the places are
+     (east to west along the flock, north to south across it): one thin sheet of birds that turns in space,
+     a wide haze face-on and a dark band edge-on, folding and pulsing with waves of density. A breath is a hawk: the birds burst away from where it comes in,
+     leaving a hole, and the flock flees to the other side. In a storm two falcons hunt through it and the
+     flock tears into ragged pieces; a lightning strike startles every bird at once and the gold flares.
+     Calm, the flock draws together and drifts slowly. */
+  function murmSetup(st, W, H, dpr) {
+    st.W = W; st.H = H;
+    const bg = st.bg = canvas(W * dpr, H * dpr), g = bg.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    let gr = g.createLinearGradient(0, 0, W * 0.7, H);
+    gr.addColorStop(0, '#d8b45c'); gr.addColorStop(0.5, '#c39b44'); gr.addColorStop(1, '#9c7630');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    gr = g.createLinearGradient(0, H * 0.1, W, H * 0.7);                 // a broad sheen across the leaf
+    gr.addColorStop(0, 'rgba(255,240,190,0)'); gr.addColorStop(0.45, 'rgba(255,240,190,0.22)'); gr.addColorStop(0.6, 'rgba(255,240,190,0.05)'); gr.addColorStop(1, 'rgba(255,240,190,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    // gold leaf: squares laid by hand, each catching the light a little differently, with faint seams
+    const q = Math.round(H / 6.5);
+    for (let j = 0, y = 0; y < H; y += q, j++) for (let i = 0, x = -hash(j * 7 + 1) * q; x < W; x += q, i++) {
+      const h = hash(i * 131 + j * 977 + 5), xo = (hash(i * 31 + j * 7) - 0.5) * 3, yo = (hash(i * 7 + j * 31) - 0.5) * 3;
+      g.fillStyle = h < 0.5 ? `rgba(255,236,180,${0.025 * h})` : `rgba(110,74,16,${0.03 * (h - 0.5)})`;
+      g.fillRect(x + xo, y + yo, q, q);
+      g.strokeStyle = h < 0.5 ? 'rgba(255,238,190,0.08)' : 'rgba(110,76,20,0.08)'; g.lineWidth = 1; g.strokeRect(x + xo + 0.5, y + yo + 0.5, q, q);
+    }
+    for (let i = 0; i < 16000; i++) { const h = hash(i * 3 + 1); g.fillStyle = h < 0.5 ? `rgba(255,246,210,${0.06 * h})` : `rgba(80,50,10,${0.05 * (h - 0.5)})`; g.fillRect(hash(i * 3 + 2) * W, hash(i * 3 + 3) * H, 1, 1); }
+    // the folding screen: six panels, turned alternately toward the light and away from it
+    const np = 6, pw = W / np;
+    for (let i = 0; i < np; i++) {
+      gr = g.createLinearGradient(i * pw, 0, (i + 1) * pw, 0);
+      if (i % 2 === 0) { gr.addColorStop(0, 'rgba(255,244,200,0.1)'); gr.addColorStop(1, 'rgba(255,244,200,0.0)'); }
+      else { gr.addColorStop(0, 'rgba(70,42,6,0.1)'); gr.addColorStop(1, 'rgba(70,42,6,0.02)'); }
+      g.fillStyle = gr; g.fillRect(i * pw, 0, pw, H);
+      if (i) { g.fillStyle = 'rgba(80,52,14,0.28)'; g.fillRect(i * pw - 0.5, 0, 1, H); }
+    }
+    gr = g.createRadialGradient(W / 2, H * 0.45, Math.min(W, H) * 0.4, W / 2, H / 2, Math.hypot(W, H) * 0.62);
+    gr.addColorStop(0, 'rgba(40,24,4,0)'); gr.addColorStop(1, 'rgba(40,24,4,0.4)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  }
+  /* the flock: each raining place leads a patch of a thin, folded sheet of birds (its place in the sheet
+     from where it is on Earth, its size from how hard it rains there) */
+  function murmFlock(st, E, W, H) {
+    st.ref = E.sites;
+    const src = E.sites.length ? E.sites : [{ id: 1, u: 0.5, v: 0.45, k: 0.5 }];
+    const lead = src.map(z => {
+      const lat = 90 - z.v * 180;
+      return { a: (z.u - 0.5) * 0.5 * W, b: (clamp((80 - lat) / 140, 0, 1) - 0.45) * 0.36 * W, r: (0.045 + 0.065 * z.k) * W, k: z.k, w: hash(z.id * 3 + 2) * TAU,
+               n: E.sites.length ? 20 + 70 * z.k : 600 };
+    });
+    const tot = lead.reduce((a, l) => a + l.n, 0), f = tot > 2600 ? 2600 / tot : 1;
+    let N = 0; for (const l of lead) { l.n = Math.max(8, Math.round(l.n * f)); N += l.n; }
+    const old = st.P, oldN = st.N || 0;
+    const P = new Float32Array(N * 3), V = new Float32Array(N * 3), O = new Float32Array(N * 3), Ld = new Uint16Array(N), F = new Float32Array(N), Z = new Float32Array(N);
+    let b = 0;
+    lead.forEach((l, li) => {
+      for (let n = 0; n < l.n; n++, b++) {
+        const a = rnd() * TAU, rr = Math.sqrt(rnd());
+        O[b * 3] = Math.cos(a) * rr; O[b * 3 + 1] = (rnd() - 0.5) * 0.28; O[b * 3 + 2] = Math.sin(a) * rr;
+        Ld[b] = li; F[b] = rnd() * TAU; Z[b] = 0.75 + 0.5 * rnd();
+      }
+    });
+    if (old) for (let i = 0; i < Math.min(oldN, N) * 3; i++) { P[i] = old[i]; V[i] = st.V[i]; }
+    Object.assign(st, { lead, N, P, V, O, Ld, F, Z, init: old ? Math.min(oldN, N) : 0 });
+  }
+  const murm = {
+    name: 'murmuration', title: 'Murmuration', dark: true, bolts: false,
+    draw(R, c, E) {
+      const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E), wy = windY(E), sc = W / 1600;
+      if (st.W !== W || st.H !== H || !st.bg) { murmSetup(st, W, H, E.dpr); st.ref = null; st.P = null; st.N = 0; }
+      if (st.ref !== E.sites) murmFlock(st, E, W, H);
+      const { lead, N, P, V, O, Ld, F, Z } = st;
+      // the flock's heart drifts about; the breath drives it off to the other side
+      const kp = 1 - Math.exp(-dt * (e > 0.1 ? 3 : 0.4));
+      st.fx = (st.fx || 0) + (wx * e * 0.22 * W - (st.fx || 0)) * kp; st.fy = (st.fy || 0) + (wy * e * 0.16 * H - (st.fy || 0)) * kp;
+      // ... and the edges of the screen turn it back (from how far it reached last frame)
+      const ex = st.ext || [0, 0, 0, 0], kx = (1 - Math.exp(-dt * 0.6)) * (1 - smoothstep(0.15, 0.5, e));   // (a breath wins)
+      st.bx_ = (st.bx_ || 0) + (Math.max(0, -0.44 * W - ex[0]) - Math.max(0, ex[1] - 0.44 * W) - (st.bx_ || 0) * 0.15) * kx;
+      st.by_ = (st.by_ || 0) + (Math.max(0, -0.42 * H - ex[2]) - Math.max(0, ex[3] - 0.42 * H) - (st.by_ || 0) * 0.15) * kx;
+      const Cx = 0.12 * W * Math.sin(T * 0.071) + st.fx + st.bx_, Cy = 0.05 * H * Math.sin(T * 0.113 + 1) + st.fy + st.by_, Cz = 0.12 * W * Math.sin(T * 0.053);
+      // the sheet turns in space (seen flat it is a wide haze, edge-on a dark band), folds, and waves run through it
+      const yaw = T * 0.06 + 0.5 * Math.sin(T * 0.031), tilt = 0.75 + 0.6 * Math.sin(T * 0.043), roll = 0.3 * Math.sin(T * 0.057);
+      const cyw = Math.cos(yaw), syw = Math.sin(yaw), ct = Math.cos(tilt), stl = Math.sin(tilt), cr = Math.cos(roll), sr = Math.sin(roll);
+      const fold = (0.5 * Math.sin(T * 0.11) + 0.25 * storm * Math.sin(T * 1.3)) / (0.5 * W), wph = T * (1.4 + 3 * storm + 1.5 * e), wk = 7 / W;
+      const spread = 0.62 + 0.18 * (1 - calm) + 0.5 * storm + 0.25 * e;
+      const K = 1.3 + 1.4 * (1 - calm) + 4 * storm + 2.5 * e, Cd = 1.6 + 1.2 * storm;
+      // the hawk (the breath) and, in a storm, two falcons
+      const hawks = [];
+      if (e > 0.02) hawks.push([lerp(Cx, 0.44 * clamp(E.mx, -1, 1) * W, 0.4), lerp(Cy, 0.4 * clamp(E.my, -1, 1) * H, 0.4), Cz * 0.5, (0.13 + 0.12 * e) * W, e * 3600 * sc]);
+      if (storm > 0.05) for (let h = 0; h < 2; h++) hawks.push([Cx + 0.36 * W * vnoise(T * 0.35, h * 9 + 1), Cy + 0.26 * H * vnoise(T * 0.4, h * 9 + 4), Cz + 0.2 * W * vnoise(T * 0.3, h * 9 + 7), 0.11 * W, storm * 3200 * sc, h]);
+      let startle = 0;
+      for (const b of R.bolts) if (b.t > (st.bolt || 0) && T >= b.t) { st.bolt = b.t; startle = Math.max(startle, b.power || 0.6); }
+      const vmax = (240 + 520 * storm + 380 * e) * sc, J = (25 + 220 * storm + 60 * e) * sc;
+      for (let b = 0; b < N; b++) {
+        const i3 = b * 3, l = lead[Ld[b]], fb = F[b];
+        // where this bird belongs in the sheet right now
+        let x = l.a * spread + O[i3] * l.r * spread, z = l.b * spread + O[i3 + 2] * l.r * spread;
+        x *= 1 + 0.18 * Math.sin(x * wk - wph); z += 0.04 * W * Math.sin(T * 0.27 + l.w);
+        let y = O[i3 + 1] * l.r + fold * (x * x - z * z) + 0.02 * W * Math.sin(T * 0.31 + l.w * 1.7);
+        let y1 = y * cr - x * sr, x1 = x * cr + y * sr;
+        const y2 = y1 * ct - z * stl, z2 = y1 * stl + z * ct;
+        const tx = Cx + x1 * cyw + z2 * syw, ty = Cy + y2, tz = Cz - x1 * syw + z2 * cyw;
+        if (b >= st.init) { P[i3] = tx; P[i3 + 1] = ty; P[i3 + 2] = tz; }
+        const px = P[i3], py = P[i3 + 1], pz = P[i3 + 2];
+        let axx = (tx - px) * K - V[i3] * Cd + J * Math.sin(T * 1.7 + fb * 13);
+        let ayy = (ty - py) * K - V[i3 + 1] * Cd + J * Math.sin(T * 1.3 + fb * 7);
+        let azz = (tz - pz) * K - V[i3 + 2] * Cd + J * Math.sin(T * 1.1 + fb * 11);
+        for (const [hx, hy, hz, hr, hs] of hawks) {
+          const dx = px - hx, dy = py - hy, dz = pz - hz, dd = dx * dx + dy * dy + dz * dz;
+          if (dd < hr * hr) { const q = Math.sqrt(dd) + 1, f = hs * (1 - q / hr) * (1 - q / hr) / q; axx += dx * f; ayy += dy * f; azz += dz * f; }
+        }
+        if (startle) { const dx = px - Cx, dy = py - Cy, dz = pz - Cz, q = Math.hypot(dx, dy, dz) + 1, f = startle * 650 * sc / q; V[i3] += dx * f; V[i3 + 1] += dy * f; V[i3 + 2] += dz * f; }
+        let vx = V[i3] + axx * dt, vy = V[i3 + 1] + ayy * dt, vz = V[i3 + 2] + azz * dt;
+        const sp = Math.hypot(vx, vy, vz), cap = vmax * (startle ? 3 : 1.6); if (sp > cap) { const q = cap / sp; vx *= q; vy *= q; vz *= q; }
+        V[i3] = vx; V[i3 + 1] = vy; V[i3 + 2] = vz;
+        P[i3] = px + vx * dt; P[i3 + 1] = py + vy * dt; P[i3 + 2] = pz + vz * dt;
+        F[b] = fb + dt * (10 + sp * 0.03 / sc);
+      }
+      st.init = N;
+      // ---- draw: the gold, then the birds (far ones small and paler, near ones bigger and darker)
+      c.globalCompositeOperation = 'source-over';
+      c.drawImage(st.bg, 0, 0, W, H);
+      let fl = 0;
+      for (const b of R.bolts) { const age = T - b.t; if (age >= 0) fl = Math.max(fl, (age < 0.07 ? 1 : age < 0.12 ? 0.3 : age < 0.2 ? 0.85 : Math.max(0, 0.85 - (age - 0.2) * 1.5)) * (b.power || 0.6)); }
+      if (fl > 0.01) { c.globalCompositeOperation = 'lighter'; c.fillStyle = `rgba(255,214,140,${0.5 * fl})`; c.fillRect(0, 0, W, H); c.globalCompositeOperation = 'source-over'; }
+      const FOC = 1.7 * W, cx = W / 2, cy = H / 2, sz0 = 0.0042 * W;
+      const B3 = [new Path2D(), new Path2D(), new Path2D()], dots = new Path2D(), xs = [], ys = [];
+      for (let b = 0; b < N; b++) {
+        const i3 = b * 3, k = FOC / (FOC + P[i3 + 2]);
+        if (k <= 0) continue;
+        const x = cx + P[i3] * k, y = cy + P[i3 + 1] * k;
+        if ((b & 7) === 0) { xs.push(x - cx); ys.push(y - cy); }
+        if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
+        const size = sz0 * k * Z[b];
+        if (size < 3.2) { const d = Math.max(1.1, size * 0.45); dots.rect(x - d / 2, y - d * 0.35, d, d * 0.7); continue; }
+        let fx = V[i3], fy = V[i3 + 1]; const fm = Math.hypot(fx, fy) + 1e-3; fx /= fm; fy /= fm;
+        const fp = Math.sin(F[b]), span = size * (0.55 + 0.45 * Math.abs(fp)), sw = size * (0.15 - 0.3 * fp);   // wings beat: up, sweep, down
+        const p = B3[k > 1.12 ? 2 : k > 0.95 ? 1 : 0];
+        p.moveTo(x + fx * size * 0.32, y + fy * size * 0.32);
+        p.lineTo(x - fy * span - fx * sw, y + fx * span - fy * sw);
+        p.lineTo(x - fx * size * 0.12, y - fy * size * 0.12);
+        p.lineTo(x + fy * span - fx * sw, y - fx * span - fy * sw);
+        p.lineTo(x + fx * size * 0.32, y + fy * size * 0.32);
+      }
+      if (xs.length > 8) {                                  // how far the flock reaches (ignoring the few stragglers at either end)
+        xs.sort((a, b) => a - b); ys.sort((a, b) => a - b); const q = Math.floor(xs.length * 0.04), r = xs.length - 1 - q;
+        st.ext = [xs[q], xs[r], ys[q], ys[r]];
+      }
+      c.fillStyle = 'rgba(46,30,10,0.62)'; c.fill(dots);
+      c.lineJoin = 'round'; c.lineWidth = lw * 0.5;
+      [['54,36,12', 0.7], ['30,19,7', 0.85], ['18,11,4', 0.95]].forEach(([col, a], i) => { c.fillStyle = c.strokeStyle = `rgba(${col},${a})`; c.fill(B3[i]); c.stroke(B3[i]); });
+      // the falcons, facing the way they fly
+      st.hk = st.hk || [];
+      for (const hk of hawks) {
+        const h = hk[5]; if (h == null) continue;
+        const k = FOC / (FOC + hk[2]), x = cx + hk[0] * k, y = cy + hk[1] * k, prev = st.hk[h] || [x - 1, y];
+        let fx = x - prev[0], fy = y - prev[1]; const fm = Math.hypot(fx, fy) + 1e-3; fx /= fm; fy /= fm;
+        st.hk[h] = [lerp(prev[0], x, 0.3), lerp(prev[1], y, 0.3)];
+        const sz = sz0 * 4.5 * k, fp = Math.sin(T * 9 + h * 2), span = sz * (0.7 + 0.3 * fp), swp = sz * (0.35 - 0.25 * fp);
+        c.fillStyle = 'rgba(14,9,3,0.95)'; c.beginPath();
+        c.moveTo(x + fx * sz * 0.55, y + fy * sz * 0.55);
+        c.quadraticCurveTo(x - fy * span * 0.5 + fx * sz * 0.1, y + fx * span * 0.5 + fy * sz * 0.1, x - fy * span - fx * swp, y + fx * span - fy * swp);
+        c.lineTo(x - fx * sz * 0.2, y - fy * sz * 0.2); c.lineTo(x - fx * sz * 0.6 - fy * sz * 0.12, y - fy * sz * 0.6 + fx * sz * 0.12); c.lineTo(x - fx * sz * 0.6 + fy * sz * 0.12, y - fy * sz * 0.6 - fx * sz * 0.12);
+        c.lineTo(x - fx * sz * 0.2, y - fy * sz * 0.2);
+        c.lineTo(x + fy * span - fx * swp, y - fx * span - fy * swp);
+        c.quadraticCurveTo(x + fy * span * 0.5 + fx * sz * 0.1, y - fx * span * 0.5 + fy * sz * 0.1, x + fx * sz * 0.55, y + fy * sz * 0.55);
+        c.fill();
+      }
+    },
+  };
+
+  return [currents, planet, garden, radar, glass, mobile, op, strings, maze, murm];
 })();

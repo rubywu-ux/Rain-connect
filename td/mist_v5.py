@@ -491,7 +491,7 @@ def onFrameStart(frame):
 		t = op('mist_dbg_text')
 		if t is not None:
 			t.par.text = ('%s\\nmist fills %3.0f%% of the oval   presence %.2f\\nmist motion %.3f (still %.3f) -> %.2f\\nhands ignored %3.0f%%\\nweather %.2f   %s'
-				% (label, frac * 100, pres, es, W.get('mb') or 0, mot, hand * 100, W['w'], (('pot opening: found' + (' by its glow' if W.get('how') == 'glow' else '') + ('  (calibrated)' if W.get('calok') else '')) if W['pot'] is not None else 'pot: looking...') if c.par.Potauto else 'oval: from settings'))
+				% (label, frac * 100, pres, es, W.get('mb') or 0, mot, hand * 100, W['w'], (('pot opening: found' + (' by its glow' if W.get('how') == 'glow' else '') + ('  (calibrated)' if W.get('calok') else ('' if W.get('dk') else '  - press Calibrate with the mist off'))) if W['pot'] is not None else 'pot: looking...') if c.par.Potauto else 'oval: from settings'))
 	W['n'] += 1
 	if W['n'] % 2: return                                                    # ~5 messages a second
 	try:
