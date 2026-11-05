@@ -120,7 +120,7 @@ if CR.fetch('mist_base', None) is None:
 # -- the wall page gets the latest build
 w = CR.op('wall_web')
 if w is not None:
-	w.par.url = 'https://rubywu-ux.github.io/Rain-connect/wall.html?td&v=VERSION'
+	w.par.url = 'https://rubywu-ux.github.io/Rain-connect/wall.html?td&v=601d0b8'
 	w.par.active = True
 try:
 	target = os.path.expanduser('~/Desktop/ConnectTheRain/ConnectTheRain.6.toe')
