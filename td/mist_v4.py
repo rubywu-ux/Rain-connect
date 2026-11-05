@@ -10,6 +10,16 @@ pot = CR.op('cam_pot') or CR.create(resolutionTOP, 'cam_pot')
 pot.nodeX, pot.nodeY = -400, 650
 pot.setInputs([mono]); pot.par.outputresolution = 'custom'; pot.par.resolutionw = 160; pot.par.resolutionh = 90
 CR.par.Potauto.label = 'Find the pot by its rim (automatic)'
+_pg = next((p for p in CR.customPages if p.name == 'Mist'), None)
+if getattr(CR.par, 'Teststorm', None) is None: _pg.appendPulse('Teststorm', label='Test storm (5 s of lightning + thunder)')
+_px = CR.op('mist_pars')
+if "Teststorm" not in _px.text:
+	_px.text = _px.text.replace("def onPulse(par):", '''def onPulse(par):
+	if par.name == 'Teststorm':
+		op('mist_weather').module.W['test'] = absTime.seconds + 5
+		print('test storm for 5 s: the wall should flash and thunder')''', 1)
+_pp = _px.par.pars.eval().split()
+if 'Teststorm' not in _pp: _px.par.pars = ' '.join(_pp + ['Teststorm'])
 CR.par.Potauto = True
 CR.par.Solid = 0.18                              # hands over bright mist differ less than over the room
 wx = CR.op('mist_weather')
@@ -129,7 +139,7 @@ def _set(k, v):
 	t = op('state')
 	if t is not None and t.row(k) is not None: t[k, 1] = v
 def reset():
-	W['flick'] = None; W['ell'] = None; W['prev'] = None; W['pot'] = None; W['bad'] = 0
+	W['flick'] = None; W['ell'] = None; W['prev'] = None; W['pot'] = None; W['bad'] = 0; W['pm'] = 0.0; W['ps'] = 0.0
 def _oval(h, w, cx, cy, a, b, th):
 	yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
 	dx, dy = xx - cx, yy - cy
@@ -184,27 +194,37 @@ def onFrameStart(frame):
 		r2 = None; inside = np.zeros(lum.shape, bool)
 	# a hand / an arm = a big, sudden change that reaches in from OUTSIDE the pot (an arm always does).
 	# Big changes that stay inside the rim are the mist being blown or stirred: they count.
+	# Mist that is blown hard can jump a lot and spill over the rim: that still counts.
+	# An arm is different: it comes in from the edge of the picture, so its change reaches the border
+	# (or covers a lot of the picture far from the pot).
 	big = d > float(c.par.Solid)
-	solid = big & ~inside
-	if big.any() and inside.any():
-		lab, info = components(big)
-		out = r2 > 1.15                               # clearly outside the rim
+	solid = np.zeros(lum.shape, bool)                 # (changes outside the pot don't count anyway)
+	if big.any() and r2 is not None:
+		# grow from the big changes into weaker ones next to them: over bright mist an arm only
+		# differs a little, but it is still one connected shape reaching in from the edge
+		low = d > 0.45 * float(c.par.Solid)
+		lab, info = components(low)
+		far = r2 > 2.6                                # far from the pot
+		need = max(8, int(0.01 * h * w))
 		for cnt, n, border in info:
 			comp = lab == n
-			if (comp & ~inside).any() and (comp & out).sum() >= 2: solid |= comp
-	solid |= d > 2.6 * float(c.par.Solid)             # something very sudden anywhere (lights, a sleeve) 
-	near = solid.copy()                               # ...and the blurry edges around it
+			if not (comp & big).any(): continue
+			if border or (comp & far & big).sum() >= need: solid |= comp
+
+	near = solid.copy()                               # ...and the blurry edges around it (2 px)
 	for dy in (-2, -1, 1, 2):
 		near |= np.roll(solid, dy, 0)
+	nv = near.copy()
 	for dx in (-2, -1, 1, 2):
-		near |= np.roll(near, dx, 1)
+		near |= np.roll(nv, dx, 1)
 	sm = W.get('solidmem')
-	sm = near.astype(np.float32) if sm is None or sm.shape != near.shape else np.maximum(sm * 0.75, near.astype(np.float32))
+	sm = near.astype(np.float32) if sm is None or sm.shape != near.shape else np.maximum(sm * 0.85, near.astype(np.float32))
 	W['solidmem'] = sm                                # where a hand was a moment ago stays ignored briefly
 	handzone = sm > 0.2
 	dm = np.where(handzone, 0, d)
 	fl = W['flick'] if W['flick'] is not None and W['flick'].shape == lum.shape else np.zeros_like(lum)
 	fl = fl * 0.93 + dm * 0.07                        # ~1.5 s memory of how much each pixel flickers
+	fl = np.where(handzone, 0, fl)                    # where an arm passed, forget the flicker it caused
 	W['flick'] = fl
 	noise = float(np.median(fl)) + 1e-4
 	mistmap = (fl > noise * float(c.par.Mistlevel)) & (fl > 0.003)
@@ -215,11 +235,17 @@ def onFrameStart(frame):
 	m = float(dm[moving].mean()) if moving.any() else 0.0
 	lo, hi = float(c.par.Motionlow), float(c.par.Motionhigh)
 	mot = max(0.0, min(1.0, (m - lo) / max(1e-4, hi - lo)))
-	raw = 0.0 if pres < 0.15 else 0.3 * pres + 0.7 * pres * mot
+	# blowing hard clears mist out of the pot for a moment: remember that there WAS mist for a few
+	# seconds, so a hard blow reads as a storm instead of "no mist"
+	W['ps'] = W.get('ps', 0.0) * 0.9 + pres * 0.1                   # steady mist, not a brief flicker (a hand passing)
+	W['pm'] = max(W['ps'], W.get('pm', 0.0) * 0.97)
+	pm = W['pm']
+	raw = 0.0 if pm < 0.15 else pm * (0.3 + 0.7 * mot)
+	if W.get('test', 0) > absTime.seconds: raw = 1.0                  # Test storm button
 	k = float(c.par.Smooth)
 	W['w'] = W['w'] * k + raw * (1 - k)
 	hand = float(handzone.sum()) / (h * w)
-	label = 'CALM - no mist' if W['w'] < 0.25 else ('RAIN - mist, still' if W['w'] < 0.6 else 'STORM - mist moving')
+	label = 'CALM - no mist' if W['w'] < 0.25 else ('RAIN - mist, still' if W['w'] < 0.6 else 'STORM - mist moving  (lightning + thunder)')
 	_set('mist_on', 'on' if c.par.Mist else 'off'); _set('mist_bright', round(frac, 3)); _set('mist_motion', round(m, 4)); _set('weather', round(W['w'], 2))
 	if c.par.Debug:
 		rgba = np.zeros((h, w, 4), np.float32)
