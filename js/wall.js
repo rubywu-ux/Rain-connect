@@ -276,7 +276,7 @@
       const b = { seed: Math.floor(Math.random() * 1e9), u: +(0.06 + Math.random() * 0.88).toFixed(3), power: +(0.4 + 0.6 * mistStorm * (0.5 + 0.5 * Math.random())).toFixed(2),
                   across: Math.random() < 0.55, t: T() };
       R.addBolt(b);
-      S.thunder(b.power, 0, 1.15);        // sound starts with the flash: deep, crisp, loud
+      S.thunder(b.power, 0, 1.35);        // sound starts with the flash: deep, crisp, loud, different each time
       net.pub('td', { type: 'strike', source: 'mist', u: b.u, power: b.power });
     }
     $('mist').textContent = !mistOn ? 'mist · off' : `mist · ${w < 0.25 ? 'calm' : w < 0.6 ? 'rain' : 'storm'}`;

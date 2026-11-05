@@ -890,66 +890,100 @@ class RainSound {
     this.storm.lp.frequency.setTargetAtTime(380 + level * 700, a.currentTime, 1);
   }
   /* thunder after a strike: low rumble (+ a crack when it is close) */
-  /* thunder, built like the real thing:
-       1. the crack  - a crisp, broadband rip of noise (no clicks), brighter when the strike is close
-       2. the boom   - a deep falling thump you feel more than hear
-       3. the rumble - a long roll of low noise that swells several times as the sound arrives
-                       from different parts of the bolt, then dies away into the room
+  /* thunder, built like the real thing, and different every time:
+       1. the crack  - a crisp rip of noise right on the flash (sometimes two, sometimes none)
+       2. the boom   - a deep falling thump, its pitch and weight vary
+       3. the rumble - a long roll of low noise that swells a few times and travels across the
+                       room from one side to the other, then dies away into the echo
+     Each strike picks a character (close crack / rolling / double strike / distant grumble /
+     long roll) and randomises its tone, length, swells and direction.
      power 0..1 = how close / big; loud scales the whole thing */
-  thunder(power = 0.6, delay = 0.6, loud = 1) {
+  thunder(power = 0.6, delay = 0, loud = 1) {
     const a = this.ctx; if (!a) return;
+    const R = (lo, hi) => lo + Math.random() * (hi - lo);
     const t0 = a.currentTime + Math.max(0, delay), near = Math.min(1, Math.max(0, power));
-    const dur = 3.6 + 3 * near + Math.random() * 1.2;
-    const bus = a.createGain(); bus.gain.value = 0.95 * loud;
+    // pick a character: close strikes are cracks and doubles, far ones grumble and roll
+    const roll = Math.random() + near * 0.5;
+    const kind = roll > 1.15 ? 'close' : roll > 0.9 ? 'double' : roll > 0.6 ? 'rolling' : roll > 0.35 ? 'long' : 'grumble';
+    const K = {
+      close:   { crack: 1.0, body: 1.0, boom: 1.0, dur: R(3.2, 4.6), bright: R(1.1, 1.5), rolls: [2, 4] },
+      double:  { crack: 0.8, body: 0.9, boom: 0.8, dur: R(4.0, 5.8), bright: R(0.9, 1.3), rolls: [3, 5] },
+      rolling: { crack: 0.45, body: 0.7, boom: 0.7, dur: R(5.0, 7.5), bright: R(0.8, 1.1), rolls: [4, 7] },
+      long:    { crack: 0.25, body: 0.5, boom: 0.6, dur: R(6.5, 9.0), bright: R(0.7, 1.0), rolls: [5, 8] },
+      grumble: { crack: 0, body: 0.25, boom: 0.45, dur: R(4.5, 7.0), bright: R(0.55, 0.8), rolls: [3, 6] },
+    }[kind];
+    const dur = K.dur;
+    // the sound travels: it starts on one side and rolls toward the other
+    const pan = a.createStereoPanner ? a.createStereoPanner() : null;
+    const bus = a.createGain(); bus.gain.value = 0.95 * loud * R(0.85, 1.1);
     const warm = a.createWaveShaper();                                 // gentle saturation: lows read on small speakers
-    const curve = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; curve[i] = Math.tanh(x * 1.8) / Math.tanh(1.8); }
+    const curve = new Float32Array(1024), drive = R(1.4, 2.2);
+    for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; curve[i] = Math.tanh(x * drive) / Math.tanh(drive); }
     warm.curve = curve;
-    bus.connect(warm); warm.connect(this.master);
-    const send = a.createGain(); send.gain.value = 0.55; warm.connect(send); send.connect(this.wet);
+    bus.connect(warm);
+    if (pan) {
+      const p0 = R(-0.75, 0.75), p1 = Math.max(-0.9, Math.min(0.9, -p0 * R(0.3, 1.1) + R(-0.2, 0.2)));
+      pan.pan.setValueAtTime(p0, t0); pan.pan.linearRampToValueAtTime(p1, t0 + dur);
+      warm.connect(pan); pan.connect(this.master);
+    } else warm.connect(this.master);
+    const send = a.createGain(); send.gain.value = R(0.4, 0.7); warm.connect(send); send.connect(this.wet);
     // 1. crack
     const crack = (f, q, peak, decay, at) => {
+      if (peak <= 0.005) return;
       const src = a.createBufferSource(); src.buffer = this._noiseBuffer(decay + 0.3, false);
+      src.playbackRate.value = R(0.85, 1.15);
       const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
       const g = a.createGain(); g.gain.setValueAtTime(0.0001, at);
-      g.gain.exponentialRampToValueAtTime(peak, at + 0.015); g.gain.exponentialRampToValueAtTime(peak * 0.35, at + decay * 0.35);
+      g.gain.exponentialRampToValueAtTime(peak, at + R(0.008, 0.02)); g.gain.exponentialRampToValueAtTime(peak * 0.35, at + decay * R(0.25, 0.45));
       g.gain.exponentialRampToValueAtTime(0.0001, at + decay);
       src.connect(bp); bp.connect(g); g.connect(bus); src.start(at); src.stop(at + decay + 0.3);
     };
-    crack(1600 + 1000 * near, 0.6, 0.05 + 0.14 * near * near, 0.3 + 0.2 * near, t0);       // the crisp top, kept small
-    crack(480, 0.7, 0.1 + 0.16 * near, 0.7 + 0.4 * near, t0 + 0.02);                        // the body of the crack
+    const cracks = kind === 'double' ? [0, R(0.18, 0.55)] : [0];
+    cracks.forEach((dt, j) => {
+      const sc = j ? R(0.6, 1) : 1;
+      crack((1500 + 1100 * near) * K.bright * R(0.85, 1.2), R(0.45, 0.8), (0.05 + 0.14 * near * near) * K.crack * sc, R(0.25, 0.5) + 0.2 * near, t0 + dt);
+      crack(R(380, 620) * K.bright, R(0.5, 0.9), (0.1 + 0.16 * near) * K.body * sc, R(0.6, 1.1) + 0.3 * near, t0 + dt + 0.02);
+    });
     // 2. boom
-    const boom = (type, f0, f1, peak, len) => {
+    const boom = (type, f0, f1, peak, len, at) => {
       const o = a.createOscillator(), g = a.createGain(); o.type = type;
-      o.frequency.setValueAtTime(f0, t0); o.frequency.exponentialRampToValueAtTime(f1, t0 + len);
-      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(peak, t0 + 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
-      o.connect(g); g.connect(bus); o.start(t0); o.stop(t0 + len + 0.05);
+      o.frequency.setValueAtTime(f0, at); o.frequency.exponentialRampToValueAtTime(f1, at + len);
+      g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(peak, at + R(0.2, 0.4)); g.gain.exponentialRampToValueAtTime(0.0001, at + len);
+      o.connect(g); g.connect(bus); o.start(at); o.stop(at + len + 0.05);
     };
-    boom('sine', 54, 30, 0.1 + 0.08 * near, 2 + 0.6 * near);
-    boom('triangle', 100, 50, 0.025 + 0.02 * near, 1.3);
+    const bf = R(44, 66);
+    boom('sine', bf, bf * R(0.5, 0.62), (0.1 + 0.08 * near) * K.boom, R(1.6, 2.6) + 0.6 * near, t0);
+    boom('triangle', bf * 1.9, bf * R(0.9, 1.05), (0.025 + 0.02 * near) * K.boom, R(1, 1.6), t0);
     // 3. rumble: brown noise, low-passed, with a rolling envelope of several swells
     const src = a.createBufferSource(); src.buffer = this._noiseBuffer(dur + 0.5, true);
-    const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.7;
-    lp.frequency.setValueAtTime(420 + 380 * near, t0); lp.frequency.exponentialRampToValueAtTime(240, t0 + 1.2); lp.frequency.exponentialRampToValueAtTime(90, t0 + dur);
-    const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 28;
+    src.playbackRate.value = R(0.8, 1.2);
+    const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = R(0.5, 1.1);
+    const f0 = (420 + 380 * near) * K.bright, fMid = R(180, 300) * K.bright, fEnd = R(70, 130);
+    lp.frequency.setValueAtTime(f0, t0); lp.frequency.exponentialRampToValueAtTime(fMid, t0 + R(0.8, 1.6)); lp.frequency.exponentialRampToValueAtTime(fEnd, t0 + dur);
+    const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = R(24, 40);
     const g = a.createGain(); g.gain.value = 0;
     const N = 256, env = new Float32Array(N), bumps = [];
-    const nb = 3 + Math.floor(Math.random() * 4);
-    bumps.push([0.45 + 0.35 * (1 - near), 0.45 + 0.2 * (1 - near), 1]);                     // the first big roll builds in
-    for (let k = 1; k < nb; k++) bumps.push([0.9 + Math.random() * dur * 0.55, 0.3 + Math.random() * 0.6, 0.45 + Math.random() * 0.5]);
+    const nb = K.rolls[0] + Math.floor(Math.random() * (K.rolls[1] - K.rolls[0] + 1));
+    const first = kind === 'grumble' ? R(0.8, 1.6) : R(0.35, 0.65) + 0.35 * (1 - near);
+    bumps.push([first, R(0.35, 0.65), 1]);                                                      // the first big roll builds in
+    for (let k = 1; k < nb; k++) bumps.push([first + R(0.4, dur * 0.65), R(0.25, 0.8), R(0.35, 0.95)]);
+    if (kind === 'double') bumps.push([first + R(0.2, 0.6), R(0.3, 0.5), R(0.8, 1)]);
     let mx = 0;
+    const tail = R(0.4, 0.6), floor = R(0.08, 0.16), fadeIn = kind === 'grumble' ? R(0.6, 1) : R(0.25, 0.45);
     for (let i = 0; i < N; i++) {
       const t = i / (N - 1) * dur;
-      let v = 0.12;
+      let v = floor;
       for (const [c, w, h] of bumps) v += h * Math.exp(-(((t - c) / w) ** 2));
-      v *= Math.exp(-t / (dur * 0.5)) * Math.min(1, t / 0.35);
+      v *= Math.exp(-t / (dur * tail)) * Math.min(1, t / fadeIn);
       env[i] = v; mx = Math.max(mx, v);
     }
-    const peak = 0.7 + 0.3 * near;
+    const peak = (0.7 + 0.3 * near) * (kind === 'grumble' ? 0.8 : 1);
     for (let i = 0; i < N; i++) env[i] = env[i] / mx * peak;
     env[N - 1] = 0;
     g.gain.setValueCurveAtTime(env, t0 + 0.01, dur);
     src.connect(lp); lp.connect(hp); hp.connect(g); g.connect(bus);
     src.start(t0); src.stop(t0 + dur + 0.4);
+    return kind;
   }
   /* calm weather (no mist): rain gives way to leaves rustling and small birds. 0 = off, 1 = full */
   setCalm(level) {
