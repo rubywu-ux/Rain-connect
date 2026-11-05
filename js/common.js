@@ -911,40 +911,40 @@ class RainSound {
       const src = a.createBufferSource(); src.buffer = this._noiseBuffer(decay + 0.3, false);
       const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = q;
       const g = a.createGain(); g.gain.setValueAtTime(0.0001, at);
-      g.gain.exponentialRampToValueAtTime(peak, at + 0.006); g.gain.exponentialRampToValueAtTime(peak * 0.35, at + decay * 0.25);
+      g.gain.exponentialRampToValueAtTime(peak, at + 0.03); g.gain.exponentialRampToValueAtTime(peak * 0.35, at + decay * 0.35);
       g.gain.exponentialRampToValueAtTime(0.0001, at + decay);
       src.connect(bp); bp.connect(g); g.connect(bus); src.start(at); src.stop(at + decay + 0.3);
     };
-    crack(1800 + 1400 * near, 0.6, 0.18 + 0.55 * near * near, 0.28 + 0.2 * near, t0);       // the crisp top
-    crack(520, 0.7, 0.35 + 0.45 * near, 0.6 + 0.4 * near, t0 + 0.012);                      // the body of the crack
+    crack(1600 + 1000 * near, 0.6, 0.05 + 0.14 * near * near, 0.3 + 0.2 * near, t0);       // the crisp top, kept small
+    crack(480, 0.7, 0.1 + 0.16 * near, 0.7 + 0.4 * near, t0 + 0.02);                        // the body of the crack
     // 2. boom
     const boom = (type, f0, f1, peak, len) => {
       const o = a.createOscillator(), g = a.createGain(); o.type = type;
       o.frequency.setValueAtTime(f0, t0); o.frequency.exponentialRampToValueAtTime(f1, t0 + len);
-      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(peak, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(peak, t0 + 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
       o.connect(g); g.connect(bus); o.start(t0); o.stop(t0 + len + 0.05);
     };
-    boom('sine', 58, 30, 0.55 + 0.35 * near, 1.4 + 0.6 * near);
-    boom('triangle', 110, 52, 0.16 + 0.12 * near, 0.9);
+    boom('sine', 54, 30, 0.1 + 0.08 * near, 2 + 0.6 * near);
+    boom('triangle', 100, 50, 0.025 + 0.02 * near, 1.3);
     // 3. rumble: brown noise, low-passed, with a rolling envelope of several swells
     const src = a.createBufferSource(); src.buffer = this._noiseBuffer(dur + 0.5, true);
     const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.7;
-    lp.frequency.setValueAtTime(700 + 900 * near, t0); lp.frequency.exponentialRampToValueAtTime(260, t0 + 0.6); lp.frequency.exponentialRampToValueAtTime(90, t0 + dur);
+    lp.frequency.setValueAtTime(420 + 380 * near, t0); lp.frequency.exponentialRampToValueAtTime(240, t0 + 1.2); lp.frequency.exponentialRampToValueAtTime(90, t0 + dur);
     const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 28;
     const g = a.createGain(); g.gain.value = 0;
     const N = 256, env = new Float32Array(N), bumps = [];
     const nb = 3 + Math.floor(Math.random() * 4);
-    bumps.push([0.06 + 0.1 * (1 - near), 0.12 + 0.1 * (1 - near), 1]);                    // the first big roll
-    for (let k = 1; k < nb; k++) bumps.push([0.3 + Math.random() * dur * 0.6, 0.15 + Math.random() * 0.5, 0.35 + Math.random() * 0.55]);
+    bumps.push([0.45 + 0.35 * (1 - near), 0.45 + 0.2 * (1 - near), 1]);                     // the first big roll builds in
+    for (let k = 1; k < nb; k++) bumps.push([0.9 + Math.random() * dur * 0.55, 0.3 + Math.random() * 0.6, 0.45 + Math.random() * 0.5]);
     let mx = 0;
     for (let i = 0; i < N; i++) {
       const t = i / (N - 1) * dur;
-      let v = 0.18;
+      let v = 0.12;
       for (const [c, w, h] of bumps) v += h * Math.exp(-(((t - c) / w) ** 2));
-      v *= Math.exp(-t / (dur * 0.42)) * Math.min(1, t / 0.03);
+      v *= Math.exp(-t / (dur * 0.5)) * Math.min(1, t / 0.35);
       env[i] = v; mx = Math.max(mx, v);
     }
-    const peak = 0.55 + 0.45 * near;
+    const peak = 0.7 + 0.3 * near;
     for (let i = 0; i < N; i++) env[i] = env[i] / mx * peak;
     env[N - 1] = 0;
     g.gain.setValueCurveAtTime(env, t0 + 0.01, dur);
