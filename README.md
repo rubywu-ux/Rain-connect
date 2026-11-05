@@ -61,7 +61,7 @@ Setup, once (TouchDesigner, with ConnectTheRain open): paste this into the Textp
 
 It adds `cam -> cam_small -> cam_diff -> bright_chop / motion_chop -> mist_weather` inside
 `/project1/connect_rain`, a **Mist** page of settings on the container (Mist on/off, Camera,
-thresholds, Calibrate), and saves `ConnectTheRain.6.toe`.
+thresholds, Calibrate), and saves it as the next free `ConnectTheRain.N.toe` (older versions are kept).
 
 Using it: point the webcam at the mist against a dark background (a black cloth), with a lamp
 lighting the mist from the side. On the Mist page: pick the **Camera**, press **Calibrate** with

@@ -123,7 +123,10 @@ if w is not None:
 	w.par.url = 'https://rubywu-ux.github.io/Rain-connect/wall.html?td&v=601d0b8'
 	w.par.active = True
 try:
-	target = os.path.expanduser('~/Desktop/ConnectTheRain/ConnectTheRain.6.toe')
+	d = os.path.expanduser('~/Desktop/ConnectTheRain')
+	n = 6
+	while os.path.exists(os.path.join(d, 'ConnectTheRain.%d.toe' % n)): n += 1
+	target = os.path.join(d, 'ConnectTheRain.%d.toe' % n)                  # never overwrites an older version
 	project.save(target)
 	print('saved', target)
 except Exception as e:
