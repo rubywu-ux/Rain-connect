@@ -140,6 +140,62 @@ def find_pot2(lum, rel=0.62):
 
 BASE = 'rainconnect/rubywu-ux-k7q2/gallery/'
 W = {'w': 0.0, 'n': 0, 'prev': None, 'flick': None, 'ell': None, 'pot': None, 'bad': 0}
+def find_opening2(lum, rel=0.62):
+    # Pot opening from any camera angle.
+    # 1. The bright inside (the mist) is a hole in the dark pot: rim around it, body below it.
+    # 2. From the side the back of the inside is dark too, so the hole is only the lower part of the
+    # opening: grow it up to the top of the rim, and out to the sides of the pot at that height.
+    # Falls back to the pot's outer outline (seen from straight above, when the rim has gaps).
+    h, w = lum.shape
+    base = lum < rel * float(np.median(lum))
+    base = dilate(erode(base, 1), 1)                 # thin dark lines (the cable) removed
+    for r in (1, 2, 3):
+        dark = erode(dilate(base, r), r)             # close gaps in the rim, more each try
+        holes = fill_holes(dark) & ~dark
+        lab, info = components(holes)
+        cand = [cc for cc in info if not cc[2] and cc[0] > 0.004 * h * w]
+        if cand: break
+    else:
+        r2 = find_pot2(lum, rel)
+        if r2 is None: return None
+        cx, cy, a, b, th = r2[:5]
+        return cx, cy, a * 0.85, b * 0.85, th, 'outline'   # just inside the rim
+    reg = fill_holes(lab == max(cand)[1])
+    ys, xs = np.nonzero(reg)
+    hx0, hx1, hy0, hy1 = xs.min(), xs.max(), ys.min(), ys.max()
+    hcx = xs.mean()
+    # the dark pot around the hole
+    dl, dinfo = components(dark)
+    ring = np.zeros_like(dark)
+    for yy, xx in ((hy0 - 1, int(hcx)), (hy1 + 1, int(hcx)), (int(ys.mean()), hx0 - 1), (int(ys.mean()), hx1 + 1)):
+        if 0 <= yy < h and 0 <= xx < w and dark[yy, xx]: ring |= dl == dl[yy, xx]
+    if not ring.any(): ring = dilate(reg, 2) & dark
+    # top of the rim above the hole (search only columns over the middle of the hole)
+    c0, c1 = int(hcx - (hx1 - hx0) * 0.25), int(hcx + (hx1 - hx0) * 0.25) + 1
+    top = hy0
+    for y in range(hy0, -1, -1):
+        if ring[y, c0:c1].any(): top = y
+        elif y < hy0 - 2 and not ring[max(0, y - 1), c0:c1].any(): break
+    bottom = hy1
+    cy = (top + bottom) / 2
+    row = int(round((top + 2 * bottom) / 3))
+    xs_r = np.nonzero(ring[row])[0]
+    if len(xs_r) >= 2: left, right = xs_r.min(), xs_r.max()
+    else: left, right = hx0, hx1
+    left, right = min(left, hx0), max(right, hx1)
+    cx = (left + right) / 2
+    a = (right - left) / 2 * 0.94
+    b = max((bottom - top) / 2, (hy1 - hy0) / 2)
+    return float(cx), float(cy), float(a), float(b), 0.0, 'hole'
+
+def _axis(e):
+    # keep the oval's angle within +-45 deg (swap the axes otherwise), so results from the two ways of
+    # finding the pot can be averaged
+    cx, cy, a, b, th = e[:5]
+    th = (th + np.pi / 2) % np.pi - np.pi / 2
+    if abs(th) > np.pi / 4: a, b = b, a; th = th - np.sign(th) * np.pi / 2
+    return cx, cy, a, b, th
+
 def _set(k, v):
 	t = op('state')
 	if t is not None and t.row(k) is not None: t[k, 1] = v
@@ -172,7 +228,8 @@ def onFrameStart(frame):
 			try:
 				big = op('cam_pot').numpyArray()
 				pl = np.flipud(big[:, :, 0]).astype(np.float32)
-				r = find_pot2(pl)
+				r = find_opening2(pl)
+				if r is not None: r = _axis(r) + (r[5],)
 			except Exception as e:
 				r = None
 			if r is not None:
@@ -188,7 +245,7 @@ def onFrameStart(frame):
 					if W['pot'] is not None and abs(((e[4] - W['pot'][4] + np.pi / 2) % np.pi) - np.pi / 2) > 0.6: e[4] = W['pot'][4]
 					W['pot'] = e if W['pot'] is None else W['pot'] * 0.6 + e * 0.4
 		if W['pot'] is not None:
-			p = W['pot']; W['ell'] = np.array([p[0], p[1], p[2] * 0.85, p[3] * 0.85, p[4]], np.float32)   # just inside the rim
+			p = W['pot']; W['ell'] = np.array([p[0], p[1], p[2] * 0.97, p[3] * 0.97, p[4]], np.float32)   # the opening
 	else:
 		W['ell'] = np.array([c.par.Roix * w, c.par.Roiy * h, c.par.Roiw * w / 2, c.par.Roih * h / 2, 0], np.float32)
 	ell = W['ell']
@@ -293,13 +350,13 @@ def onFrameStart(frame):
 		if r2 is not None: rgba[(r2 > 0.85) & (r2 < 1.2)] = (0.15, 0.9, 1.0, 1.0)  # cyan line: where mist is measured
 		if W['pot'] is not None:
 			pr = _oval(h, w, *[float(x) for x in W['pot']])
-			rgba[(pr > 0.88) & (pr < 1.14)] = (1.0, 0.85, 0.1, 1.0)               # yellow: the pot rim it found
+			rgba[(pr > 0.9) & (pr < 1.12)] = (1.0, 0.85, 0.1, 1.0)                # yellow: the pot opening it found
 		c.store('mist_dbg_img', np.ascontiguousarray(np.flipud(rgba)))
 		op('mist_dbg').cook(force=True)
 		t = op('mist_dbg_text')
 		if t is not None:
 			t.par.text = ('%s\\nmist fills %3.0f%% of the oval   presence %.2f\\nmist motion %.3f (still %.3f) -> %.2f\\nhands ignored %3.0f%%\\nweather %.2f   %s'
-				% (label, frac * 100, pres, es, W.get('mb') or 0, mot, hand * 100, W['w'], ('pot: found by its rim' if W['pot'] is not None else 'pot: looking...') if c.par.Potauto else 'oval: from settings'))
+				% (label, frac * 100, pres, es, W.get('mb') or 0, mot, hand * 100, W['w'], ('pot opening: found' if W['pot'] is not None else 'pot: looking...') if c.par.Potauto else 'oval: from settings'))
 	W['n'] += 1
 	if W['n'] % 2: return                                                    # ~5 messages a second
 	try:
@@ -312,4 +369,4 @@ me.time.play = True
 d = os.path.expanduser('~/Desktop/ConnectTheRain')
 nums = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r'ConnectTheRain\.(\d+)\.toe$', f)] if m]
 project.save(os.path.join(d, 'ConnectTheRain.%d.toe' % (max(nums + [5]) + 1)))
-print('MIST v4 READY: the yellow line should sit on the pot rim; mist is measured inside the cyan line.', project.name)
+print('MIST v4 READY: the yellow oval should sit on the pot opening (from above or from the side).', project.name)
