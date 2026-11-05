@@ -181,7 +181,7 @@ const ART_MODES = (() => {
     // land as an even lattice of dots, so the continents show
     if (!st.land) {
       st.land = [];
-      const N = 15000, ga = Math.PI * (3 - Math.sqrt(5));
+      const N = 11000, ga = Math.PI * (3 - Math.sqrt(5));
       for (let i = 0; i < N; i++) {
         const y = 1 - (i + 0.5) / N * 2, lat = Math.asin(y) * 180 / Math.PI;
         const lon = ((i * ga * 180 / Math.PI) % 360) - 180;
@@ -200,7 +200,7 @@ const ART_MODES = (() => {
       c.drawImage(st.bg, 0, 0, W, H);
       const cx = W / 2, cy = H / 2, R0 = st.R0, D = st.D, lim = 1 / D;
       // motion. A breath spins it up (it keeps turning a while after, then settles) and leans it
-      const spin = 0.05 + 0.05 * (1 - calm) + 0.3 * storm + e * (1.4 + 1.8 * wx);
+      const spin = 0.05 + 0.05 * (1 - calm) + 0.3 * storm + e * (1.1 + 1.3 * wx);
       st.w = st.w == null ? spin : st.w + (spin - st.w) * (1 - Math.exp(-dt * (Math.abs(spin) > Math.abs(st.w) ? 5 : 0.6)));
       st.yaw = (st.yaw == null ? (T * 0.06) % TAU : st.yaw) + st.w * dt;
       const pT = 0.38 + 0.6 * e * wy + 0.05 * storm * Math.sin(T * 2.3), rT = -0.55 * e * wx + 0.06 * storm * Math.sin(T * 1.7) - 0.12;
@@ -752,9 +752,9 @@ const ART_MODES = (() => {
       g.fillText(String(echoes), x0 - fsz * 0.2, y0 + fsz * 4.4);
       g.font = `400 ${fsz}px "IBM Plex Mono", ui-monospace, Menlo, monospace`; g.fillStyle = `rgba(${G},0.8)`;
       const n = pts.length || 1, pct = (echoes / n * 100).toFixed(1);
-      const lines = [`${echoes === 1 ? 'ECHO' : 'ECHOES'}`, '', `${pct}% OF ${n} PTS`, `MAX ${maxmm ? maxmm.toFixed(1) : '—'} MM/H`, `SWEEP ${(st.spd / TAU * 60).toFixed(1)} RPM`,
+      const lines = [`${echoes === 1 ? 'ECHO' : 'ECHOES'}`, '', E.pts.length ? `${pct}% OF ${n} PTS` : 'AWAITING SNAPSHOT', `MAX ${maxmm ? maxmm.toFixed(1) : '—'} MM/H`, `SWEEP ${(st.spd / TAU * 60).toFixed(1)} RPM`,
         `NOISE [${'#'.repeat(Math.round(e * 8))}${'·'.repeat(8 - Math.round(e * 8))}]`,
-        `WX ${storm > 0.25 ? 'STORM' : calm > 0.5 ? 'CALM' : E.mist > 0.01 ? 'MIST' : 'RAIN'}`];
+        `WX ${storm > 0.25 ? 'STORM' : calm > 0.5 ? 'CALM' : e > 0.3 ? 'GUSTS' : 'RAIN'}`];
       lines.forEach((t, i) => g.fillText(t, x0, y0 + fsz * (5.9 + i * 1.6)));
       if (storm > 0.25 && (T * 2) % 1 < 0.6) { g.fillStyle = 'rgba(200,255,215,0.95)'; g.fillText('▲ STORM CELLS', x0, y0 + fsz * (6 + lines.length * 1.6 + 0.6)); }
       const d = new Date();
@@ -826,15 +826,15 @@ const ART_MODES = (() => {
     g.filter = 'none'; g.globalCompositeOperation = 'source-over';
     // the fog lives on a coarse grid of floats (so it can thin out smoothly, with no 8-bit leftovers);
     // it is drawn up in two steps (grid -> a third of the screen -> the screen), which keeps its edges soft
-    const gw = 192, gh = Math.max(48, Math.round(gw * H / W));
+    const gw = 240, gh = Math.max(60, Math.round(gw * H / W));
     Object.assign(st, { gw, gh, cw: W / gw, ch: H / gh });
     const mw = Math.round(W / 3), mh = Math.round(H / 3);
     // the fogged view: the same city, much softer and milky
     const tiny = st.tiny = canvas(mw, mh), t = tiny.getContext('2d');
     if ('filter' in t) t.filter = `blur(${3 * s}px)`;
     t.drawImage(bg, -8, -8, mw + 16, mh + 16); t.filter = 'none';
-    t.fillStyle = 'rgba(150,160,188,0.3)'; t.fillRect(0, 0, mw, mh);
-    t.globalCompositeOperation = 'lighter'; t.fillStyle = 'rgba(30,32,42,1)'; t.fillRect(0, 0, mw, mh); t.globalCompositeOperation = 'source-over';
+    t.fillStyle = 'rgba(150,160,188,0.26)'; t.fillRect(0, 0, mw, mh);
+    t.globalCompositeOperation = 'lighter'; t.fillStyle = 'rgba(20,22,30,1)'; t.fillRect(0, 0, mw, mh); t.globalCompositeOperation = 'source-over';
     // colours behind each spot of glass (what a drop there refracts)
     const sm = canvas(64, 36), sx = sm.getContext('2d'); sx.drawImage(bg, 0, 0, 64, 36);
     st.col = sx.getImageData(0, 0, 64, 36).data;
@@ -843,6 +843,13 @@ const ART_MODES = (() => {
     for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) st.grain[j * gw + i] = 0.5 + 0.5 * (fbm(i * 0.08, j * 0.08) * 0.5 + 0.5);
     st.fogCv = canvas(gw, gh); st.fogX = st.fogCv.getContext('2d'); st.fogImg = st.fogX.createImageData(gw, gh);
     st.mid = canvas(mw, mh); st.midX = st.mid.getContext('2d');
+    // a drop's dark rim and its glints, drawn once (the lens inside is filled per drop, in the colour behind it)
+    const D = 96, spr = st.drop = canvas(D, D), q = spr.getContext('2d'), m = D / 2, u = D / 2.2;
+    q.fillStyle = 'rgba(0,0,8,0.55)'; q.beginPath(); q.arc(m, m + u * 0.1, u * 1.04, 0, TAU); q.fill();
+    q.globalCompositeOperation = 'destination-out'; q.beginPath(); q.arc(m, m, u * 0.84, 0, TAU); q.fill();
+    q.globalCompositeOperation = 'source-over';
+    q.fillStyle = 'rgba(255,255,255,0.9)'; q.beginPath(); q.ellipse(m - u * 0.3, m - u * 0.38, u * 0.24, u * 0.17, -0.5, 0, TAU); q.fill();
+    q.fillStyle = 'rgba(255,240,220,0.34)'; q.beginPath(); q.ellipse(m + u * 0.18, m + u * 0.5, u * 0.28, u * 0.13, 0, 0, TAU); q.fill();
     // a few moving lights: cars passing on the street below
     st.cars = Array.from({ length: 22 }, (_, i) => ({ x: hash(i * 3 + 1) * W, y: H * (0.72 + 0.22 * hash(i * 3 + 2)), v: (18 + 50 * hash(i * 3 + 3)) * s * (hash(i * 3 + 4) < 0.5 ? -1 : 1), r: (10 + 26 * hash(i * 3 + 5)) * s }));
     st.beads = []; st.drops = [];
@@ -859,6 +866,10 @@ const ART_MODES = (() => {
     draw(R, c, E) {
       const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E);
       if (st.W !== W || st.H !== H || !st.bg) glassSetup(st, W, H, E.dpr, s);
+      if (!st.seeded && E.sites.length) {                         // the window has been out in the rain a while already
+        st.seeded = true;
+        for (const z of E.sites) for (let n = Math.round(2 + 9 * z.k); n > 0; n--) st.beads.push({ x: W * (0.03 + 0.94 * z.u) + (rnd() + rnd() - 1) * W * 0.035, y: rnd() * H, r: (0.6 + 2.2 * z.k * rnd()) * s * 0.75 });
+      }
       c.globalCompositeOperation = 'source-over';
       c.drawImage(st.bg, 0, 0, W, H);
       // the street: car lights drifting by
@@ -944,7 +955,7 @@ const ART_MODES = (() => {
           for (let jj = fj - 1; jj <= fj + 1; jj++) for (let ii = fi - 1; ii <= fi + 1; ii++) {
             if (ii < 0 || jj < 0 || ii >= gw || jj >= gh) continue;
             const q = Math.hypot((ii + 0.5) * cw - d.x, (jj + 0.5) * ch - d.y) / cw;
-            if (q < rc) F[jj * gw + ii] *= 0.3 + 0.7 * (q / rc) * (q / rc);
+            if (q < rc) F[jj * gw + ii] *= 0.4 + 0.6 * (q / rc) * (q / rc);
           }
         }
         if (d.y - d.r > H + 4 || d.r < 0.9 * s || d.x < -30 || d.x > W + 30) continue;
@@ -961,17 +972,27 @@ const ART_MODES = (() => {
         beads[kb++] = b;
       }
       beads.length = kb;
-      // ---- draw the fog: the blurred milky city where it is fogged, with a white haze
+      // ---- draw the fog: the blurred milky city where it is fogged, with a white haze (only where there is any)
       const img = st.fogImg.data;
-      for (let i = 0; i < F.length; i++) { const v = F[i], o = i * 4; img[o] = 228; img[o + 1] = 232; img[o + 2] = 242; img[o + 3] = v > 0.004 ? Math.min(255, v * 290) : 0; }
-      st.fogX.putImageData(st.fogImg, 0, 0);
-      const m = st.midX, mw = st.mid.width, mh = st.mid.height;
-      m.imageSmoothingEnabled = true;
-      m.globalCompositeOperation = 'copy'; m.globalAlpha = 1; m.drawImage(st.fogCv, 0, 0, mw, mh);
-      m.globalCompositeOperation = 'source-in'; m.drawImage(st.tiny, 0, 0);
-      m.globalCompositeOperation = 'source-over'; m.globalAlpha = 0.18 + 0.15 * fl; m.drawImage(st.fogCv, 0, 0, mw, mh); m.globalAlpha = 1;
-      c.globalCompositeOperation = 'source-over'; c.imageSmoothingEnabled = true;
-      c.drawImage(st.mid, 0, 0, W, H);
+      let i0 = gw, i1 = -1, j0 = gh, j1 = -1;
+      for (let j = 0, o = 0; j < gh; j++) for (let i = 0; i < gw; i++, o++) {
+        const v = F[o], a = v > 0.004 ? Math.min(230, v * 260) : 0;
+        img[o * 4] = 228; img[o * 4 + 1] = 232; img[o * 4 + 2] = 242; img[o * 4 + 3] = a;
+        if (a) { if (i < i0) i0 = i; if (i > i1) i1 = i; if (j < j0) j0 = j; if (j > j1) j1 = j; }
+      }
+      if (i1 >= 0) {
+        st.fogX.putImageData(st.fogImg, 0, 0);
+        const m = st.midX, mw = st.mid.width, mh = st.mid.height;
+        m.imageSmoothingEnabled = true;
+        m.globalCompositeOperation = 'copy'; m.globalAlpha = 1; m.drawImage(st.fogCv, 0, 0, mw, mh);
+        m.globalCompositeOperation = 'source-in'; m.drawImage(st.tiny, 0, 0);
+        m.globalCompositeOperation = 'source-over'; m.globalAlpha = 0.12 + 0.15 * fl; m.drawImage(st.fogCv, 0, 0, mw, mh); m.globalAlpha = 1;
+        // just the part of the glass that is fogged, up to the screen
+        const kx = mw / gw, ky = mh / gh, ax = Math.max(0, (i0 - 2) * kx), ay = Math.max(0, (j0 - 2) * ky);
+        const bw = Math.min(mw, (i1 + 3) * kx) - ax, bh = Math.min(mh, (j1 + 3) * ky) - ay;
+        c.globalCompositeOperation = 'source-over'; c.imageSmoothingEnabled = true;
+        c.drawImage(st.mid, ax, ay, bw, bh, ax * W / mw, ay * H / mh, bw * W / mw, bh * H / mh);
+      }
       // ---- the water: beads and drops, each a little lens (a dark rim, the city upside down inside, a bright glint)
       const rim = new Path2D(), body = new Path2D(), hi = new Path2D();
       for (const b of beads) {
@@ -983,22 +1004,19 @@ const ART_MODES = (() => {
       c.fillStyle = 'rgba(0,0,6,0.38)'; c.fill(rim);
       c.fillStyle = 'rgba(190,200,230,0.14)'; c.fill(body);
       c.fillStyle = `rgba(255,255,255,${0.45 + 0.4 * fl})`; c.fill(hi);
-      const drim = new Path2D(), dhi = new Path2D(), dlo = new Path2D(), lens = new Map();
+      const lens = new Map();
       for (const d of drops) {
-        const el = 1 + Math.min(0.45, d.vy / (160 * s)), r = d.r;
-        drim.moveTo(d.x + r * 1.06, d.y + r * 0.12); drim.ellipse(d.x, d.y + r * 0.12, r * 1.06, r * el * 1.06, 0, 0, TAU);
-        const col = refract(st, W, H, d.x, d.y + r * 9);
+        const el = 1 + Math.min(0.45, d.vy / (160 * s)), r = d.r, col = refract(st, W, H, d.x, d.y + r * 9);
         let p = lens.get(col); if (!p) lens.set(col, p = new Path2D());
-        p.moveTo(d.x + r * 0.86, d.y); p.ellipse(d.x, d.y, r * 0.86, r * 0.86 * el, 0, 0, TAU);
-        dhi.moveTo(d.x - r * 0.3 + r * 0.24, d.y - r * 0.38 * el); dhi.ellipse(d.x - r * 0.3, d.y - r * 0.38 * el, r * 0.24, r * 0.18, -0.5, 0, TAU);
-        dlo.moveTo(d.x + r * 0.2 + r * 0.26, d.y + r * 0.5 * el); dlo.ellipse(d.x + r * 0.2, d.y + r * 0.5 * el, r * 0.26, r * 0.13, 0, 0, TAU);
+        p.moveTo(d.x + r * 0.88, d.y); p.ellipse(d.x, d.y, r * 0.88, r * 0.88 * el, 0, 0, TAU);
       }
-      c.fillStyle = 'rgba(0,0,8,0.5)'; c.fill(drim);
       c.globalAlpha = 0.9;
       for (const [col, p] of lens) { c.fillStyle = col; c.fill(p); }
       c.globalAlpha = 1;
-      c.fillStyle = `rgba(255,255,255,${0.85 + 0.15 * fl})`; c.fill(dhi);
-      c.fillStyle = 'rgba(255,240,220,0.32)'; c.fill(dlo);
+      for (const d of drops) {                                   // rim and glints over each lens
+        const el = 1 + Math.min(0.45, d.vy / (160 * s)), z = d.r * 2.2;
+        c.drawImage(st.drop, d.x - z / 2, d.y - z * el / 2, z, z * el);
+      }
     },
   };
 
