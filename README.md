@@ -91,3 +91,18 @@ second view for experimenting: no map, numbers or place names. The same live rai
 from one slow flowing line across the top as a curtain of bigger plumes, with long smoky trails.
 The QR code shrinks into the corner. Press again to go back; the wall remembers the choice.
 
+### Mist detection in TouchDesigner (current: `td/mist_v4.py`)
+
+Run once in the Textport (it updates the project in place and saves the next version number):
+
+    import urllib.request as U, ssl; exec(U.urlopen('https://rubywu-ux.github.io/Rain-connect/td/mist_v4.py', context=ssl.create_default_context(cafile='/etc/ssl/cert.pem')).read().decode('utf-8'), dict(globals()))
+
+- **Finds the pot by its rim**: every ~2 s it looks for the pot's dark rim and body, fits an ellipse
+  (round from above, oval from an angle) and measures mist just inside it. The black mist maker can
+  move anywhere inside; it's ignored.
+- **Mist = flicker** inside that oval (mist is never still). **Motion** = how strongly it changes.
+- **Hands are ignored**: big sudden changes, and the area around them for a moment, are left out (red).
+- **Debug view** (Mist page > Debug view): camera with yellow = pot rim found, cyan = where mist is
+  measured, cyan fill = mist, green = mist moving, red = hands ignored, plus live numbers.
+- **Art mode** can be switched from TouchDesigner too: Mist page > Art mode.
+
