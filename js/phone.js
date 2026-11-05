@@ -69,6 +69,10 @@
         if (!inView && m.u != null)
           R.addRipple({ x: v.x + m.u * R.worldW, y: v.y + m.v * R.worldH, t: m.t, seed: m.seed + 7, c: m.c, k: 0.6, echo: true });
         if (entered) play(m.c, m.u != null ? m.u : 0.5, m.t, inView ? 0.55 : 0.3);
+        if (inView && m.site != null && snap && snap.pts && snap.pts[m.site - 5000]) {
+          const p = snap.pts[m.site - 5000];
+          showDrop({ lat: p[0], lon: p[1], mm: p[2], code: p[3] }, m.x - v.x, m.y - v.y, m.c, false);
+        }
       }
     } else if (topic === 'storm') {
       // shared storm: 2+ people blowing anywhere
@@ -116,6 +120,39 @@
       if (entered) { const now = T(); play(myColor, (order + 0.5) / members.length, now + (me.ox - minX) / 1400, 0.9); }
       if (navigator.vibrate) navigator.vibrate(30);
     }
+  }
+
+  /* ---------------- a drop with a name: a tap holds the rain that is falling somewhere real.
+     The joined screens are a little map (east-west across, north-south down); the tap picks the
+     raining place nearest that spot and says where it is. */
+  function nearestRain(wx, wy) {
+    if (!snap || !snap.pts) return null;
+    const minX = Math.min(...members.map(p => p.ox)), maxX = Math.max(...members.map(p => p.ox + p.w));
+    const minY = Math.min(...members.map(p => p.oy)), maxY = Math.max(...members.map(p => p.oy + p.h));
+    const lon = clamp((wx - minX) / Math.max(1, maxX - minX), 0, 1) * 360 - 180;
+    const lat = 90 - clamp((wy - minY) / Math.max(1, maxY - minY), 0, 1) * 180;
+    let best = null, bd = 1e9;
+    snap.pts.forEach((p, idx) => {
+      if (!isRaining(p[2], p[3])) return;
+      let dl = Math.abs(p[1] - lon); if (dl > 180) dl = 360 - dl;
+      const d = (dl / 360) ** 2 + ((p[0] - lat) / 180) ** 2;
+      if (d < bd) { bd = d; best = { idx, lat: p[0], lon: p[1], mm: p[2], code: p[3] }; }
+    });
+    return best;
+  }
+  let dropEl = null;
+  function showDrop(r, sx, sy, col, mine) {
+    if (!r) return;
+    if (dropEl) dropEl.remove();
+    const el = dropEl = document.createElement('div');
+    el.className = 'drop-tag';
+    if (col != null) el.style.color = `rgb(${colorOf(col)})`;
+    el.innerHTML = `<b>${rainWords(r.mm, r.code)} ${placeName(r.lat, r.lon).where}</b><small>${mine ? 'your drop is falling there now' : 'someone is holding this rain'}</small>`;
+    el.style.left = clamp(sx - 115, 10, innerWidth - 240) + 'px';
+    el.style.top = clamp(sy - 110, 60, innerHeight - 140) + 'px';
+    document.body.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('on'));
+    setTimeout(() => { el.classList.remove('on'); setTimeout(() => el.remove(), 1000); }, 4200);
   }
 
   /* ---------------- live rain snapshot */
@@ -247,6 +284,8 @@
       const w = toWorld(x, y);
       const ev = { type: 'tap', from: ME, c: myColor, x: w.x, y: w.y, u: x / innerWidth, v: y / innerHeight,
                    seed: Math.floor(Math.random() * 1e6), t: T() };
+      const rain = nearestRain(w.x, w.y);
+      if (rain) { ev.site = 5000 + rain.idx; showDrop(rain, x, y, myColor, true); }
       R.addRipple(ev); R.addImpulse({ kind: 'radial', x: w.x, y: w.y, s: 70, r: 120, t: ev.t });
       net.pub('g/' + gid, ev);
       S.plip(x / innerWidth, 0.08);

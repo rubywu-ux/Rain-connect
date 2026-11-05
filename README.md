@@ -71,3 +71,16 @@ motion. If "calm" never comes, raise **Presence**; if "storm" comes too easily, 
 **Motion: frantic**. The wall shows `mist · calm / rain / storm` bottom-left; **Mist** on the
 container (or the W key / that button on the wall page) switches the whole feature off.
 
+## The data as art (what the wall shows)
+
+- **Every plume is a real place.** Each of the 320 evenly spread points where it is raining right now
+  becomes a plume on the wall, placed like a map (east-west across, north-south down) and sized and
+  lit by how hard it is raining there (WMO weather code + mm). A faint stippled world sits underneath.
+- **The rain remembers.** When a plume finishes, it leaves a stain (a dried-drop ring) where its rain
+  fell. Places where it keeps raining darken over the day; stains fade over about 24 hours and are kept
+  across reloads (browser storage on the wall).
+- **A drop with a name.** A tap on a phone picks the raining place nearest that spot of the (joined)
+  screens and says where it is: "light rain near Hanoi, Vietnam · your drop is falling there now". The
+  wall lights up that place's plume and names it. The wall also names a random place now and then.
+  Names come from ~250 cities (`js/places.js`) or the sea/region the point lies over.
+

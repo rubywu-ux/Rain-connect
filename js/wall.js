@@ -4,6 +4,73 @@
 (() => {
   const $ = id => document.getElementById(id);
   const R = new RainRenderer($('rain'), { scale: 1.6, detail: +(new URLSearchParams(location.search).get('detail') || 0.6) });
+  /* ---------------- the wall IS the world's rain: one plume for every place where it is raining now,
+     placed like a map (east-west across, north-south down), sized by how hard it is raining there */
+  const siteX = u => R.view.x + (0.04 + 0.92 * u) * R.worldW;
+  const siteY = v => R.view.y + (0.03 + 0.52 * v) * R.worldH;
+  let siteInfo = new Map();        // site id -> {lat, lon, mm, code, where, words}
+  function buildSites(s) {
+    const out = [];
+    siteInfo = new Map();
+    (s.pts || []).forEach((p, idx) => {
+      const [lat, lon, mm, code] = p;
+      if (!isRaining(mm, code)) return;
+      const id = 5000 + idx, u = (lon + 180) / 360, v = (90 - lat) / 180;
+      out.push({ id, x: siteX(u), y: siteY(v), k: rainStrength(mm, code), u, v });
+      siteInfo.set(id, { lat, lon, mm, code, idx });
+    });
+    out.sort((a, b) => b.k - a.k);
+    R.sites = out.slice(0, 60);
+  }
+  /* the ghost of the world: every 2° of land as a faint dot, in the same map the plumes hang from */
+  function buildGhost() {
+    const g = document.createElement('canvas'); g.width = Math.round(innerWidth / 2); g.height = Math.round(innerHeight / 2);
+    const x = g.getContext('2d'), k = g.width / R.w;
+    x.fillStyle = '#fff';
+    for (let r = 0; r < 90; r++) for (let c = 0; c < 180; c++) {
+      if (!LAND_MASK[r * 180 + c]) continue;
+      const lat = 89 - r * 2, lon = -179 + c * 2;
+      if (lat < -62) continue;                      // leave Antarctica out: it would be a long band
+      const px = (siteX((lon + 180) / 360) - R.view.x) * R.scale * k, py = (siteY((90 - lat) / 180) - R.view.y) * R.scale * k;
+      x.fillRect(px, py, 1, 1);
+    }
+    R.ghost = g;
+  }
+  buildGhost();
+  addEventListener('resize', () => { if (snap) buildSites(snap); buildGhost(); });
+  const nameOf = id => { const i = siteInfo.get(id); if (!i) return null; if (!i.where) { i.where = placeName(i.lat, i.lon).where; i.words = rainWords(i.mm, i.code); } return i; };
+  /* a quiet caption beside a plume: what kind of rain, and where */
+  function tag(site, text, sub, strong) {
+    const el = document.createElement('div');
+    el.className = 'site-tag' + (strong ? ' strong' : '');
+    el.innerHTML = `<b>${text}</b>${sub ? `<small>${sub}</small>` : ''}`;
+    const x = (site.x - R.view.x) * R.scale, y = (site.y - R.view.y) * R.scale;
+    el.style.left = Math.min(innerWidth - 260, Math.max(20, x + 14)) + 'px'; el.style.top = Math.max(70, y - 8) + 'px';
+    document.body.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('on'));
+    setTimeout(() => { el.classList.remove('on'); setTimeout(() => el.remove(), 1600); }, strong ? 6000 : 5000);
+  }
+  function tagSite(site, strong, who) {
+    const i = nameOf(site.id); if (!i) return;
+    tag(site, `${i.words} ${i.where}`, who || 'right now', strong);
+  }
+
+  /* ---------------- the rain remembers: stains where it has rained, kept across reloads, fading over a day */
+  R.enableMemory();
+  try {
+    const m = JSON.parse(localStorage.getItem('rc_memory') || 'null');
+    if (m && Date.now() - m.t < 24 * 3600e3) {
+      const img = new Image();
+      img.onload = () => { R.memory.getContext('2d').drawImage(img, 0, 0, R.memory.width, R.memory.height); R.fadeMemory(Math.min(0.9, (Date.now() - m.t) / (24 * 3600e3))); };
+      img.src = m.img;
+    }
+  } catch (e) {}
+  setInterval(() => {
+    if (!R.memoryDirty) return;
+    R.memoryDirty = false;
+    try { localStorage.setItem('rc_memory', JSON.stringify({ t: Date.now(), img: R.memory.toDataURL('image/png') })); } catch (e) {}
+  }, 60e3);
+  setInterval(() => R.fadeMemory(0.03), 10 * 60e3);   // about a day for a stain to disappear
   const M = new WorldMap($('map'));
   const S = new RainSound();
   const T = () => (Date.now() - EPOCH) / 1000;
@@ -194,7 +261,7 @@
     const calm = active ? clamp((0.25 - w) / 0.25, 0, 1) : 0;
     mistStorm = active ? clamp((w - 0.6) / 0.4, 0, 1) : 0;
     setLight(active && (light ? w < 0.3 : w < 0.18));
-    R.density = baseDensity * (1 - 0.97 * calm);
+    R.presence += ((1 - calm) - R.presence) * 0.08;         // the rain fades out / back in, smoothly
     S.setRain(rainLevel * (1 - calm) * (1 + 0.6 * mistStorm));
     S.setCalm(calm);
     if (!blowers.size || stormLevel < mistStorm) S.setStorm(Math.max(stormLevel, mistStorm));
@@ -229,7 +296,10 @@
     const maxX = Math.max(...mem.map(c => c.ox + c.w)), maxY = Math.max(...mem.map(c => c.oy + c.h));
     const gu = clamp((m.x - minX) / Math.max(1, maxX - minX), 0, 1), gv = clamp((m.y - minY) / Math.max(1, maxY - minY), 0, 1);
     const x = R.view.x + (0.05 + 0.9 * gu) * R.worldW, y = R.view.y + (0.08 + 0.84 * gv) * R.worldH;
-    if (m.type === 'tap') { R.addRipple({ x, y, t: T(), seed: m.seed || 1, k: 0.8, c: m.c }); S.plip(clamp(x / R.worldW, 0, 1), 0.18); { const at = RainSound.nextPulse(T()); S.voice(m.c, RainSound.noteFor(m.c, clamp(x / R.worldW, 0, 1), at), at, T(), 0.2, clamp(x / R.worldW, 0, 1)); } }
+    const st = m.type === 'tap' && m.site != null && R.sites ? R.sites.find(z => z.id === m.site) : null;
+    if (st) { R.addRipple({ x: st.x, y: st.y + 30, t: T(), seed: m.seed || 1, k: 0.9 }); R.bright = Math.max(R.bright, 0.6); tagSite(st, true, 'someone here is holding this rain'); lastTag = Date.now(); }
+    if (m.type === 'tap' && !st) R.addRipple({ x, y, t: T(), seed: m.seed || 1, k: 0.8, c: m.c });
+    if (m.type === 'tap') { S.plip(clamp(x / R.worldW, 0, 1), 0.18); { const at = RainSound.nextPulse(T()); S.voice(m.c, RainSound.noteFor(m.c, clamp(x / R.worldW, 0, 1), at), at, T(), 0.2, clamp(x / R.worldW, 0, 1)); } }
     if (m.type === 'wind') { R.addImpulse({ x, y, dx: m.dx * 0.8, dy: m.dy * 0.8, r: 70, t: T() }); R.addTrail({ x, y, t: T(), c: m.c }); }
     // simple feed for TouchDesigner: positions 0..1 on the wall
     if (m.type === 'tap' || m.type === 'wind')
@@ -255,8 +325,9 @@
     $('meta').textContent = `${s.raining} of ${s.n} evenly spread points on Earth report rain · Open-Meteo · ${fmtTime(s.t)}`;
     rainLevel = clamp(s.pct / 30, 0, 1);
     S.setRain(rainLevel);
-    baseDensity = 0.9 + clamp(s.pct / 25, 0, 1) * 0.6;
+    baseDensity = 1;
     R.density = baseDensity;
+    buildSites(s);
     net.pub('rainnow', s, true);
   }
   async function refresh() {
@@ -284,21 +355,22 @@
 
   /* ---------------- auto music: the world's rain, played softly where it is raining right now.
      It pauses while phones are playing and comes back after a few quiet seconds. */
-  let duck = 1;
+  let duck = 1, lastTag = 0;
   setInterval(() => {
     const quiet = (Date.now() - lastPhone) / 1000;
     const target = quiet < 4 ? 0 : 1;
     duck += (target - duck) * (target < duck ? 0.6 : 0.06);
     if (!snap || !S.ctx || S.ctx.state !== 'running' || duck < 0.04) return;
-    const wet = snap.pts.filter(p => isRaining(p[2], p[3]));
-    if (!wet.length || Math.random() > 0.14 + snap.pct / 100) return;
-    const [lat, lon, mm] = wet[Math.floor(Math.random() * wet.length)];
-    const u = (lon + 180) / 360, v = (90 - lat) / 180;
+    const sites = R.sites || [];
+    if (!sites.length || R.presence < 0.3 || Math.random() > 0.14 + snap.pct / 100) return;
+    const site = sites[Math.floor(Math.random() * sites.length)], info = siteInfo.get(site.id);
+    const lat = info ? info.lat : 0, mm = info ? info.mm : 0.3;
     const ci = lat >= 0 ? 2 : 4;                         // north: glass, south: felt piano
     const at = RainSound.nextPulse(T());
-    S.voice(ci, RainSound.noteFor(ci, u, at), at, T(), 0.16 * duck * (0.6 + 0.4 * Math.min(1, (mm || 0.3) / 4)), u);
-    // and a quiet bloom where that rain is falling (longitude across, latitude down)
-    R.addRipple({ x: R.view.x + u * R.worldW, y: R.view.y + (0.12 + v * 0.76) * R.worldH, t: at, seed: Math.floor(Math.random() * 1e6), k: 0.45, echo: true });
+    S.voice(ci, RainSound.noteFor(ci, site.u, at), at, T(), 0.16 * duck * (0.6 + 0.4 * Math.min(1, (mm || 0.3) / 4)), site.u);
+    // and a quiet bloom right where that place's rain is falling
+    R.addRipple({ x: site.x, y: site.y + 30, t: at, seed: Math.floor(Math.random() * 1e6), k: 0.35 + 0.3 * site.k, echo: true });
+    if (Date.now() - lastTag > 22000 && Math.random() < 0.5) { lastTag = Date.now(); tagSite(site); }
   }, MUSIC.pulse * 1000);
   addEventListener('keydown', e => {
     if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
@@ -318,5 +390,5 @@
 
   $('mist').onclick = () => setMist(!mistOn);
   setMist(mistOn);
-  if (RC.debug) window.__hub = { clients, exits, net, R, S, setMist, get w() { return w; }, get light() { return light; }, get joins() { return joins; } };
+  if (RC.debug) window.__hub = { clients, exits, net, R, S, setMist, tagSite, nameOf, get w() { return w; }, get light() { return light; }, get joins() { return joins; } };
 })();

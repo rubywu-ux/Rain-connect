@@ -127,6 +127,9 @@ class RainRenderer {
     this.ctx = canvas.getContext('2d');
     this.scale = opts.scale || 1;          // screen px per world px
     this.detail = opts.detail || 1;        // fraction of filaments to draw (big screens can use fewer)
+    this.sites = null;                     // real raining places [{id,x,y,k}] (the wall) instead of lanes
+    this.presence = 1;                     // 0..1: how much rain is showing (the wall's calm weather fades it out)
+    this.memory = null;                    // stain layer: where it has rained
     this.view = { x: 0, y: 0 };            // world coords of the screen's top-left
     this.floor = null;                     // world y where drops land (null = none)
     this.density = 1;
@@ -192,6 +195,18 @@ class RainRenderer {
     c.globalCompositeOperation = 'source-over';
     c.fillStyle = `rgba(${PAL.bg},${this.fresh ? 1 : PAL.fade})`;      // soft persistence = smoky trails
     c.fillRect(0, 0, this.w, this.h);
+    if (this.ghost) {                     // a faint stippled world underneath: the wall is the planet
+      c.save(); c.globalAlpha = INK ? 0.035 : 0.05;
+      if (INK) { c.filter = 'invert(1)'; } else c.globalCompositeOperation = 'lighter';
+      c.drawImage(this.ghost, 0, 0, this.w, this.h); c.restore();
+    }
+    if (this.memory) {                    // the rain remembers: stains left where it has rained
+      c.save();
+      c.globalAlpha = 0.11;               // with the frame fade this settles at about 0.4 x the stain
+      if (INK) { c.filter = 'invert(1)'; c.globalCompositeOperation = 'source-over'; } else c.globalCompositeOperation = 'lighter';
+      c.drawImage(this.memory, 0, 0, this.w, this.h);
+      c.restore();
+    }
     this.fresh = false;
     this.impulses = this.impulses.filter(m => T - m.t < 3);
     this.bright = Math.max(0, this.bright - 0.01);
@@ -218,23 +233,30 @@ class RainRenderer {
       const e = pts[pts.length - 1]; path.lineTo(e[0], e[1]);
     };
     const yBot = vy + H + 40, yLand = floor != null ? floor : 1e9;
+    // plumes come from lanes (phones), or one per real place where it is raining (the wall: this.sites)
+    const sites = this.sites;
     const i0 = Math.floor((vx - 620) / PLUME_LANE), i1 = Math.ceil((vx + W + 620) / PLUME_LANE);
-    for (let i = i0; i <= i1; i++) {
-      const Pi = PLUME_GAP * (0.8 + 0.5 * hash(i + 3)) / dens, ph = hash(i + 7) * Pi;
+    const nLanes = sites ? sites.length : i1 - i0 + 1;
+    for (let li = 0; li < nLanes; li++) {
+      const site = sites ? sites[li] : null, i = site ? site.id : i0 + li;
+      // a raining place keeps blooming in the same spot: one plume follows the next, a little overlapping
+      const Pi = site ? PLUME_LIFE * 0.92 * (0.85 + 0.3 * hash(i + 3)) / Math.max(0.03, dens) : PLUME_GAP * (0.8 + 0.5 * hash(i + 3)) / dens;
+      const ph = hash(i + 7) * Pi;
       const kHi = Math.floor((T - ph) / Pi), kLo = Math.ceil((T - ph - PLUME_LIFE - 5) / Pi);
       for (let k = kLo; k <= kHi; k++) {
-        const pl = this._plume(i, k, Pi, ph);
+        const pl = this._plume(i, k, Pi, ph, site);
         const a = T - pl.tb;
         if (a < 0) continue;
+        if (site && this.memory && this.presence > 0.3 && a > PLUME_LIFE - 4 && !pl.stamped) { pl.stamped = true; this._stamp(pl, T); }
         // where the plume is now: a rough box test before doing any real work
-        const ry = pl.ry0 + PLUME_DRIFT * a;
+        const ry = pl.ry0 + pl.drift * a;
         if (pl.rx + 640 < vx || pl.rx - 640 > vx + W || ry - 80 > yBot) continue;
         const alive = a < PLUME_LIFE;
         const dis = smoothstep(PLUME_LIFE - 7, PLUME_LIFE, a);       // dissolving: filaments thin out from the root
         const joins = rho > 0 && pl.joinable && ry < river.cy - 60;
         if (alive) {
           for (const lb of pl.lobes) {
-            const nf = Math.max(6, Math.round(lb.nf * this.detail));
+            const nf = Math.max(5, Math.round(lb.nf * this.detail));
             for (let f = 0; f < nf; f++) {
               const q = f / (nf - 1) * 2 - 1;
               const fs = lb.seed + f * 7;
@@ -275,7 +297,7 @@ class RainRenderer {
           }
         }
         // rain: tips release glittering drops that fall (more as the plume dissolves, more in a storm)
-        const nd = Math.round(PLUME_DROPS * dens * (1 + storm * 1.5));
+        const nd = Math.round(PLUME_DROPS * dens * (1 + storm * 1.5) * (site ? 0.4 + 0.8 * site.k : 1));
         for (let j = 0; j < nd; j++) {
           const ds = pl.seed * 3 + j * 17;
           const tr = pl.tb + 2.5 + Math.sqrt(hash(ds)) * (PLUME_LIFE - 2.5);   // skewed toward the end of life
@@ -316,6 +338,8 @@ class RainRenderer {
 
     // draw: a faint silk line under each filament, then the same filament as flowing dots
     const flow = -(T * (16 + 40 * storm)) * s;
+    const pres = this.presence;                                       // 0 = the rain has stopped (fades smoothly)
+    c.globalAlpha = pres;
     for (let b = 0; b < 3; b++) {
       c.setLineDash([0.01, (b === 2 ? 2.4 : 3) * s]);
       c.lineDashOffset = flow * (1 + b * 0.15);
@@ -323,6 +347,7 @@ class RainRenderer {
       c.lineWidth = lw * (b === 2 ? 1.2 : 1); c.stroke(fib[b]);
     }
     c.setLineDash([]); c.lineDashOffset = 0;
+    c.globalAlpha = 1;
     // the river itself: long dotted currents that run across every joined screen
     if (river && rho > 0) {
       const G = 240, xs = Math.floor((vx - 260) / G) * G, xe = vx + W + 260;
@@ -363,6 +388,7 @@ class RainRenderer {
       const d = r * lw * 1.3; sp[lvl(al)].rect(sx - d / 2, sy - d / 2, d, d);
     }
     c.lineWidth = lw * 0.8;
+    c.globalAlpha = pres;
     for (let k = 0; k < SL; k++) {
       const al = (k + 0.5) / SL;
       c.strokeStyle = `rgba(${PAL.ink},${al * 0.45})`; c.stroke(st[k]);
@@ -370,7 +396,7 @@ class RainRenderer {
     }
     const spr = sparkSprite();
     for (const [sx, sy, al] of glows) {
-      c.globalAlpha = Math.min(1, al * boost);
+      c.globalAlpha = Math.min(1, al * boost) * pres;
       c.drawImage(spr, sx - 7 * lw, sy - 7 * lw, 14 * lw, 14 * lw);
     }
     c.globalAlpha = 1;
@@ -424,37 +450,83 @@ class RainRenderer {
   }
 
   /* one plume: a few overlapping fans ("lobes") of filaments sharing one root */
-  _plume(i, k, Pi, ph) {
-    const cache = this._pc || (this._pc = new Map()), key = i + ':' + k;
+  _plume(i, k, Pi, ph, site) {
+    const cache = this._pc || (this._pc = new Map()), key = (site ? 's' + site.k.toFixed(2) + ':' : '') + i + ':' + k;
     let p = cache.get(key);
     if (p) return p;
-    if (cache.size > 300) cache.clear();
+    if (cache.size > 500) cache.clear();
     const seed = (Math.imul(i, 977) + Math.imul(k, 131)) & 0xffffff;
-    const nL = 3 + Math.floor(hash(seed + 1) * 3);
-    const lean = (hash(seed + 2) - 0.5) * 0.4, size = 0.8 + 0.45 * hash(seed + 3);
+    // a real place: heavier rain there = a bigger, brighter, fuller plume
+    const sk = site ? site.k : 0;
+    const nL = site ? 1 + Math.round(sk * 2.2 + hash(seed + 1) * 0.8) : 3 + Math.floor(hash(seed + 1) * 3);
+    const lean = (hash(seed + 2) - 0.5) * 0.4, size = site ? 0.3 + 0.62 * sk : 0.8 + 0.45 * hash(seed + 3);
     const lobes = [];
     for (let m = 0; m < nL; m++) {
       const ls = (seed * 7 + m * 1013) & 0xffffff;
       lobes.push({
         seed: ls, th0: lean + (hash(ls + 1) - 0.5) * 1.5, S0: 0.42 + 0.4 * hash(ls + 2),
         bend: (hash(ls + 11) - 0.5) * 1.6, cup: 0.15 + 0.45 * hash(ls + 12),
-        L0: size * (200 + 220 * hash(ls + 3)), nf: Math.round(22 + 16 * hash(ls + 4)),
-        lum: 0.35 + 0.65 * hash(ls + 5), curl: 0.3 + 0.8 * hash(ls + 6),
+        L0: size * (200 + 220 * hash(ls + 3)), nf: Math.round((22 + 16 * hash(ls + 4)) * (site ? 0.35 + 0.5 * sk : 1)),
+        lum: (0.35 + 0.65 * hash(ls + 5)) * (site ? 0.4 + 0.4 * sk : 1), curl: 0.3 + 0.8 * hash(ls + 6),
         w1: 0.12 + 0.2 * hash(ls + 7), w2: 0.1 + 0.18 * hash(ls + 8),
         p1: hash(ls + 9) * 6.283, p2: hash(ls + 10) * 6.283,
       });
     }
-    p = { seed, lobes, tb: k * Pi + ph, joinable: hash(seed + 6) < 0.8,
+    p = site
+      ? { seed, lobes, tb: k * Pi + ph, joinable: false, drift: 3, site, size,
+          rx: site.x + (hash(seed + 4) - 0.5) * 18, ry0: site.y - 10 * hash(seed + 5) }
+      : { seed, lobes, tb: k * Pi + ph, joinable: hash(seed + 6) < 0.8, drift: PLUME_DRIFT,
           rx: i * PLUME_LANE + (hash(seed + 4) - 0.5) * PLUME_LANE * 0.9, ry0: -200 + hash(seed + 5) * 560 };
     cache.set(key, p);
     return p;
+  }
+  /* a stain where a plume's rain fell: a dried-drop ring of dots with a faint wash inside.
+     Many plumes at one place over the day darken that place: the memory of where it rained. */
+  _stamp(pl, T) {
+    const m = this.memory, g = m.getContext('2d'), sx = m.width / this.w, sd = pl.seed;
+    g.save(); g.globalCompositeOperation = 'lighter';
+    const k = pl.site ? pl.site.k : 0.4, tip = [];
+    for (const lb of pl.lobes) { const f = this._fiber(pl, lb, 0, lb.seed, T, tip); const e = f[f.length - 1]; this._ring(g, e[0], e[1], 4 + 9 * k * (0.7 + 0.6 * hash(lb.seed)), k, sd + lb.seed, sx); }
+    g.restore();
+    this.memoryDirty = true;
+  }
+  _ring(g, wx, wy, r, k, sd, sx) {
+    const x = (wx - this.view.x) * this.scale * sx, y = (wy - this.view.y) * this.scale * sx, R = r * this.scale * sx;
+    if (x < -R || y < -R || x > this.memory.width + R || y > this.memory.height + R) return;
+    const wash = g.createRadialGradient(x, y, 0, x, y, R);
+    wash.addColorStop(0, `rgba(255,255,255,${0.012 + 0.015 * k})`); wash.addColorStop(0.8, `rgba(255,255,255,${0.02 + 0.025 * k})`); wash.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = wash; g.beginPath(); g.arc(x, y, R, 0, 6.283); g.fill();
+    g.fillStyle = `rgba(255,255,255,${0.1 + 0.14 * k})`;
+    const n = Math.round(12 + 26 * k);
+    for (let q = 0; q < n; q++) {                       // the ring: dots crowd at the edge, like a dried raindrop
+      const th = hash(sd + q * 3) * 6.283, rr = R * (0.82 + 0.22 * hash(sd + q * 3 + 1)) * (1 + 0.12 * Math.sin(th * 3 + sd));
+      const d = 0.6 + 1.1 * hash(sd + q * 3 + 2);
+      g.fillRect(x + Math.cos(th) * rr, y + Math.sin(th) * rr, d, d);
+    }
+    for (let q = 0; q < 3 + 6 * k; q++) {               // a few splashes flung outside it
+      const th = hash(sd + 500 + q) * 6.283, rr = R * (1.2 + 0.9 * hash(sd + 600 + q));
+      g.fillRect(x + Math.cos(th) * rr, y + Math.sin(th) * rr, 1.2, 1.2);
+    }
+  }
+  /* the memory canvas (half resolution); kept between reloads by the page that owns it */
+  enableMemory() {
+    if (this.memory) return this.memory;
+    const m = document.createElement('canvas'); m.width = Math.round(this.w / 2); m.height = Math.round(this.h / 2);
+    this.memory = m; return m;
+  }
+  /* slowly forget: everything fades a little (called every few minutes) */
+  fadeMemory(f = 0.03) {
+    if (!this.memory) return;
+    const g = this.memory.getContext('2d');
+    g.save(); g.globalCompositeOperation = 'destination-out'; g.fillStyle = `rgba(0,0,0,${f})`; g.fillRect(0, 0, this.memory.width, this.memory.height); g.restore();
+    this.memoryDirty = true;
   }
   /* the whole filament q (-1..1) of a lobe at time Tq, as world points root -> tip.
      A lobe is a sheet of filaments laid along one flowing S-shaped spine: tight at the root,
      flaring like a ginkgo leaf, with the outer filaments rolling back at the rim. */
   _fiber(pl, lb, q, fs, Tq, out) {
     const a = Tq - pl.tb, g = smoothstep(0, 5, a), st = this.storm;
-    const rx = pl.rx, ry = pl.ry0 + PLUME_DRIFT * a;
+    const rx = pl.rx, ry = pl.ry0 + pl.drift * a;
     const th = lb.th0 + 0.14 * Math.sin(Tq * lb.w1 + lb.p1) + st * 0.5 * (0.75 + 0.25 * Math.sin(Tq * 1.3 + lb.p2));
     const bend = lb.bend * (0.75 + 0.35 * Math.sin(Tq * lb.w2 + lb.p2)) + st * 0.25;
     const L = lb.L0 * (0.15 + 0.85 * g) * (1 + 0.05 * Math.sin(Tq * 0.27 + lb.p1));

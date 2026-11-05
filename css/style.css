@@ -128,3 +128,16 @@ html.ink .world h1, html.ink .wall-title, html.ink .wall-stats .big { text-shado
 .hud-btns { display: flex; gap: 10px; pointer-events: auto; }
 #wind.on { background: rgba(var(--rgb), .18); border-color: rgba(var(--rgb), .7); box-shadow: 0 0 14px rgba(var(--rgb), .35); }
 #wind.blowing { background: rgba(var(--rgb), .45); }
+
+/* names of real places where it is raining: wall captions and the phone's "your drop" */
+.site-tag { position: fixed; z-index: 4; pointer-events: none; max-width: 240px; opacity: 0; transform: translateY(6px);
+  transition: opacity 1.4s ease, transform 1.4s ease; font-family: var(--serif); font-style: italic; color: var(--ink); }
+.site-tag.on { opacity: .72; transform: none; }
+.site-tag.strong.on { opacity: .95; }
+.site-tag b { display: block; font-weight: 300; font-size: 1.05vw; line-height: 1.25; }
+.site-tag small { display: block; font-family: var(--mono); font-style: normal; font-size: .62vw; letter-spacing: .16em; text-transform: uppercase; color: var(--dim); margin-top: .35vw; }
+.drop-tag { position: fixed; z-index: 7; pointer-events: none; width: 230px; text-align: center; opacity: 0; transform: translateY(8px);
+  transition: opacity .9s ease, transform .9s ease; font-family: var(--serif); font-style: italic; color: rgb(var(--me, var(--rgb))); }
+.drop-tag.on { opacity: 1; transform: none; }
+.drop-tag b { display: block; font-weight: 400; font-size: 19px; line-height: 1.2; text-shadow: 0 0 18px rgba(var(--bgrgb), .9); }
+.drop-tag small { display: block; font-family: var(--mono); font-style: normal; font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--dim); margin-top: 6px; }
