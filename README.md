@@ -84,3 +84,10 @@ container (or the W key / that button on the wall page) switches the whole featu
   wall lights up that place's plume and names it. The wall also names a random place now and then.
   Names come from ~250 cities (`js/places.js`) or the sea/region the point lies over.
 
+## Art mode (wall)
+
+The **art · off/on** button (bottom-left of the wall, or the **A** key) switches the wall to a
+second view for experimenting: no map, numbers or place names. The same live raining places hang
+from one slow flowing line across the top as a curtain of bigger plumes, with long smoky trails.
+The QR code shrinks into the corner. Press again to go back; the wall remembers the choice.
+

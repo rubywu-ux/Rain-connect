@@ -103,7 +103,8 @@ body.wall { cursor: none; }
 .netdot { position: fixed; right: 1.2vw; top: 1.2vw; width: 8px; height: 8px; border-radius: 50%; background: #c55; z-index: 6; opacity: .7; }
 .netdot.ok { background: #5c8; }
 /* mist weather switch: wall only */
-.mist { position: fixed; left: 2.4vw; bottom: 1.6vw; z-index: 6; font: 300 .75vw var(--mono); letter-spacing: .2em; text-transform: uppercase;
+.wall-btns { position: fixed; left: 2.4vw; bottom: 1.6vw; z-index: 6; display: flex; gap: .6vw; }
+.mist { position: relative; font: 300 .75vw var(--mono); letter-spacing: .2em; text-transform: uppercase;
   color: var(--faint); background: none; border: 1px solid rgba(var(--rgb), .18); border-radius: 999px; padding: .5vw 1vw; cursor: pointer; }
 .mist.on { color: var(--ink); border-color: rgba(var(--rgb), .5); }
 /* a soft fade while the room changes between light and dark */
@@ -154,3 +155,10 @@ html.ink .wall-qr { box-shadow: 0 0 0 1px rgba(var(--rgb), .12); }
 .drop-tag.on { opacity: 1; transform: none; }
 .drop-tag b { display: block; font-weight: 400; font-size: 19px; line-height: 1.2; text-shadow: 0 0 18px rgba(var(--bgrgb), .9); }
 .drop-tag small { display: block; font-family: var(--mono); font-style: normal; font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--dim); margin-top: 6px; }
+
+/* art mode on the wall: the words step back and the rain is the whole picture */
+.wall-title, .wall-stats, .wall-qr, .site-tag { transition: opacity 1.6s ease, transform 1.6s ease; }
+body.art .wall-title, body.art .wall-stats, body.art .site-tag { opacity: 0 !important; pointer-events: none; }
+body.art .wall-qr { opacity: .4; transform: scale(.62); transform-origin: right bottom; }
+body.art .wall-btns { opacity: .45; }
+body.art .wall-btns:hover { opacity: 1; }

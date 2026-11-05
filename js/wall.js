@@ -11,6 +11,7 @@
   const latV = v => clamp(((90 - v * 180) * -1 + 80) / 140, 0, 1);      // v (0 = N pole) -> 0..1 between 80N and 60S
   const siteY = v => R.view.y + (0.16 + 0.58 * latV(v)) * R.worldH;
   let siteInfo = new Map();        // site id -> {lat, lon, mm, code, where, words}
+  let art = false;                 // art mode (see setArt)
   function buildSites(s) {
     const out = [];
     siteInfo = new Map();
@@ -22,7 +23,19 @@
       siteInfo.set(id, { lat, lon, mm, code, idx });
     });
     out.sort((a, b) => b.k - a.k);
-    R.sites = out.slice(0, 60);
+    const sites = out.slice(0, 60);
+    if (art) {
+      // art: the same raining places, but no map. They hang from one slow, flowing line across the
+      // top (still in east-to-west order), evenly spread, bigger, like a curtain of rain
+      const byLon = [...sites].sort((a, b) => a.u - b.u), n = byLon.length;
+      byLon.forEach((z, i) => {
+        const f = n > 1 ? i / (n - 1) : 0.5;
+        z.x = R.view.x + (0.06 + 0.88 * f) * R.worldW;
+        z.y = R.view.y + (0.1 + 0.09 * Math.sin(f * 6.283 * 1.3 + 0.8) + 0.05 * hash(z.id)) * R.worldH;
+        z.big = 1.25 + 0.3 * hash(z.id + 1);
+      });
+    }
+    R.sites = sites;
   }
   /* the ghost of the world: every 2° of land as a faint dot, in the same map the plumes hang from */
   function buildGhost() {
@@ -54,6 +67,7 @@
     setTimeout(() => { el.classList.remove('on'); setTimeout(() => el.remove(), 1600); }, strong ? 6000 : 5000);
   }
   function tagSite(site, strong, who) {
+    if (art) return;                  // art mode: no words on the wall
     const i = nameOf(site.id); if (!i) return;
     tag(site, `${i.words} ${i.where}`, who || 'right now', strong);
   }
@@ -236,6 +250,18 @@
        rain  (0.25-0.6): the usual rain, dark
        storm (w > 0.6):  gusts of wind, darker, the rain leans; louder the harder the mist moves
      Nothing here goes to the phones: their rain, music and breath storm are untouched. */
+  /* art mode (wall only): no map, no numbers, no labels; longer smoky trails. Same live data underneath. */
+  function setArt(on) {
+    art = on;
+    try { localStorage.setItem('rc_art', on ? '1' : '0'); } catch (e) {}
+    document.body.classList.toggle('art', on);
+    $('art').classList.toggle('on', on);
+    $('art').textContent = on ? 'art · on' : 'art · off';
+    R.hideUnder = on;                 // the stippled map and the stains belong to the map view
+    R.fade = on ? 0.11 : 0;           // trails linger, like long exposure
+    R._pc = null; R.fresh = true;     // plumes re-form in their new places
+    if (snap) buildSites(snap);
+  }
   // the switch lives here on the wall (button / W key); TouchDesigner's Mist toggle can flip it too
   let mistOn = false, wTarget = 0, w = 0, mistStorm = 0, light = false, lastGust = 0, lastMistBolt = 0, baseDensity = 1.2, mistSeen = 0;
   try { mistOn = localStorage.getItem('rc_mist') === '1'; } catch (e) {}
@@ -388,6 +414,7 @@
   addEventListener('keydown', e => {
     if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
     if (e.key === 'w') setMist(!mistOn);
+    if (e.key === 'a') setArt(!art);
   });
   function frame() {
     const t = T();
@@ -401,6 +428,8 @@
   requestAnimationFrame(frame);
 
   $('mist').onclick = () => setMist(!mistOn);
+  $('art').onclick = () => setArt(!art);
+  try { if (localStorage.getItem('rc_art') === '1') setArt(true); } catch (e) {}
   setMist(mistOn);
   if (RC.debug) window.__hub = { clients, exits, net, R, S, setMist, tagSite, nameOf, get w() { return w; }, get light() { return light; }, get joins() { return joins; } };
 })();

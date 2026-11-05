@@ -193,7 +193,7 @@ class RainRenderer {
     const W = this.worldW, H = this.worldH, lw = Math.max(1, s * 0.75);
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     c.globalCompositeOperation = 'source-over';
-    c.fillStyle = `rgba(${PAL.bg},${this.fresh ? 1 : PAL.fade})`;      // soft persistence = smoky trails
+    c.fillStyle = `rgba(${PAL.bg},${this.fresh ? 1 : (this.fade || PAL.fade)})`;      // soft persistence = smoky trails
     c.fillRect(0, 0, this.w, this.h);
     const und = this._under();            // the faint world + the stains where it has rained, in one layer
     if (und) {
@@ -243,7 +243,7 @@ class RainRenderer {
         const pl = this._plume(i, k, Pi, ph, site);
         const a = T - pl.tb;
         if (a < 0) continue;
-        if (site && this.memory && this.presence > 0.3 && a > PLUME_LIFE - 4 && !pl.stamped) { pl.stamped = true; this._stamp(pl, T); }
+        if (site && this.memory && !this.hideUnder && this.presence > 0.3 && a > PLUME_LIFE - 4 && !pl.stamped) { pl.stamped = true; this._stamp(pl, T); }
         // where the plume is now: a rough box test before doing any real work
         const ry = pl.ry0 + pl.drift * a;
         if (pl.rx + 640 < vx || pl.rx - 640 > vx + W || ry - 80 > yBot) continue;
@@ -463,7 +463,7 @@ class RainRenderer {
     // a real place: heavier rain there = a bigger, brighter, fuller plume
     const sk = site ? site.k : 0;
     const nL = site ? 1 + Math.round(sk * 2.2 + hash(seed + 1) * 0.8) : 3 + Math.floor(hash(seed + 1) * 3);
-    const lean = (hash(seed + 2) - 0.5) * 0.4, size = site ? 0.3 + 0.62 * sk : 0.8 + 0.45 * hash(seed + 3);
+    const lean = (hash(seed + 2) - 0.5) * 0.4, size = (site ? 0.3 + 0.62 * sk : 0.8 + 0.45 * hash(seed + 3)) * (site && site.big ? site.big : 1);
     const lobes = [];
     for (let m = 0; m < nL; m++) {
       const ls = (seed * 7 + m * 1013) & 0xffffff;
@@ -514,7 +514,7 @@ class RainRenderer {
   }
   /* ghost map + memory, tinted for the current theme; rebuilt only when either changes */
   _under() {
-    if (!this.ghost && !this.memory) return null;
+    if ((!this.ghost && !this.memory) || this.hideUnder) return null;
     const src = this.memory || this.ghost, key = (this.memVer || 0) + ':' + (this.ghostVer || 0) + ':' + INK + ':' + src.width;
     if (this._und && this._undKey === key) return this._und;
     const u = this._und || document.createElement('canvas');
