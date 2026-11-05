@@ -141,6 +141,10 @@ class RainRenderer {
     this.bolts = [];                       // lightning strikes
     this.storm = 0;                        // 0..1, shared: how many people are blowing
     this.bright = 0;
+    this.art = false; this.artIdx = 0;     // the wall's art modes (see _drawArt)
+    this.snapPts = null;                   // the wall: every sample point [lat, lon, mm, code], for the art modes
+    this.mistW = 0; this.mistE = 0;        // the wall: mist weather 0..1 and how hard the mist is moving right now 0..1
+    this.mistX = 0; this.mistY = 0;        // the wall: where in the pot the mist moves, -1..1
     this.fresh = true;
     this.resize();
     addEventListener('resize', () => this.resize());
@@ -577,90 +581,53 @@ class RainRenderer {
     return out;
   }
 
-  /* ---------------- art mode: "Currents". No map, no words. Every place where it is raining right now
-     becomes a source in a slowly turning sunflower spiral (in east-to-west order); heavier rain = a
-     brighter source that releases more ink. The ink drifts through an invisible current that swirls
-     around the middle, leaving long trails. A storm (the mist) churns the current and speeds it up;
-     calm thins it to a few slow threads. Taps from phones bloom; lightning still strikes. */
+  /* ---------------- art modes (the wall). No map, no words: the same live data drawn as one of several
+     pictures (js/artmodes.js: ART_MODES, picked by this.artIdx, 1-based). This hands the chosen mode the
+     data and the mist weather, then draws what every mode shares on top: taps from phones bloom faintly
+     and lightning strikes (a mode that sets bolts: false draws its lightning itself, in its own place). */
   _drawArt(T) {
-    const c = this.ctx, Wd = this.w, Hd = this.h, lw = Math.max(1, this.scale * 0.75);
+    const c = this.ctx, modes = typeof ART_MODES !== 'undefined' ? ART_MODES : [];
     const dt = this._artT != null ? clamp(T - this._artT, 0, 0.1) : 0.016;
     this._artT = T;
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    c.globalCompositeOperation = 'source-over';
-    // long trails need a very soft fade, but on 8-bit pixels a very soft fade never quite reaches the
-    // background (faint tinted ghosts stay behind). Every 4th frame a stronger pass clears them.
-    this._artN = (this._artN || 0) + 1;
-    const fa = this.fresh ? 1 : (this._artN % 4 === 0 ? 0.16 : 0.055) + 0.05 * this.storm;
-    c.fillStyle = `rgba(${PAL.bg},${fa})`;
-    c.fillRect(0, 0, Wd, Hd);
-    this.fresh = false;
-    this.bright = Math.max(0, this.bright - 0.01);
-    const storm = this.storm, pres = this.presence, boost = 1 + this.bright * 0.6;
-    const cx = Wd / 2, cy = Hd * 0.5, R0 = Math.min(Wd, Hd) * 0.42, rot = T * 0.012;
-    // sources: the raining places, on a golden-angle spiral
-    const sites = [...(this.sites || [])].sort((a, b) => a.u - b.u), n = sites.length;
-    const src = sites.map((z, i) => {
-      const a = i * 2.39996 + rot, r = R0 * Math.sqrt((i + 0.6) / Math.max(1, n));
-      return { x: cx + Math.cos(a) * r * 1.35, y: cy + Math.sin(a) * r * 0.82, k: z.k, id: z.id };
-    });
-    // the ink
-    const P = this._ink || (this._ink = []);
-    const MAX = 3400;
-    for (const z of src) {
-      let m = (3 + 26 * z.k * z.k) * (0.25 + pres) * (1 + 1.2 * storm) * dt;
-      while (m > 0 && P.length < MAX) {
-        if (m < 1 && Math.random() > m) break;
-        m -= 1;
-        const a = Math.random() * 6.283, r = Math.random() * (3 + 10 * z.k) * this.scale;
-        P.push({ x: z.x + Math.cos(a) * r, y: z.y + Math.sin(a) * r, px: 0, py: 0, age: 0, life: 4 + 6 * Math.random() * (0.5 + z.k), k: z.k });
-      }
-    }
-    const fq = 0.0019 / this.scale * (1 + 0.8 * storm), sp = (18 + 22 * pres + 150 * storm) * this.scale;
-    const L = [new Path2D(), new Path2D(), new Path2D()];
-    let keep = 0;
-    for (let i = 0; i < P.length; i++) {
-      const q = P[i];
-      q.age += dt;
-      if (q.age > q.life || q.x < -40 || q.y < -40 || q.x > Wd + 40 || q.y > Hd + 40) continue;
-      q.px = q.x; q.py = q.y;
-      const ang = 6.283 * fbm(q.x * fq + 3.1, q.y * fq - T * (0.03 + 0.1 * storm)) * (1.3 + storm);
-      const dx = q.x - cx, dy = q.y - cy, dd = Math.hypot(dx, dy) + 1;
-      // the current: noise + a slow swirl around the middle + a gentle drift outward
-      let vx = Math.cos(ang) * sp - dy / dd * sp * 0.55 + dx / dd * sp * 0.12;
-      let vy = Math.sin(ang) * sp + dx / dd * sp * 0.55 + dy / dd * sp * 0.12;
-      const [ix, iy] = this.disp(q.x / this.scale + this.view.x, q.y / this.scale + this.view.y, T);   // taps push the ink
-      q.x += vx * dt + ix * 0.05 * this.scale; q.y += vy * dt + iy * 0.05 * this.scale;
-      const f = q.age / q.life, env = Math.sin(Math.PI * f) * (0.45 + 0.55 * q.k);
-      const b = env > 0.55 ? 2 : env > 0.28 ? 1 : 0;
-      L[b].moveTo(q.px, q.py); L[b].lineTo(q.x, q.y);
-      P[keep++] = q;
-    }
-    P.length = keep;
-    c.globalCompositeOperation = PAL.comp;
-    c.lineCap = 'round';
-    [[0.07, 0.6], [0.16, 0.8], [0.32, 1.0]].forEach(([al, wd], b) => {
-      c.strokeStyle = `rgba(${PAL.ink},${Math.min(1, al * boost)})`; c.lineWidth = lw * wd; c.stroke(L[b]);
-    });
-    // the sources themselves: a soft breathing point, bigger where it rains harder
-    for (const z of src) {
-      const pulse = 0.75 + 0.25 * Math.sin(T * (0.6 + z.k) + z.id), r = (1.5 + 5 * z.k) * this.scale * pulse;
-      const g = c.createRadialGradient(z.x, z.y, 0, z.x, z.y, r * 3);
-      g.addColorStop(0, `rgba(${PAL.ink},${(0.012 + 0.03 * z.k) * (0.4 + 0.6 * pres) * (INK ? 0.45 : 1)})`); g.addColorStop(1, `rgba(${PAL.ink},0)`);
-      c.fillStyle = g; c.beginPath(); c.arc(z.x, z.y, r * 3, 0, 6.283); c.fill();
-      c.fillStyle = `rgba(${PAL.ink},${0.12 + 0.25 * z.k})`; c.fillRect(z.x - lw * 0.7, z.y - lw * 0.7, lw * 1.4, lw * 1.4);
-    }
-    // taps: blooms; lightning
+    c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1;
     this.impulses = this.impulses.filter(m => T - m.t < 3);
     this.ripples = this.ripples.filter(r => T - r.t < 3.2);
-    for (const r of this.ripples) {
-      const age = T - r.t; if (age < 0) continue;
-      const k = r.k || 1;
-      this._bloom(c, r.x, r.y, age, r.seed || 1, { n: r.echo ? 24 : 40, life: 3.2, speed: [60 * k, 260 * k], flat: 1, sink: 26, alpha: r.echo ? 0.05 : 0.1, lw, core: false, col: colorOf(r.c) });
-    }
     this.bolts = this.bolts.filter(b => T - b.t < 1.2);
-    for (const b of this.bolts) { const age = T - b.t; if (age >= 0) this._bolt(c, b, age, lw); }
-    c.globalCompositeOperation = 'source-over';
+    this.bright = Math.max(0, this.bright - 0.01);
+    if (!modes.length) { c.fillStyle = `rgb(${PAL.bg})`; c.fillRect(0, 0, this.w, this.h); this.fresh = false; return; }
+    const idx = clamp((this.artIdx || 1) - 1, 0, modes.length - 1), mode = modes[idx];
+    let fresh = this.fresh;
+    if (!this._artSt || this._artMode !== idx) { this._artSt = {}; this._artMode = idx; fresh = true; }   // a new mode starts clean
+    this.fresh = false;
+    // the mist, eased every frame (its messages arrive about 5 times a second): energy follows fast, position a bit slower
+    const m = this._mist || (this._mist = { w: 0, e: 0, x: 0, y: 0 }), ke = 1 - Math.exp(-dt * 10), kx = 1 - Math.exp(-dt * 5);
+    m.w += ((this.mistW || 0) - m.w) * kx; m.e += ((this.mistE || 0) - m.e) * ke;
+    m.x += ((this.mistX || 0) - m.x) * kx; m.y += ((this.mistY || 0) - m.y) * kx;
+    const none = this._noSites || (this._noSites = []), lw = Math.max(1, this.scale * 0.75);
+    const env = { T, dt, W: this.w, H: this.h, s: this.scale, lw, sites: this.sites || none, pts: this.snapPts || none,
+                  storm: this.storm, pres: this.presence, mist: m.w, e: m.e, mx: m.x, my: m.y, light: INK, fresh,
+                  st: this._artSt, boost: 1 + this.bright * 0.6, dpr: this.dpr };
+    // a mode with its own dark palette is drawn (taps and lightning too) light-on-dark in either theme
+    const swap = !!mode.dark && INK, keep = swap ? Object.assign({}, PAL) : null;
+    if (swap) { INK = false; Object.assign(PAL, PAL_DARK); }
+    try {
+      c.save();
+      try { mode.draw(this, c, env); }
+      catch (err) { if (!this._artErr) { this._artErr = true; console.error('art mode ' + mode.name, err); } }   // never stop the wall's loop
+      c.restore();
+      c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      c.globalAlpha = 1; c.setLineDash([]); c.globalCompositeOperation = PAL.comp;
+      for (const r of this.ripples) {
+        const age = T - r.t; if (age < 0) continue;
+        const k = r.k || 1;
+        this._bloom(c, r.x, r.y, age, r.seed || 1, { n: r.echo ? 24 : 40, life: 3.2, speed: [60 * k, 260 * k], flat: 1, sink: 26, alpha: r.echo ? 0.05 : 0.1, lw, core: false, col: colorOf(r.c) });
+      }
+      if (mode.bolts !== false) for (const b of this.bolts) { const age = T - b.t; if (age >= 0) this._bolt(c, b, age, lw); }
+      c.globalCompositeOperation = 'source-over';
+    } finally {
+      if (swap) { INK = true; Object.assign(PAL, keep); }
+    }
   }
   _bloom(c, x, y, age, seed, o) {
     const fade = Math.pow(Math.max(0, 1 - age / o.life), 1.4);

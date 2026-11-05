@@ -86,9 +86,22 @@ container (or the W key / that button on the wall page) switches the whole featu
 
 ## Art mode (wall)
 
-The **art · off/on** button (bottom-left of the wall), the **A** key on the wall page, or **A** in
-TouchDesigner's projector window (or Mist page > Art mode) switches the wall to **Currents**: no map,
-numbers or names. Every place where it is raining right now becomes a source on a slowly turning
-sunflower spiral; heavier rain = a brighter source that releases more ink. The ink drifts through an
-invisible current that swirls around the middle, leaving long trails. The mist storm churns and speeds
-up the current (with lightning and thunder); calm thins it to a few slow threads. Phone taps bloom.
+Five art modes, no map, numbers or names. They all use the same live rain data and the mist from
+TouchDesigner (how much it moves, and where in the pot). The **art** button (bottom-left of the wall)
+and the **A** key cycle off > 1 > 2 > 3 > 4 > 5 > off; keys **1-5** pick a mode, **0** turns art off.
+In TouchDesigner use the projector window (same keys), or Mist page > Art mode (on = last mode used).
+
+1. **Currents** - every raining place is a source on a slowly turning sunflower spiral; heavier rain
+   releases more ink, which drifts through an invisible current. Breath churns the current and pushes
+   the ink away from the side you blow from.
+2. **Planet** - a dotted Earth turning in space; raining places glow at their real positions, blue to
+   violet to white by strength. Breath spins and tilts the planet; storms throw arcs between nearby rain.
+3. **Rain Garden** - one flower per raining place: across = longitude, height and bloom = strength,
+   petals = rain type, colour = latitude. Breath bends the stems; storms tear petals off, calm regrows them.
+4. **Radar** - a green phosphor scope over the Earth; raining places light up as the beam passes.
+   Breath speeds the sweep and fills the scope with static; storms tear the picture.
+5. **Glass** - a rainy window at night, the city blurred behind it. Drops land at the raining places'
+   longitudes and slide down. Breath fogs the glass where the mist moved; drops wipe it clear.
+
+Lightning and thunder still follow the mist storm in every mode. Phone taps bloom.
+
