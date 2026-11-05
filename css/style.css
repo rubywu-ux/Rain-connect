@@ -80,11 +80,11 @@ body.wall { cursor: none; }
   text-shadow: 0 0 30px rgba(var(--rgb), .3);
 }
 .wall-title small { display: block; font-family: var(--mono); font-size: .9vw; letter-spacing: .3em; text-transform: uppercase; color: var(--dim); margin-top: .8vh; }
-.wall-stats { position: fixed; left: 4vw; bottom: 5vh; z-index: 4; }
+.wall-stats { position: fixed; left: 4vw; bottom: 7vh; z-index: 4; }
 .wall-stats .big { font-family: var(--serif); font-size: 7vw; line-height: .9; font-weight: 300; text-shadow: 0 0 36px rgba(var(--rgb), .35); }
 .wall-stats .big span { font-size: .45em; color: var(--dim); }
 .wall-stats .lede { font-size: 1.9vw; }
-.wall-stats .meta { font-size: .85vw; }
+.wall-stats .meta { font-size: .9vw; }
 .wall-qr {
   position: fixed; right: 4vw; bottom: 5vh; z-index: 4; text-align: center;
   padding: 1.2vw; border: 1px solid rgba(var(--rgb), .25); border-radius: 1vw; background: rgba(var(--bgrgb), .55);
@@ -114,6 +114,17 @@ html, body.wall { transition: background .8s ease, color .8s ease; }
 /* black ink on white paper (?ink) */
 html.ink { --rgb: 14, 14, 16; --bgrgb: 244, 243, 240; --ink: #0e0e10; --bg: #f4f3f0; }
 html.ink .world h1, html.ink .wall-title, html.ink .wall-stats .big { text-shadow: none; }
+/* light mode on the wall: darker greys, a paper-coloured halo so text stays crisp over the plumes */
+html.ink { --dim: rgba(var(--rgb), 0.8); --faint: rgba(var(--rgb), 0.66); }
+html.ink .wall-title, html.ink .wall-stats, html.ink .wall-qr p, html.ink .mist, html.ink .site-tag {
+  text-shadow: 0 0 2px rgb(var(--bgrgb)), 0 0 8px rgb(var(--bgrgb)), 0 0 18px rgba(var(--bgrgb), .9); }
+html.ink .wall-title small, html.ink .wall-stats .meta, html.ink .wall-qr p, html.ink .mist { font-weight: 400; }
+html.ink .wall-stats .big { font-weight: 400; }
+html.ink .wall-stats .big span { color: var(--ink); opacity: .75; }
+html.ink .site-tag { background: rgba(var(--bgrgb), .84); border-left-color: rgba(var(--rgb), .7); }
+html.ink .site-tag small { color: rgba(var(--rgb), .72); }
+html.ink .mist { border-color: rgba(var(--rgb), .45); }
+html.ink .wall-qr { box-shadow: 0 0 0 1px rgba(var(--rgb), .12); }
 .vignette { position: fixed; inset: 0; z-index: 2; pointer-events: none;
   background: radial-gradient(130% 100% at 50% 45%, transparent 55%, rgba(var(--bgrgb), .55) 100%); }
 
