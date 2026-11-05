@@ -430,6 +430,7 @@
 
   $('mist').onclick = () => setMist(!mistOn);
   $('art').onclick = () => setArt(!art);
+  window.__wall = { setArt, setMist, get art() { return art; }, get mist() { return mistOn; } };   // TouchDesigner flips these
   try { if (localStorage.getItem('rc_art') === '1') setArt(true); } catch (e) {}
   setMist(mistOn);
   if (RC.debug) window.__hub = { clients, exits, net, R, S, setMist, tagSite, nameOf, get w() { return w; }, get light() { return light; }, get joins() { return joins; } };
