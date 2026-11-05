@@ -34,7 +34,7 @@
       const px = (siteX((lon + 180) / 360) - R.view.x) * R.scale * k, py = (siteY((90 - lat) / 180) - R.view.y) * R.scale * k;
       x.fillRect(px, py, 1, 1);
     }
-    R.ghost = g;
+    R.ghost = g; R.ghostVer = (R.ghostVer || 0) + 1;
   }
   buildGhost();
   addEventListener('resize', () => { if (snap) buildSites(snap); buildGhost(); });

@@ -195,16 +195,12 @@ class RainRenderer {
     c.globalCompositeOperation = 'source-over';
     c.fillStyle = `rgba(${PAL.bg},${this.fresh ? 1 : PAL.fade})`;      // soft persistence = smoky trails
     c.fillRect(0, 0, this.w, this.h);
-    if (this.ghost) {                     // a faint stippled world underneath: the wall is the planet
-      c.save(); c.globalAlpha = INK ? 0.035 : 0.05;
-      if (INK) { c.filter = 'invert(1)'; } else c.globalCompositeOperation = 'lighter';
-      c.drawImage(this.ghost, 0, 0, this.w, this.h); c.restore();
-    }
-    if (this.memory) {                    // the rain remembers: stains left where it has rained
+    const und = this._under();            // the faint world + the stains where it has rained, in one layer
+    if (und) {
       c.save();
-      c.globalAlpha = 0.11;               // with the frame fade this settles at about 0.4 x the stain
-      if (INK) { c.filter = 'invert(1)'; c.globalCompositeOperation = 'source-over'; } else c.globalCompositeOperation = 'lighter';
-      c.drawImage(this.memory, 0, 0, this.w, this.h);
+      c.globalAlpha = 0.11;               // with the frame fade this settles at about 0.4 x the layer
+      c.globalCompositeOperation = INK ? 'source-over' : 'lighter';
+      c.drawImage(und, 0, 0, this.w, this.h);
       c.restore();
     }
     this.fresh = false;
@@ -488,7 +484,7 @@ class RainRenderer {
     const k = pl.site ? pl.site.k : 0.4, tip = [];
     for (const lb of pl.lobes) { const f = this._fiber(pl, lb, 0, lb.seed, T, tip); const e = f[f.length - 1]; this._ring(g, e[0], e[1], 4 + 9 * k * (0.7 + 0.6 * hash(lb.seed)), k, sd + lb.seed, sx); }
     g.restore();
-    this.memoryDirty = true;
+    this.memoryDirty = true; this.memVer = (this.memVer || 0) + 1;
   }
   _ring(g, wx, wy, r, k, sd, sx) {
     const x = (wx - this.view.x) * this.scale * sx, y = (wy - this.view.y) * this.scale * sx, R = r * this.scale * sx;
@@ -508,6 +504,22 @@ class RainRenderer {
       g.fillRect(x + Math.cos(th) * rr, y + Math.sin(th) * rr, 1.2, 1.2);
     }
   }
+  /* ghost map + memory, tinted for the current theme; rebuilt only when either changes */
+  _under() {
+    if (!this.ghost && !this.memory) return null;
+    const src = this.memory || this.ghost, key = (this.memVer || 0) + ':' + (this.ghostVer || 0) + ':' + INK + ':' + src.width;
+    if (this._und && this._undKey === key) return this._und;
+    const u = this._und || document.createElement('canvas');
+    u.width = src.width; u.height = src.height;
+    const g = u.getContext('2d');
+    g.clearRect(0, 0, u.width, u.height);
+    if (this.ghost) { g.globalAlpha = INK ? 0.32 : 0.45; g.drawImage(this.ghost, 0, 0, u.width, u.height); g.globalAlpha = 1; }
+    if (this.memory) g.drawImage(this.memory, 0, 0, u.width, u.height);
+    g.globalCompositeOperation = 'source-in'; g.fillStyle = `rgb(${PAL.ink})`; g.fillRect(0, 0, u.width, u.height);
+    g.globalCompositeOperation = 'source-over';
+    this._und = u; this._undKey = key;
+    return u;
+  }
   /* the memory canvas (half resolution); kept between reloads by the page that owns it */
   enableMemory() {
     if (this.memory) return this.memory;
@@ -519,7 +531,7 @@ class RainRenderer {
     if (!this.memory) return;
     const g = this.memory.getContext('2d');
     g.save(); g.globalCompositeOperation = 'destination-out'; g.fillStyle = `rgba(0,0,0,${f})`; g.fillRect(0, 0, this.memory.width, this.memory.height); g.restore();
-    this.memoryDirty = true;
+    this.memoryDirty = true; this.memVer = (this.memVer || 0) + 1;
   }
   /* the whole filament q (-1..1) of a lobe at time Tq, as world points root -> tip.
      A lobe is a sheet of filaments laid along one flowing S-shaped spine: tight at the root,
