@@ -225,6 +225,11 @@ const ART_MODES = (() => {
       }
       let startle = 0;
       for (const b of R.bolts) if (b.t > (st.bolt || 0) && T >= b.t) { st.bolt = b.t; startle = Math.max(startle, b.power || 0.6); }
+      // phone taps: a pebble thrown into the flock. The starlings near where it lands burst away from it,
+      // then the flock closes up again (the pull back into formation does that by itself)
+      const FOC = 1.7 * W, cx = W / 2, cy = H / 2;
+      const peb = [];
+      for (const q of tapsOf(R, E).all) if (!q.echo && q.age < 0.9) peb.push([q.x, q.y, (0.1 + 0.03 * q.k) * W, 4600 * sc * Math.exp(-q.age * 4.5), q.seed % 2 ? 1 : -1]);
       const vmax = (240 + 520 * storm + 380 * e) * sc, J = (25 + 220 * storm + 60 * e) * sc;
       for (let b = 0; b < N; b++) {
         const i3 = b * 3, l = lead[Ld[b]], fb = F[b];
@@ -245,6 +250,18 @@ const ART_MODES = (() => {
           const dx = px - hx, dy = py - hy, dz = pz - hz, dd = dx * dx + dy * dy + dz * dz;
           if (dd < hr * hr) { const q = Math.sqrt(dd) + 1, f = hs * (1 - q / hr) * (1 - q / hr) / q; axx += dx * f; ayy += dy * f; azz += dz * f; }
         }
+        if (peb.length) {                                    // the pebble works where the bird is seen on screen
+          const kb = FOC / (FOC + Math.max(pz, -0.5 * W)), sx = cx + px * kb, sy = cy + py * kb;
+          const vb = (b * 0.6180339) % 1, vr = 0.72 + 0.56 * vb, vs = 0.55 + 0.9 * ((b * 0.7548777) % 1);   // each bird its own reach and fright
+          for (const [tx, ty, tr0, ts, tw] of peb) {
+            const dx = sx - tx, dy = sy - ty, dd = dx * dx + dy * dy, tr = tr0 * vr;               // a ragged edge, not a circle
+            if (dd < tr * tr) {
+              const q = Math.sqrt(dd) + 1, f = ts * vs * (1 - q / tr) * (1 - q / tr) / q;
+              axx += (dx - tw * dy * 0.45) * f / kb; ayy += (dy + tw * dx * 0.45) * f / kb;      // outward, with a little swirl
+              azz += (vb - 0.5) * f * q * 0.9;
+            }
+          }
+        }
         if (startle) { const dx = px - Cx, dy = py - Cy, dz = pz - Cz, q = Math.hypot(dx, dy, dz) + 1, f = startle * 650 * sc / q; V[i3] += dx * f; V[i3 + 1] += dy * f; V[i3 + 2] += dz * f; }
         let vx = V[i3] + axx * dt, vy = V[i3 + 1] + ayy * dt, vz = V[i3 + 2] + azz * dt;
         const sp = Math.hypot(vx, vy, vz), cap = vmax * (startle ? 3 : 1.6); if (sp > cap) { const q = cap / sp; vx *= q; vy *= q; vz *= q; }
@@ -259,7 +276,7 @@ const ART_MODES = (() => {
       let fl = 0;
       for (const b of R.bolts) { const age = T - b.t; if (age >= 0) fl = Math.max(fl, (age < 0.07 ? 1 : age < 0.12 ? 0.3 : age < 0.2 ? 0.85 : Math.max(0, 0.85 - (age - 0.2) * 1.5)) * (b.power || 0.6)); }
       if (fl > 0.01) { c.globalCompositeOperation = 'lighter'; c.fillStyle = `rgba(255,214,140,${0.5 * fl})`; c.fillRect(0, 0, W, H); c.globalCompositeOperation = 'source-over'; }
-      const FOC = 1.7 * W, cx = W / 2, cy = H / 2, sz0 = 0.0042 * W;
+      const sz0 = 0.0042 * W;
       const B3 = [new Path2D(), new Path2D(), new Path2D()], dots = new Path2D(), xs = [], ys = [];
       for (let b = 0; b < N; b++) {
         const i3 = b * 3, k = FOC / (FOC + Math.max(P[i3 + 2], -0.5 * W));    // and never drawn bigger than that
