@@ -394,7 +394,14 @@ def onFrameStart(frame):
 			cal = W.get('cal', {}).get(dk); W['calok'] = False
 			if cal is not None:                                   # the camera must not have moved since
 				g_ = cal['rl'] / max(rl, 0.02)
-				ok_ = float(np.abs(lum[room] * g_ - cal['ref'][room]).mean()) < 0.08 * (cal['rl'] + 0.05) / 0.5 + 0.02 if cal['ref'].shape == lum.shape else False
+				ok_ = False
+				if cal['ref'].shape == lum.shape:
+					a_ = lum[room] * g_; b_ = cal['ref'][room]
+					a_ = a_ - a_.mean(); b_ = b_ - b_.mean()
+					ncc_ = float((a_ * b_).sum() / (np.sqrt(float((a_ * a_).sum()) * float((b_ * b_).sum())) + 1e-6))
+					W['calncc'] = ncc_
+					# the room around the pot must still look the same (same camera angle); otherwise ignore it
+					ok_ = ncc_ > 0.8 and float(np.abs(lum[room] * g_ - cal['ref'][room]).mean()) < 0.08 * (cal['rl'] + 0.05) / 0.5 + 0.02
 				W['calok'] = ok_
 				if not ok_: cal = None
 			if cal is not None:
