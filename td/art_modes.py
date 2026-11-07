@@ -30,4 +30,6 @@ def onKey(dat, key, character, *a, **k):
 	else: return
 	print('wall key', ch)
 """
+P = CR.op('projector')
+if P is not None and hasattr(P.par, 'closeescape'): P.par.closeescape = False   # Esc turns art off; it must not close the wall
 print('A = next art mode, Z = previous, 1-9 = pick, 0 = mode 10, Shift+1-5 = 11-15, X = art off, W = mist (in the projector window)')
