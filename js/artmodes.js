@@ -1868,5 +1868,351 @@ const ART_MODES = (() => {
     },
   };
 
-  return [currents, planet, garden, radar, glass, mobile, op, strings, maze, murm];
+  /* ================================================================ modes 11-15: the rain itself
+     Shared by them: the kind of rain at a place (from its WMO code), the daylight easing in for the calm
+     (light) theme, the lightning flicker, and the taps from phones as points on the screen. */
+  const rainKind = code => code == null ? 1 : code >= 95 ? 3 : code >= 80 ? 2 : code >= 61 ? 1 : code >= 51 ? 0 : 1;   // 0 drizzle, 1 rain, 2 showers, 3 thunderstorm
+  const kindOf = (E, z) => rainKind(codeOf(E, z));
+  const latOf = z => 90 - z.v * 180;
+  const southOf = z => clamp((80 - latOf(z)) / 140, 0, 1);            // 0 = 80N (top / far) .. 1 = 60S (bottom / near)
+  const dayOf = (st, E) => (st.day = st.day == null ? (E.light ? 1 : 0) : st.day + ((E.light ? 1 : 0) - st.day) * (1 - Math.exp(-E.dt / 1.4)));
+  function flicker(R, T) {                         // how bright the lightning is right now (it flickers twice), and its bolt
+    let f = 0, bb = null;
+    for (const b of R.bolts) {
+      const a = T - b.t; if (a < 0) continue;
+      const v = (a < 0.07 ? 1 : a < 0.12 ? 0.25 : a < 0.2 ? 0.9 : Math.max(0, 1 - (a - 0.2) / 0.9)) * (b.power || 0.6);
+      if (v > f) { f = v; bb = b; }
+    }
+    return [f, bb];
+  }
+  function newBolts(R, st, T) {                    // strikes that began since the last frame
+    const seen = st.bseen || (st.bseen = new WeakSet()), out = [];
+    for (const b of R.bolts) if (T >= b.t && !seen.has(b)) { seen.add(b); out.push(b); }
+    return out;
+  }
+  /* taps from phones (and the wall's own soft notes, echo: true) as points on the screen, with how long ago.
+     The wall blooms a tap on a raining place just under that place's plume, so such a tap knows its place. */
+  function tapsOf(R, E) {
+    const st = E.st, T = E.T, first = !st.tseen, seen = st.tseen || (st.tseen = new WeakSet()), all = [], fresh = [];
+    for (const r of R.ripples) {
+      if (T < r.t) continue;
+      if (r._site === undefined) { r._site = null; for (const z of E.sites) if (Math.abs(z.x - r.x) < 0.5 && Math.abs(z.y + 30 - r.y) < 0.5) { r._site = z.id; break; } }
+      const q = { x: (r.x - R.view.x) * E.s, y: (r.y - R.view.y) * E.s, age: T - r.t, k: r.k || 1, echo: !!r.echo, site: r._site, seed: r.seed || 1 };
+      all.push(q);
+      if (!seen.has(r)) { seen.add(r); if (!first) fresh.push(q); }
+    }
+    return { all, fresh };
+  }
+  /* a maple leaf (unit size, stem down), for the puddle */
+  const LEAF = (() => {
+    const lobes = [[-Math.PI / 2, 1], [-Math.PI / 2 - 0.92, 0.84], [-Math.PI / 2 + 0.92, 0.84], [-Math.PI / 2 - 1.85, 0.52], [-Math.PI / 2 + 1.85, 0.52]];
+    const p = [];
+    for (let i = 0; i < 72; i++) {
+      const a = -Math.PI / 2 + i / 72 * TAU;
+      let r = 0.24;
+      for (const [c0, w] of lobes) { const d = Math.cos(a - c0); if (d > 0) r = Math.max(r, w * Math.pow(d, 9)); }
+      r += 0.07 * Math.abs(Math.sin(a * 13)) * Math.max(0, r - 0.3);          // a serrated edge on the lobes
+      p.push([Math.cos(a) * r, Math.sin(a) * r + 0.1]);
+    }
+    return p;
+  })();
+  let _leafPath = null;
+  const leafPath = () => {
+    if (_leafPath) return _leafPath;
+    const P = new Path2D(); LEAF.forEach(([x, y], i) => i ? P.lineTo(x, y) : P.moveTo(x, y)); P.closePath();
+    const V = new Path2D(); for (const a of [-Math.PI / 2, -Math.PI / 2 - 0.92, -Math.PI / 2 + 0.92, -Math.PI / 2 - 1.85, -Math.PI / 2 + 1.85]) { V.moveTo(0, 0.1); V.lineTo(Math.cos(a) * 0.8, Math.sin(a) * 0.8 + 0.1); }
+    V.moveTo(0, 0.1); V.lineTo(0.02, 0.62);
+    return (_leafPath = [P, V]);
+  };
+  const LEAF_COL = ['196,52,30', '222,98,28', '234,160,32', '176,36,30', '214,128,42', '150,40,36'];
+
+  /* ============================================================== 11  Puddle
+     Looking straight down into a rain puddle on a Seattle street. The water mirrors the sky: at night a
+     violet sky, a sodium streetlight and the bare branches of a maple, with a star for every place checked
+     where it is dry right now; by day a pale sky with clouds. Every raining place is a spot of the puddle
+     where drops land (across by longitude, down by latitude): heavier rain = more and bigger drops;
+     drizzle is a fine stipple of tiny rings, showers come in bursts, a thunderstorm throws big drops that
+     bounce. The rings spread, cross and interfere (a real wave simulation) and break the reflection up.
+     A breath is a gust over the water: cat's-paws race away from the side it came from, the reflection
+     shatters and the fallen leaves sail across. A storm whips the whole puddle and the lightning flashes in
+     it; calm, the water stills to a mirror with a drip from the branches now and then. A tap drops a big
+     drop where it lands (on a raining place: a burst of drops there). */
+  function puddleBlob(st, W, H) {
+    const N = 256, rT = new Float32Array(N);
+    for (let i = 0; i < N; i++) { const a = i / N * TAU, ca = Math.cos(a), sa = Math.sin(a); rT[i] = 1 + 0.15 * vnoise(ca * 1.3 + 3.1, sa * 1.3 + 7.7) + 0.05 * vnoise(ca * 3.6 + 1.3, sa * 3.6 + 2.9); }
+    const b = { cx: W * 0.5, cy: H * 0.5, rx: W * 0.53, ry: H * 0.56, rT };
+    b.rho = (x, y) => {                              // 0 at the middle, 1 at the shore
+      const dx = (x - b.cx) / b.rx, dy = (y - b.cy) / b.ry, a = Math.atan2(dy, dx);
+      return Math.hypot(dx, dy) / rT[(Math.round(a / TAU * N) % N + N) % N];
+    };
+    b.path = (sc = 1) => { const p = new Path2D(); for (let i = 0; i <= N; i += 2) { const a = i / N * TAU, r = rT[i % N] * sc; const x = b.cx + Math.cos(a) * b.rx * r, y = b.cy + Math.sin(a) * b.ry * r; i ? p.lineTo(x, y) : p.moveTo(x, y); } p.closePath(); return p; };
+    st.blob = b;
+  }
+  /* the sky over the puddle, as the water mirrors it (drawn at any size: crisp for the still mirror, small for the moving one) */
+  function puddleSky(st, E, day, w, h) {
+    const cv = canvas(w, h), g = cv.getContext('2d'), u = h / 100;
+    let gr = g.createLinearGradient(0, 0, w * 0.5, h);
+    if (day) { gr.addColorStop(0, '#f3f6f8'); gr.addColorStop(0.45, '#c8dae8'); gr.addColorStop(1, '#8fb0cc'); }
+    else { gr.addColorStop(0, '#03051a'); gr.addColorStop(0.5, '#0a0d30'); gr.addColorStop(1, '#140b33'); }
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    const lx = w * 0.64, ly = h * 0.36;
+    const blob = (x, y, r, col, a) => { const q = g.createRadialGradient(x, y, 0, x, y, r); q.addColorStop(0, `rgba(${col},${a})`); q.addColorStop(0.5, `rgba(${col},${a * 0.35})`); q.addColorStop(1, `rgba(${col},0)`); g.fillStyle = q; g.fillRect(x - r, y - r, 2 * r, 2 * r); };
+    if (day) {
+      for (let i = 0; i < 30; i++) blob(hash(i * 5 + 1) * w, hash(i * 5 + 2) * h, (9 + 24 * hash(i * 5 + 3)) * u, '255,255,255', 0.55 + 0.35 * hash(i * 5 + 4));
+      blob(w * 0.22, h * 0.72, 48 * u, '255,248,226', 0.75);                       // the sun behind thin cloud
+    } else {
+      blob(w * 0.04, h * 0.98, 60 * u, '220,70,40', 0.34);                         // the city's glow low on one side
+      blob(-w * 0.02, h * 0.5, 38 * u, '30,210,200', 0.42);                        // a shop's neon round the corner
+      blob(w * 1.02, h * 0.06, 44 * u, '236,50,170', 0.4);
+      for (let i = 0; i < 6; i++) blob(hash(i * 5 + 9) * w, hash(i * 5 + 8) * h, (10 + 20 * hash(i * 5 + 7)) * u, '110,60,140', 0.1);   // clouds lit from below
+      g.fillStyle = '#e8e6ff';
+      for (const q of points(E)) if (!q.rain) {          // a star for each place checked where it is dry right now
+        const x = (q.lon + 180) / 360 * w, y = (0.04 + 0.92 * clamp((80 - q.lat) / 140, 0, 1)) * h, hh = hash(q.id * 3 + 1), d = Math.max(1, u * (hh > 0.85 ? 0.32 : 0.2));
+        g.globalAlpha = 0.25 + 0.65 * hh * hh; g.fillRect(x, y, d, d);
+      }
+      g.globalAlpha = 1;
+      blob(lx, ly, 46 * u, '255,120,40', 0.55); blob(lx, ly, 18 * u, '255,180,90', 0.75); blob(lx, ly, 8 * u, '255,236,190', 1);   // the sodium lamp
+    }
+    // the streetlight: its arm from the kerb and its head, dark from below; the lens lit at night
+    g.strokeStyle = day ? '#34343a' : '#030206'; g.lineCap = 'round';
+    g.lineWidth = 1.5 * u; g.beginPath(); g.moveTo(w * 1.05, ly - 7 * u); g.quadraticCurveTo(lx + 30 * u, ly - 7 * u, lx + 7 * u, ly - 0.5 * u); g.stroke();
+    g.fillStyle = day ? '#3e3e45' : '#050408'; g.beginPath(); g.ellipse(lx, ly, 8.5 * u, 3.3 * u, -0.08, 0, TAU); g.fill();
+    g.fillStyle = day ? '#9a9da4' : '#fff6e2'; g.beginPath(); g.ellipse(lx - 0.6 * u, ly + 0.2 * u, 5.8 * u, 1.9 * u, -0.08, 0, TAU); g.fill();
+    // a maple overhead: bare branches reaching in from two sides (where they end, drops gather and fall)
+    const tips = [];
+    g.strokeStyle = day ? 'rgba(48,40,36,0.94)' : 'rgba(3,2,6,0.97)';
+    const branch = (x, y, a, len, wd, d, sd) => {
+      const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len, bend = (hash(sd * 3 + 7) - 0.5) * 0.6;
+      g.lineWidth = wd; g.beginPath(); g.moveTo(x, y);
+      g.quadraticCurveTo((x + x2) / 2 - Math.sin(a) * len * bend * 0.3, (y + y2) / 2 + Math.cos(a) * len * bend * 0.3, x2, y2); g.stroke();
+      if (d === 0 || len < 1.2 * u) { tips.push([x2 / w, y2 / h]); return; }
+      const n = hash(sd * 5 + 1) < 0.3 ? 3 : 2;
+      for (let i = 0; i < n; i++) branch(x2, y2, a + (i - (n - 1) / 2) * (0.5 + 0.3 * hash(sd * 11 + i)) + (hash(sd * 13 + i) - 0.5) * 0.55,
+                                         len * (0.68 + 0.16 * hash(sd * 17 + i)), Math.max(0.12 * u, wd * 0.66), d - 1, sd * 7 + i + 1);
+    };
+    branch(-w * 0.03, -h * 0.06, 0.6, 30 * u, 2.6 * u, 8, 11);
+    branch(w * 1.03, h * 1.06, Math.PI + 0.72, 27 * u, 2.3 * u, 7, 29);
+    st.tips = tips;
+    return cv;
+  }
+  function envOf(sky, gw, gh) {                      // the small copy the moving water reads from
+    const cv = canvas(gw, gh), g = cv.getContext('2d');
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high'; if ('filter' in g) g.filter = 'blur(0.8px)'; g.drawImage(sky, 0, 0, gw, gh); g.filter = 'none';
+    const d = g.getImageData(0, 0, gw, gh).data, env = new Uint8ClampedArray(gw * gh * 3);
+    for (let i = 0, j = 0; i < d.length; i += 4, j += 3) { env[j] = d[i]; env[j + 1] = d[i + 1]; env[j + 2] = d[i + 2]; }
+    return env;
+  }
+  function puddleGround(st, W, H, dpr, day) {
+    const cv = canvas(W * dpr, H * dpr), g = cv.getContext('2d'), b = st.blob, sk = W / 1600;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = day ? '#6b6863' : '#121115'; g.fillRect(0, 0, W, H);
+    let gr = g.createRadialGradient(W * 0.68, H * 0.32, 0, W * 0.68, H * 0.32, W * 0.75);       // wet asphalt catches the lamp (or the daylight)
+    gr.addColorStop(0, day ? 'rgba(255,255,255,0.12)' : 'rgba(255,140,60,0.16)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    const grains = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];       // the stones in the asphalt
+    for (let i = 0; i < 36000; i++) { const h = hash(i * 7 + 1), d = (0.8 + 2.2 * hash(i * 7 + 4) ** 3) * Math.max(0.7, sk * 1.3); grains[Math.floor(h * 4)].rect(hash(i * 7 + 2) * W, hash(i * 7 + 3) * H, d, d); }
+    (day ? ['rgba(28,26,24,0.34)', 'rgba(40,38,36,0.2)', 'rgba(200,194,184,0.18)', 'rgba(232,226,216,0.32)'] : ['rgba(0,0,0,0.6)', 'rgba(0,0,0,0.3)', 'rgba(130,118,128,0.16)', 'rgba(190,170,170,0.24)'])
+      .forEach((col, i) => { g.fillStyle = col; g.fill(grains[i]); });
+    // fallen leaves stuck to the wet road around the puddle
+    const [LP, LV] = leafPath();
+    for (let i = 0; i < 30; i++) {
+      const a = hash(i * 9 + 1) * TAU, r = 1.02 + 0.3 * hash(i * 9 + 2) ** 2, x = b.cx + Math.cos(a) * b.rx * r * b.rT[Math.floor(a / TAU * 256) % 256], y = b.cy + Math.sin(a) * b.ry * r * b.rT[Math.floor(a / TAU * 256) % 256];
+      const z = (15 + 16 * hash(i * 9 + 3)) * sk * 1.6;
+      g.save(); g.translate(x, y); g.rotate(hash(i * 9 + 4) * TAU); g.scale(z, z);
+      const col = LEAF_COL[i % LEAF_COL.length].split(',').map(v => Math.round(v * (day ? 0.82 : 0.36)));
+      g.fillStyle = `rgb(${col})`; g.fill(LP); g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 0.03; g.stroke(LV);
+      g.restore();
+    }
+    // the shore: a dark wet band, then the water cut out with a soft edge and a faint bright meniscus
+    const blur = 'filter' in g;
+    if (blur) g.filter = `blur(${12 * sk}px)`;
+    g.fillStyle = 'rgba(0,0,0,0.45)'; g.fill(b.path(1.07));
+    if (blur) g.filter = `blur(${2.4 * sk}px)`;
+    g.globalCompositeOperation = 'destination-out'; g.fillStyle = '#000'; g.fill(b.path(0.995));
+    g.globalCompositeOperation = 'source-over';
+    if (blur) g.filter = `blur(${1 * sk}px)`;
+    g.strokeStyle = day ? 'rgba(255,255,255,0.25)' : 'rgba(255,210,170,0.16)'; g.lineWidth = 1.4; g.stroke(b.path(1.0));
+    g.filter = 'none';
+    return cv;
+  }
+  function puddleSetup(st, W, H, E) {
+    st.W = W; st.H = H;
+    const gw = st.gw = 384, gh = st.gh = Math.round(gw * H / W), n = gw * gh, q = Math.min(E.dpr, 1.5);
+    st.cw = W / gw; st.ch = H / gh;
+    st.h0 = new Float32Array(n); st.h1 = new Float32Array(n);
+    st.cv = canvas(gw, gh); st.cx = st.cv.getContext('2d'); st.img = st.cx.createImageData(gw, gh);
+    puddleBlob(st, W, H);
+    const M = st.M = new Float32Array(n);                       // waves die away at the shore
+    for (let y = 1; y < gh - 1; y++) for (let x = 1; x < gw - 1; x++) M[y * gw + x] = 1 - smoothstep(0.92, 1.04, st.blob.rho((x + 0.5) * st.cw, (y + 0.5) * st.ch));
+    st.skyD = puddleSky(st, E, true, W * q, H * q); st.envD = envOf(st.skyD, gw, gh);
+    st.skyN = puddleSky(st, E, false, W * q, H * q); st.envN = envOf(st.skyN, gw, gh); st.ptsRef = E.pts;
+    st.env = new Uint8ClampedArray(n * 3); st.envAt = -1;
+    st.gN = puddleGround(st, W, H, E.dpr, false); st.gD = puddleGround(st, W, H, E.dpr, true);
+    st.rings = []; st.spl = []; st.pend = [];
+    st.drips = st.tips.map(([x, y], i) => ({ x: x * W, y: y * H, next: hash(i * 3 + 1) * 4 })).filter(d => st.blob.rho(d.x, d.y) < 0.9 && d.x > 0 && d.y > 0 && d.x < W && d.y < H).filter((d, i) => i % 4 === 0).slice(0, 10);
+    st.leaves = Array.from({ length: 10 }, (_, i) => { const a = hash(i * 7 + 1) * TAU, r = 0.2 + 0.55 * Math.sqrt(hash(i * 7 + 2));
+      return { x: st.blob.cx + Math.cos(a) * st.blob.rx * r, y: st.blob.cy + Math.sin(a) * st.blob.ry * r, vx: 0, vy: 0, a: hash(i * 7 + 3) * TAU, va: 0,
+               z: (17 + 14 * hash(i * 7 + 4)) * W / 1600 * 1.7, col: LEAF_COL[i % LEAF_COL.length], sd: i }; });
+  }
+  const puddle = {
+    name: 'puddle', title: 'Puddle', dark: true, bolts: false,
+    draw(R, c, E) {
+      const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E), dpr = E.dpr;
+      if (st.W !== W || st.H !== H || !st.h0) puddleSetup(st, W, H, E);
+      if (st.ptsRef !== E.pts) { st.ptsRef = E.pts; const q = Math.min(dpr, 1.5); st.skyN = puddleSky(st, E, false, W * q, H * q); st.envN = envOf(st.skyN, st.gw, st.gh); st.envAt = -1; }
+      const day = dayOf(st, E), { gw, gh, cw, ch, M, blob } = st;
+      let a = st.h0, b = st.h1;
+      // ---- drops: each lands as a dip in the water (the simulation spreads it as rings)
+      const drop = (x, y, A, rr) => {
+        const gx = x / cw, gy = y / ch, r = Math.max(1, rr), r2 = r * r; A = Math.max(-2.6, A);
+        const x0 = Math.max(1, Math.floor(gx - r)), x1 = Math.min(gw - 2, Math.ceil(gx + r)), y0 = Math.max(1, Math.floor(gy - r)), y1 = Math.min(gh - 2, Math.ceil(gy + r));
+        for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) { const d2 = (i - gx) ** 2 + (j - gy) ** 2; if (d2 < r2) a[j * gw + i] += A * (1 - d2 / r2); }
+        if (st.rings.length < 260) st.rings.push({ x, y, t: T, A: Math.min(1.3, -A * 0.45) });
+        if (A < -1.4 && st.spl.length < 60) st.spl.push({ x, y, t: T, n: 5 + Math.floor(-A * 2), sd: rnd() * 1e4 | 0, v: (34 + 24 * -A) * s });
+      };
+      const amt = (0.06 + 0.94 * (1 - calm)) * (1 + 3 * storm) * (1 + 0.25 * e);
+      for (const z of E.sites) {
+        const kind = kindOf(E, z), k = z.k, x0 = W * (0.08 + 0.84 * z.u), y0 = H * (0.08 + 0.84 * southOf(z));
+        let rate = (0.3 + 2.6 * Math.pow(k, 1.5)) * amt;
+        if (kind === 0) rate *= 2.8; else if (kind === 2) rate *= 0.2 + 3.2 * smoothstep(0.05, 0.55, vnoise(T * 0.3 + z.id * 0.1, z.id * 0.37));
+        const big = kind === 3 ? 1.8 : kind === 0 ? 0.32 : kind === 2 ? 1.15 : 1;
+        let m = rate * dt;
+        while (m > 0) {
+          if (m < 1 && rnd() > m) break; m -= 1;
+          const an = rnd() * TAU, rr = Math.sqrt(rnd()) * (8 + 30 * k) * s, x = x0 + Math.cos(an) * rr, y = y0 + Math.sin(an) * rr * 0.9;
+          drop(x, y, -(0.6 + 1.5 * k) * big * (1 + 0.5 * storm), kind === 0 ? 0.8 : 1.2 + 0.9 * k * big);
+          if (kind === 3 && rnd() < 0.6) st.pend.push([T + 0.16 + 0.12 * rnd(), x + (rnd() - 0.5) * 10 * s, y + (rnd() - 0.5) * 10 * s, -0.7 * (0.4 + k)]);   // it bounces
+        }
+      }
+      // a storm throws big drops all over the puddle
+      let ms = storm * 120 * dt;
+      while (ms > 0) { if (ms < 1 && rnd() > ms) break; ms -= 1; drop(W * (0.05 + 0.9 * rnd()), H * (0.05 + 0.9 * rnd()), -(0.8 + 1.2 * rnd()) * (0.6 + storm), 1.4); }
+      // drips from the branches overhead: the puddle is never quite still
+      for (const d of st.drips) if (T > d.next) { d.next = T + 1.6 + 3.5 * rnd() * (0.5 + calm); drop(d.x, d.y, -1.5, 1.3); }
+      // taps: a big drop where it lands; on a raining place a burst of drops there (the wall's own soft notes: one drop)
+      for (const q of tapsOf(R, E).fresh) {
+        const z = q.site != null ? E.sites.find(o => o.id === q.site) : null;
+        if (z) { const x0 = W * (0.08 + 0.84 * z.u), y0 = H * (0.08 + 0.84 * southOf(z)), n = q.echo ? 1 : 6;
+          for (let i = 0; i < n; i++) st.pend.push([T + i * 0.11, x0 + (rnd() - 0.5) * 40 * s, y0 + (rnd() - 0.5) * 30 * s, q.echo ? -1.4 : -2.6]); }
+        else if (!q.echo) drop(q.x, q.y, -3.2, 2.2);
+      }
+      st.pend = st.pend.filter(p => { if (T < p[0]) return true; drop(p[1], p[2], p[3], 1.5); return false; });
+      // ---- the breath: gusts race across the water away from where it blows; a storm ruffles all of it
+      const gust = e * (0.8 + 0.2 * Math.sin(T * 5.3)), dir = Math.abs(wx) > 0.1 ? Math.sign(wx) : (st.dir || 1); st.dir = dir;
+      const nk = Math.round((gust * 560 + storm * 140) * Math.min(2, dt * 60));
+      if (nk > 0) {
+        const bx = (0.5 + 0.45 * clamp(E.mx, -1, 1)) * gw, by = (0.5 + 0.4 * clamp(E.my, -1, 1)) * gh, pb = gust / (gust + storm + 1e-6);
+        for (let i = 0; i < nk; i++) {
+          let x, y, A;
+          if (rnd() < pb) {
+            const p = rnd() < 0.5 ? (T * 1.3) % 1 : (T * 1.3 + 0.5) % 1, f = rnd() < 0.6 ? p : p * rnd();     // the gust fronts, and the chop they leave behind
+            x = bx + dir * (f * gw * 0.95 + (rnd() - 0.5) * gw * 0.08); y = by + (rnd() - 0.5) * gh * (0.3 + 0.5 * f);
+            A = (0.3 + 0.5 * gust) * (rnd() - 0.5) * 2;
+          } else { x = rnd() * gw; y = rnd() * gh; A = 0.35 * storm * (rnd() - 0.5) * 2; }
+          if (x > 2 && x < gw - 3 && y > 2 && y < gh - 3) { const i0 = Math.floor(y) * gw + Math.floor(x), h = A * 0.5; a[i0] += A; a[i0 - 1] += h; a[i0 + 1] += h; a[i0 - gw] += h; a[i0 + gw] += h; }
+        }
+      }
+      // ---- the waves (a fixed 60 steps a second)
+      const damp = 0.983 + 0.009 * calm - 0.006 * storm;
+      st.acc = Math.min(4, (st.acc || 0) + dt * 60);
+      while (st.acc >= 1) {
+        st.acc -= 1;
+        for (let y = 1; y < gh - 1; y++) {
+          let i = y * gw + 1;
+          for (let x = 1; x < gw - 1; x++, i++) b[i] = ((a[i - 1] + a[i + 1] + a[i - gw] + a[i + gw]) * 0.5 - b[i]) * damp * M[i];
+        }
+        const t = a; a = b; b = t;
+      }
+      st.h0 = a; st.h1 = b;
+      // ---- the mirror: the sky, still and sharp
+      c.globalCompositeOperation = 'source-over'; c.imageSmoothingEnabled = true;
+      if (day < 0.996) c.drawImage(st.skyN, 0, 0, W, H);
+      if (day > 0.004) { c.globalAlpha = day; c.drawImage(st.skyD, 0, 0, W, H); c.globalAlpha = 1; }
+      // ---- ... and broken where the water moves: the same sky seen through the slopes of the waves, laid on top
+      if (Math.abs(day - st.envAt) > 0.012 || (day !== st.envAt && (day < 0.002 || day > 0.998))) {
+        st.envAt = day; const N = st.envN, D = st.envD, o = st.env, q = day < 0.002 ? 0 : day > 0.998 ? 1 : day;
+        for (let i = 0; i < o.length; i++) o[i] = N[i] + (D[i] - N[i]) * q;
+      }
+      const [fl] = flicker(R, T);
+      for (const bo of newBolts(R, st, T)) {                       // the lightning, mirrored in the puddle
+        const bc = st.bc || (st.bc = canvas(gw, gh)), bx = bc.getContext('2d');
+        bx.setTransform(1, 0, 0, 1, 0, 0); bx.globalCompositeOperation = 'source-over'; bx.fillStyle = '#000'; bx.fillRect(0, 0, gw, gh);
+        bx.setTransform(gw / W, 0, 0, gh / H, 0, 0); if ('filter' in bx) bx.filter = 'blur(1.2px)'; R._bolt(bx, bo, 0.001, lw * 7); bx.filter = 'none';
+        const d = bx.getImageData(0, 0, gw, gh).data, m = st.bm || (st.bm = new Uint8Array(gw * gh));
+        for (let i = 0; i < m.length; i++) m[i] = d[i * 4 + 1];
+      }
+      const env = st.env, img = st.img.data, bm = fl > 0.02 && st.bm ? st.bm : null, fb2 = fl * 0.9;
+      const Kd = 9, Sp = 26 * (1 - 0.3 * day), tr = 1, tg = 0.84 + 0.16 * day, tb = 0.66 + 0.34 * day, Lx = 0.55, Ly = -0.6, Ka = 1400;
+      for (let y = 1; y < gh - 1; y++) {
+        let i = y * gw + 1, o = i * 4;
+        for (let x = 1; x < gw - 1; x++, i++, o += 4) {
+          if (M[i] === 0) { img[o + 3] = 0; continue; }
+          const gx = a[i + 1] - a[i - 1], gy = a[i + gw] - a[i - gw];
+          let fx = x + gx * Kd, fy = y + gy * Kd;
+          if (fx < 0) fx = 0; else if (fx > gw - 1.001) fx = gw - 1.001;
+          if (fy < 0) fy = 0; else if (fy > gh - 1.001) fy = gh - 1.001;
+          const ix = fx | 0, iy = fy | 0, ux = fx - ix, uy = fy - iy, j = iy * gw + ix, j3 = j * 3, k3 = j3 + gw * 3;   // bilinear, so the broken sky stays smooth
+          const w00 = (1 - ux) * (1 - uy), w10 = ux * (1 - uy), w01 = (1 - ux) * uy, w11 = ux * uy;
+          const sp = (gx * Lx + gy * Ly) * Sp;
+          let r = env[j3] * w00 + env[j3 + 3] * w10 + env[k3] * w01 + env[k3 + 3] * w11 + sp * tr;
+          let g2 = env[j3 + 1] * w00 + env[j3 + 4] * w10 + env[k3 + 1] * w01 + env[k3 + 4] * w11 + sp * tg;
+          let b2 = env[j3 + 2] * w00 + env[j3 + 5] * w10 + env[k3 + 2] * w01 + env[k3 + 5] * w11 + sp * tb;
+          let al = ((gx < 0 ? -gx : gx) + (gy < 0 ? -gy : gy)) * Ka - 25;
+          if (bm) { const v = bm[j] * fb2; r += v; g2 += v; b2 += v * 1.1; if (v > al) al = v; }
+          img[o] = r; img[o + 1] = g2; img[o + 2] = b2; img[o + 3] = al;
+        }
+      }
+      st.cx.putImageData(st.img, 0, 0);
+      c.drawImage(st.cv, 1, 1, gw - 2, gh - 2, 0, 0, W, H);
+      for (const bo of R.bolts) { const age = T - bo.t; if (age >= 0 && age < 1.2) { c.globalAlpha = 0.5; R._bolt(c, bo, age, lw * 0.9); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over'; } }
+      // ---- faint crisp crests on the newest rings, and the droplets thrown up by the big drops
+      const v = 0.7 * 60 * cw, RB = [new Path2D(), new Path2D(), new Path2D()];
+      st.rings = st.rings.filter(q => T - q.t < 1);
+      for (const q of st.rings) {
+        const age = T - q.t, al = q.A * Math.exp(-age * 3.5), r = 1.5 + v * age;
+        if (al < 0.06) continue;
+        const p = RB[al > 0.5 ? 2 : al > 0.22 ? 1 : 0];
+        p.moveTo(q.x + r, q.y); p.arc(q.x, q.y, r, 0, TAU);
+      }
+      const rc = day > 0.5 ? '255,255,255' : '255,222,190';
+      c.lineWidth = lw * 0.5;
+      RB.forEach((p, i) => { c.strokeStyle = `rgba(${rc},${[0.04, 0.08, 0.13][i] * (1 - 0.3 * day)})`; c.stroke(p); });
+      const sp = new Path2D();
+      st.spl = st.spl.filter(q => T - q.t < 0.3);
+      for (const q of st.spl) {
+        const age = T - q.t, r = q.v * age, d = lw * (1.1 - 2.6 * age);
+        for (let k = 0; k < q.n; k++) { const an = hash(q.sd + k) * TAU, rr = r * (0.6 + 0.5 * hash(q.sd + k + 50)); sp.rect(q.x + Math.cos(an) * rr - d / 2, q.y + Math.sin(an) * rr - d / 2, d, d); }
+      }
+      c.fillStyle = `rgba(${rc},0.6)`; c.fill(sp);
+      // ---- the shore and the road around it
+      if (day < 0.996) c.drawImage(st.gN, 0, 0, W, H);
+      if (day > 0.004) { c.globalAlpha = day; c.drawImage(st.gD, 0, 0, W, H); c.globalAlpha = 1; }
+      // ---- leaves afloat: the slope of the water nudges them, the breath sails them across, a storm spins them
+      const [LP, LV] = leafPath(), wy = windY(E), bxs = (0.5 + 0.45 * clamp(E.mx, -1, 1)) * W;
+      for (const L of st.leaves) {
+        const gi = clamp(Math.floor(L.y / ch), 1, gh - 2) * gw + clamp(Math.floor(L.x / cw), 1, gw - 2);
+        const sx = a[gi + 1] - a[gi - 1], sy = a[gi + gw] - a[gi - gw];
+        const air = 0.35 + 0.65 * Math.exp(-((L.x - bxs) ** 2) / (0.5 * W * W));
+        L.vx += (-sx * 900 * s + dir * gust * air * 440 * s + storm * 260 * s * vnoise(T * 0.5, L.sd * 3.1)) * dt;
+        L.vy += (-sy * 900 * s + wy * gust * air * 280 * s + storm * 200 * s * vnoise(T * 0.5 + 9, L.sd * 2.3)) * dt;
+        const rho = blob.rho(L.x, L.y);
+        if (rho > 0.8) { L.vx -= (L.x - blob.cx) / blob.rx * (rho - 0.8) * 2400 * s * dt; L.vy -= (L.y - blob.cy) / blob.ry * (rho - 0.8) * 2400 * s * dt; }
+        if (L.x < 0.03 * W) L.vx += 300 * s * dt; if (L.x > 0.97 * W) L.vx -= 300 * s * dt; if (L.y < 0.04 * H) L.vy += 300 * s * dt; if (L.y > 0.96 * H) L.vy -= 300 * s * dt;
+        const dr = Math.exp(-dt * 1.1); L.vx *= dr; L.vy *= dr;
+        L.x += L.vx * dt; L.y += L.vy * dt;
+        L.va += ((L.vx * 0.004 - L.vy * 0.002) / s * (0.5 + gust + storm) - L.va * 0.8) * dt * 2; L.a += (L.va + 0.03 * Math.sin(T * 0.3 + L.sd)) * dt;
+        const z = L.z * (1 + 0.6 * clamp(a[gi], -0.2, 0.2)), ca = Math.cos(L.a) * z, sa = Math.sin(L.a) * z;
+        c.setTransform(ca * dpr, sa * dpr, -sa * dpr, ca * dpr, (L.x + 2.5 * s) * dpr, (L.y + 3 * s) * dpr);
+        c.fillStyle = 'rgba(0,0,0,0.32)'; c.fill(LP);
+        c.setTransform(ca * dpr, sa * dpr, -sa * dpr, ca * dpr, L.x * dpr, L.y * dpr);
+        const col = L.col.split(',').map(q => Math.round(Math.min(255, q * (0.5 + 0.5 * day + 0.4 * fl))));
+        c.fillStyle = `rgb(${col})`; c.fill(LP);
+        c.strokeStyle = 'rgba(40,10,0,0.35)'; c.lineWidth = 0.035; c.stroke(LV);
+      }
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (fl > 0.02) { c.fillStyle = `rgba(214,222,255,${0.18 * fl})`; c.fillRect(0, 0, W, H); }
+    },
+  };
+
+  return [currents, planet, garden, radar, glass, mobile, op, strings, maze, murm, puddle];
 })();
