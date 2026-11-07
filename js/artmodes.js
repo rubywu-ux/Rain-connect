@@ -203,7 +203,21 @@ const ART_MODES = (() => {
       // the hawk (the breath) and, in a storm, two falcons
       const hawks = [];
       if (e > 0.02) hawks.push([lerp(Cx, 0.44 * clamp(E.mx, -1, 1) * W, 0.4), lerp(Cy, 0.4 * clamp(E.my, -1, 1) * H, 0.4), Cz * 0.5, (0.13 + 0.12 * e) * W, e * 3600 * sc]);
-      if (storm > 0.05) for (let h = 0; h < 2; h++) hawks.push([Cx + 0.36 * W * vnoise(T * 0.35, h * 9 + 1), Cy + 0.26 * H * vnoise(T * 0.4, h * 9 + 4), Cz + 0.2 * W * vnoise(T * 0.3, h * 9 + 7), 0.11 * W, storm * 3200 * sc, h]);
+      // falcons: they don't blink on and off with the storm level; they fly in from beyond the edge of the
+      // screen over ~2 s, hunt, and when the storm passes fly out again the same way
+      st.fon = st.fon == null ? 0 : st.fon;
+      if (storm > 0.2) st.fon = 1; else if (storm < 0.05) st.fon = 0;               // hysteresis
+      st.fal = (st.fal || 0) + (st.fon - (st.fal || 0)) * (1 - Math.exp(-dt / (st.fon ? 1.1 : 1.6)));
+      if (st.fal < 0.003) { st.fal = 0; st.fside = null; }
+      if (st.fal > 0) {
+        if (!st.fside) st.fside = [Math.random() < 0.5 ? -1 : 1, Math.random() < 0.5 ? -1 : 1];
+        const ea = smoothstep(0, 1, st.fal);
+        for (let h = 0; h < 2; h++) {
+          const hx = Cx + 0.36 * W * vnoise(T * 0.35, h * 9 + 1), hy = Cy + 0.26 * H * vnoise(T * 0.4, h * 9 + 4), hz = Cz + 0.2 * W * vnoise(T * 0.3, h * 9 + 7);
+          const side = st.fside[h] * (h ? -1 : 1), ox = side * 0.8 * W, oy = -0.55 * H + 0.2 * H * h;   // out beyond the edge, a little above
+          hawks.push([lerp(ox, hx, ea), lerp(oy, hy, ea), lerp(0, hz, ea), 0.11 * W, Math.max(storm, 0.2) * 3200 * sc * ea, h, ea]);
+        }
+      }
       let startle = 0;
       for (const b of R.bolts) if (b.t > (st.bolt || 0) && T >= b.t) { st.bolt = b.t; startle = Math.max(startle, b.power || 0.6); }
       const vmax = (240 + 520 * storm + 380 * e) * sc, J = (25 + 220 * storm + 60 * e) * sc;
@@ -221,6 +235,7 @@ const ART_MODES = (() => {
         let axx = (tx - px) * K - V[i3] * Cd + J * Math.sin(T * 1.7 + fb * 13);
         let ayy = (ty - py) * K - V[i3 + 1] * Cd + J * Math.sin(T * 1.3 + fb * 7);
         let azz = (tz - pz) * K - V[i3 + 2] * Cd + J * Math.sin(T * 1.1 + fb * 11);
+        if (pz < -0.4 * W) azz += (-0.4 * W - pz) * 9;                       // a soft wall: no bird comes right up to the camera
         for (const [hx, hy, hz, hr, hs] of hawks) {
           const dx = px - hx, dy = py - hy, dz = pz - hz, dd = dx * dx + dy * dy + dz * dz;
           if (dd < hr * hr) { const q = Math.sqrt(dd) + 1, f = hs * (1 - q / hr) * (1 - q / hr) / q; axx += dx * f; ayy += dy * f; azz += dz * f; }
@@ -242,7 +257,7 @@ const ART_MODES = (() => {
       const FOC = 1.7 * W, cx = W / 2, cy = H / 2, sz0 = 0.0042 * W;
       const B3 = [new Path2D(), new Path2D(), new Path2D()], dots = new Path2D(), xs = [], ys = [];
       for (let b = 0; b < N; b++) {
-        const i3 = b * 3, k = FOC / (FOC + P[i3 + 2]);
+        const i3 = b * 3, k = FOC / (FOC + Math.max(P[i3 + 2], -0.5 * W));    // and never drawn bigger than that
         if (k <= 0) continue;
         const x = cx + P[i3] * k, y = cy + P[i3 + 1] * k;
         if ((b & 7) === 0) { xs.push(x - cx); ys.push(y - cy); }
@@ -269,11 +284,14 @@ const ART_MODES = (() => {
       st.hk = st.hk || [];
       for (const hk of hawks) {
         const h = hk[5]; if (h == null) continue;
-        const k = FOC / (FOC + hk[2]), x = cx + hk[0] * k, y = cy + hk[1] * k, prev = st.hk[h] || [x - 1, y];
+        const pres = hk[6] == null ? 1 : hk[6];
+        const k = FOC / (FOC + hk[2]), x = cx + hk[0] * k, y = cy + hk[1] * k;
+        if (!st.hk[h] || T - (st.hkSeen == null ? -9 : st.hkSeen) > 0.5) st.hk[h] = [x - (hk[0] > 0 ? -1 : 1), y];   // fresh heading after a break
+        const prev = st.hk[h];
         let fx = x - prev[0], fy = y - prev[1]; const fm = Math.hypot(fx, fy) + 1e-3; fx /= fm; fy /= fm;
         st.hk[h] = [lerp(prev[0], x, 0.3), lerp(prev[1], y, 0.3)];
-        const sz = sz0 * 4.5 * k, fp = Math.sin(T * 9 + h * 2), span = sz * (0.7 + 0.3 * fp), swp = sz * (0.35 - 0.25 * fp);
-        c.fillStyle = 'rgba(14,9,3,0.95)'; c.beginPath();
+        const sz = sz0 * 4.5 * k * (0.75 + 0.25 * pres), fp = Math.sin(T * 9 + h * 2), span = sz * (0.7 + 0.3 * fp), swp = sz * (0.35 - 0.25 * fp);
+        c.fillStyle = `rgba(14,9,3,${(0.95 * Math.min(1, pres * 1.4)).toFixed(3)})`; c.beginPath();
         c.moveTo(x + fx * sz * 0.55, y + fy * sz * 0.55);
         c.quadraticCurveTo(x - fy * span * 0.5 + fx * sz * 0.1, y + fx * span * 0.5 + fy * sz * 0.1, x - fy * span - fx * swp, y + fx * span - fy * swp);
         c.lineTo(x - fx * sz * 0.2, y - fy * sz * 0.2); c.lineTo(x - fx * sz * 0.6 - fy * sz * 0.12, y - fy * sz * 0.6 + fx * sz * 0.12); c.lineTo(x - fx * sz * 0.6 + fy * sz * 0.12, y - fy * sz * 0.6 - fx * sz * 0.12);
@@ -281,6 +299,7 @@ const ART_MODES = (() => {
         c.lineTo(x + fy * span - fx * swp, y - fx * span - fy * swp);
         c.quadraticCurveTo(x + fy * span * 0.5 + fx * sz * 0.1, y - fx * span * 0.5 + fy * sz * 0.1, x + fx * sz * 0.55, y + fy * sz * 0.55);
         c.fill();
+        st.hkSeen = T;
       }
     },
   };
