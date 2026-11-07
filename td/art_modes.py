@@ -1,6 +1,6 @@
-# ---- Connect the Rain: fifteen art modes from TouchDesigner (run after art_switch.py)
-# In the projector window: A = next art mode, Z = previous, 1-9 = pick a mode, 0 = mode 10, Shift+1-5 = modes 11-15,
-# X / Esc = art off, W = mist on/off.
+# ---- Connect the Rain: the five art modes from TouchDesigner (run after art_switch.py)
+# In the projector window: A = next art mode, Z = previous, 1-5 = pick a mode
+# (1 Murmuration, 2 Umbrellas, 3 Marbling, 4 Cymatics, 5 Sea Glow), X / Esc = art off, W = mist on/off.
 # WALL_V (set before exec) = the version tag for the wall page URL.
 CR = op('/project1/connect_rain')
 W = CR.op('wall_web')
@@ -18,13 +18,9 @@ def onKey(dat, key, character, *a, **k):
 	if not st: return
 	ch = (str(character) or str(key)).lower()
 	c = op('/project1/connect_rain')
-	shift = bool(a[6]) if len(a) > 6 else bool(k.get('shift', 0))
-	kd = str(key)[-1:] if str(key)[-1:].isdigit() else ''
-	if ch in '!@#$%' and len(ch) == 1: js('window.__wall.setArt(%d)' % (11 + '!@#$%'.index(ch)))          # Shift+1..5 -> 11..15
-	elif shift and kd in ('1', '2', '3', '4', '5'): js('window.__wall.setArt(%d)' % (10 + int(kd)))
-	elif ch == 'a': js('window.__wall.cycleArt()')
+	if ch == 'a': js('window.__wall.cycleArt()')
 	elif ch == 'z': js('window.__wall.cycleArt(-1)')
-	elif len(ch) == 1 and ch.isdigit(): js('window.__wall.setArt(%d)' % (int(ch) or 10))
+	elif ch in ('1', '2', '3', '4', '5'): js('window.__wall.setArt(%s)' % ch)
 	elif ch == 'x' or str(key).lower() in ('esc', 'escape') or ch == '\x1b': js('window.__wall.setArt(0)')
 	elif ch == 'w': c.par.Mist = not c.par.Mist
 	else: return
@@ -32,4 +28,4 @@ def onKey(dat, key, character, *a, **k):
 """
 P = CR.op('projector')
 if P is not None and hasattr(P.par, 'closeescape'): P.par.closeescape = False   # Esc turns art off; it must not close the wall
-print('A = next art mode, Z = previous, 1-9 = pick, 0 = mode 10, Shift+1-5 = 11-15, X = art off, W = mist (in the projector window)')
+print('A = next art mode, Z = previous, 1-5 = pick, X = art off, W = mist (in the projector window)')
