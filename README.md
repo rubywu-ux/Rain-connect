@@ -99,10 +99,10 @@ thunder. `td/record_clips.py` records labelled 10 s clips with voice prompts, fo
 
 ## Art mode (wall)
 
-Ten art modes, no map, numbers or names. They all use the same live rain data and the mist from
+Fifteen art modes, no map, numbers or names. They all use the same live rain data and the mist from
 TouchDesigner (how much it moves, and where in the pot). The **art** button (bottom-left of the wall)
-and the **A** key cycle through all modes and off; keys **1-9** pick modes 1-9, **0** picks 10, and
-**Esc** turns art off.
+and the **A** key cycle through all modes and off, **Z** goes back one; keys **1-9** pick modes 1-9,
+**0** picks 10, **Shift+1-5** pick 11-15, and **X** or **Esc** turns art off.
 In TouchDesigner use the projector window (same keys), or Mist page > Art mode (on = last mode used).
 
 1. **Currents** - every raining place is a source on a slowly turning sunflower spiral; heavier rain
@@ -138,7 +138,37 @@ In TouchDesigner use the projector window (same keys), or Mist page > Art mode (
     patch of the flock (bigger = stronger) in a formation that folds and pulses. Breath is a hawk: the
     birds burst away from where it comes in and the flock flees the other way; storms bring falcons that
     tear it apart; lightning startles every bird at once. Calm, the flock draws together and drifts.
+11. **Puddle** - looking down into a rain puddle on a Seattle street at night: the water mirrors a
+    sodium streetlight, bare maple branches and a star for each dry place. Each raining place is a spot
+    where drops land (position = longitude and latitude, more and bigger drops = stronger; drizzle
+    stipples, showers come in bursts, thunderstorms bounce); the rings spread and interfere (a real wave
+    simulation) and break the reflection. Breath sends cat's-paws racing across and sails the fallen
+    leaves; storms whip the whole puddle and lightning flashes in it. Calm, a still mirror of a pale sky.
+12. **Umbrellas** - a plaza in the rain seen from a high window: one person under an umbrella per
+    raining place (where they walk = longitude and latitude, size = strength, colour = latitude,
+    pattern = rain type: drizzle plain, rain two-tone, showers rainbow, thunderstorms black). Breath
+    leans the umbrellas away from you and blows the weak ones inside out; storms tear some away;
+    lightning throws hard shadows and everyone jumps. Calm, umbrellas close, the sun and long shadows
+    come out and a rainbow shows in a puddle. A tap twirls the umbrella of that place.
+13. **Sumi-e** - a Chinese ink-wash landscape: rows of peaks from north (far) to south (near); every
+    raining place raises a peak with a wet cloud and its rain as dry-brush strokes (drizzle stipple,
+    rain hairlines, showers sweeping sheets, thunderstorms heavy spattering strokes); each of the 320
+    places is a Mi dot on the slopes. Breath drives the mist across the peaks and slants the rain;
+    storms darken the sky and spatter ink; lightning is one dry-brush stroke. Calm, the moon comes out.
+    A tap drops ink on the paper.
+14. **Rain Score** - the rain written as music on a grand staff: each raining place is a note that falls
+    in like a raindrop (pitch = latitude, the equator is middle C; place in the bar = longitude; note
+    value and tail = strength; drizzle staccato, showers tremolo, thunderstorms accented); dry places are
+    faint dots. A golden playhead rings each note in colour, and behind it notes evaporate and fall again.
+    Breath bends the staff and the notes gliss away; storms are fortissimo clusters and scribbles;
+    lightning is a sforzando slash. Calm, long whole notes under slurs and fermatas. Taps ring a note.
+    (Visual only: the sound is unchanged.)
+15. **Splash** - high-speed macro photography of drops landing on a dark glossy pool, in slow motion:
+    one spot per raining place in perspective (strength = how often, crown size and jet height; drizzle
+    dimples, showers come in pairs, thunderstorms throw huge crowns; colour = latitude); dry places are
+    beads on the surface. Breath leans the crowns and tears their droplets off as spray; storms speed the
+    film up; lightning is the photographer's flash that freezes the frame. Calm, a white high-key studio.
 
-Lightning and thunder still follow the mist storm in every mode (modes 4-10 draw it in their own way).
-Phone taps bloom.
+Lightning and thunder still follow the mist storm in every mode (modes 4-15 draw it in their own way).
+Phone taps bloom, and in modes 6, 9 and 11-15 they also act on the picture.
 

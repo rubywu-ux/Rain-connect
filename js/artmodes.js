@@ -10,6 +10,8 @@
  *   mx, my       where in the pot the mist moves, -1..1: a breath from the left of the pot pushes things right
  *   light        light theme; fresh: first frame (clear everything); st: this mode's own state (reset on a switch)
  * then draws the taps from phones and the lightning on top (a mode with bolts: false draws its own).
+ * Modes 11-15 also act on the taps themselves: tapsOf(R, E) turns R.ripples into screen points (and the
+ * raining place tapped, if any; echo: the wall's own soft notes), newBolts(R, st, T) gives fresh strikes.
  * Modes marked dark: true keep their own palette in either theme. Canvas 2D only; static things are
  * prerendered once to offscreen canvases, strokes are batched into a few paths per frame. */
 const ART_MODES = (() => {
@@ -1868,5 +1870,1440 @@ const ART_MODES = (() => {
     },
   };
 
-  return [currents, planet, garden, radar, glass, mobile, op, strings, maze, murm];
+  /* ================================================================ modes 11-15: the rain itself
+     Shared by them: the kind of rain at a place (from its WMO code), the daylight easing in for the calm
+     (light) theme, the lightning flicker, and the taps from phones as points on the screen. */
+  const rainKind = code => code == null ? 1 : code >= 95 ? 3 : code >= 80 ? 2 : code >= 61 ? 1 : code >= 51 ? 0 : 1;   // 0 drizzle, 1 rain, 2 showers, 3 thunderstorm
+  const kindOf = (E, z) => rainKind(codeOf(E, z));
+  const latOf = z => 90 - z.v * 180;
+  const southOf = z => clamp((80 - latOf(z)) / 140, 0, 1);            // 0 = 80N (top / far) .. 1 = 60S (bottom / near)
+  const dayOf = (st, E) => (st.day = st.day == null ? (E.light ? 1 : 0) : st.day + ((E.light ? 1 : 0) - st.day) * (1 - Math.exp(-E.dt / 1.4)));
+  function flicker(R, T) {                         // how bright the lightning is right now (it flickers twice), and its bolt
+    let f = 0, bb = null;
+    for (const b of R.bolts) {
+      const a = T - b.t; if (a < 0) continue;
+      const v = (a < 0.07 ? 1 : a < 0.12 ? 0.25 : a < 0.2 ? 0.9 : Math.max(0, 1 - (a - 0.2) / 0.9)) * (b.power || 0.6);
+      if (v > f) { f = v; bb = b; }
+    }
+    return [f, bb];
+  }
+  function newBolts(R, st, T) {                    // strikes that began since the last frame
+    const seen = st.bseen || (st.bseen = new WeakSet()), out = [];
+    for (const b of R.bolts) if (T >= b.t && !seen.has(b)) { seen.add(b); out.push(b); }
+    return out;
+  }
+  /* taps from phones (and the wall's own soft notes, echo: true) as points on the screen, with how long ago.
+     The wall blooms a tap on a raining place just under that place's plume, so such a tap knows its place. */
+  function tapsOf(R, E) {
+    const st = E.st, T = E.T, first = !st.tseen, seen = st.tseen || (st.tseen = new WeakSet()), all = [], fresh = [];
+    for (const r of R.ripples) {
+      if (T < r.t) continue;
+      if (r._site === undefined) { r._site = null; for (const z of E.sites) if (Math.abs(z.x - r.x) < 0.5 && Math.abs(z.y + 30 - r.y) < 0.5) { r._site = z.id; break; } }
+      const q = { x: (r.x - R.view.x) * E.s, y: (r.y - R.view.y) * E.s, age: T - r.t, k: r.k || 1, echo: !!r.echo, site: r._site, seed: r.seed || 1 };
+      all.push(q);
+      if (!seen.has(r)) { seen.add(r); if (!first) fresh.push(q); }
+    }
+    return { all, fresh };
+  }
+  /* a cross-fade of two prerendered pictures of the same size, kept while it holds still (one blit a frame, not two) */
+  function fade2(st, key, A, B, t) {
+    if (t < 0.004) return A; if (t > 0.996) return B;
+    let f = st[key];
+    if (!f || f.cv.width !== A.width || f.cv.height !== A.height) f = st[key] = { cv: canvas(A.width, A.height), t: -1 };
+    if (Math.abs(f.t - t) > 0.02) { const g = f.cv.getContext('2d'); g.clearRect(0, 0, A.width, A.height); g.globalAlpha = 1; g.drawImage(A, 0, 0); g.globalAlpha = t; g.drawImage(B, 0, 0); g.globalAlpha = 1; f.t = t; }
+    return f.cv;
+  }
+  /* a maple leaf (unit size, stem down), for the puddle */
+  const LEAF = (() => {
+    const lobes = [[-Math.PI / 2, 1], [-Math.PI / 2 - 0.92, 0.84], [-Math.PI / 2 + 0.92, 0.84], [-Math.PI / 2 - 1.85, 0.52], [-Math.PI / 2 + 1.85, 0.52]];
+    const p = [];
+    for (let i = 0; i < 72; i++) {
+      const a = -Math.PI / 2 + i / 72 * TAU;
+      let r = 0.24;
+      for (const [c0, w] of lobes) { const d = Math.cos(a - c0); if (d > 0) r = Math.max(r, w * Math.pow(d, 9)); }
+      r += 0.07 * Math.abs(Math.sin(a * 13)) * Math.max(0, r - 0.3);          // a serrated edge on the lobes
+      p.push([Math.cos(a) * r, Math.sin(a) * r + 0.1]);
+    }
+    return p;
+  })();
+  let _leafPath = null;
+  const leafPath = () => {
+    if (_leafPath) return _leafPath;
+    const P = new Path2D(); LEAF.forEach(([x, y], i) => i ? P.lineTo(x, y) : P.moveTo(x, y)); P.closePath();
+    const V = new Path2D(); for (const a of [-Math.PI / 2, -Math.PI / 2 - 0.92, -Math.PI / 2 + 0.92, -Math.PI / 2 - 1.85, -Math.PI / 2 + 1.85]) { V.moveTo(0, 0.1); V.lineTo(Math.cos(a) * 0.8, Math.sin(a) * 0.8 + 0.1); }
+    V.moveTo(0, 0.1); V.lineTo(0.02, 0.62);
+    return (_leafPath = [P, V]);
+  };
+  const LEAF_COL = ['196,52,30', '222,98,28', '234,160,32', '176,36,30', '214,128,42', '150,40,36'];
+
+  /* ============================================================== 11  Puddle
+     Looking straight down into a rain puddle on a Seattle street. The water mirrors the sky: at night a
+     violet sky, a sodium streetlight and the bare branches of a maple, with a star for every place checked
+     where it is dry right now; by day a pale sky with clouds. Every raining place is a spot of the puddle
+     where drops land (across by longitude, down by latitude): heavier rain = more and bigger drops;
+     drizzle is a fine stipple of tiny rings, showers come in bursts, a thunderstorm throws big drops that
+     bounce. The rings spread, cross and interfere (a real wave simulation) and break the reflection up.
+     A breath is a gust over the water: cat's-paws race away from the side it came from, the reflection
+     shatters and the fallen leaves sail across. A storm whips the whole puddle and the lightning flashes in
+     it; calm, the water stills to a mirror with a drip from the branches now and then. A tap drops a big
+     drop where it lands (on a raining place: a burst of drops there). */
+  function puddleBlob(st, W, H) {
+    const N = 256, rT = new Float32Array(N);
+    for (let i = 0; i < N; i++) { const a = i / N * TAU, ca = Math.cos(a), sa = Math.sin(a); rT[i] = 1 + 0.15 * vnoise(ca * 1.3 + 3.1, sa * 1.3 + 7.7) + 0.05 * vnoise(ca * 3.6 + 1.3, sa * 3.6 + 2.9); }
+    const b = { cx: W * 0.5, cy: H * 0.5, rx: W * 0.53, ry: H * 0.56, rT };
+    b.rho = (x, y) => {                              // 0 at the middle, 1 at the shore
+      const dx = (x - b.cx) / b.rx, dy = (y - b.cy) / b.ry, a = Math.atan2(dy, dx);
+      return Math.hypot(dx, dy) / rT[(Math.round(a / TAU * N) % N + N) % N];
+    };
+    b.path = (sc = 1) => { const p = new Path2D(); for (let i = 0; i <= N; i += 2) { const a = i / N * TAU, r = rT[i % N] * sc; const x = b.cx + Math.cos(a) * b.rx * r, y = b.cy + Math.sin(a) * b.ry * r; i ? p.lineTo(x, y) : p.moveTo(x, y); } p.closePath(); return p; };
+    st.blob = b;
+  }
+  /* the sky over the puddle, as the water mirrors it (drawn at any size: crisp for the still mirror, small for the moving one) */
+  function puddleSky(st, E, day, w, h) {
+    const cv = canvas(w, h), g = cv.getContext('2d'), u = h / 100;
+    let gr = g.createLinearGradient(0, 0, w * 0.5, h);
+    if (day) { gr.addColorStop(0, '#f3f6f8'); gr.addColorStop(0.45, '#c8dae8'); gr.addColorStop(1, '#8fb0cc'); }
+    else { gr.addColorStop(0, '#03051a'); gr.addColorStop(0.5, '#0a0d30'); gr.addColorStop(1, '#140b33'); }
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    const lx = w * 0.64, ly = h * 0.36;
+    const blob = (x, y, r, col, a) => { const q = g.createRadialGradient(x, y, 0, x, y, r); q.addColorStop(0, `rgba(${col},${a})`); q.addColorStop(0.5, `rgba(${col},${a * 0.35})`); q.addColorStop(1, `rgba(${col},0)`); g.fillStyle = q; g.fillRect(x - r, y - r, 2 * r, 2 * r); };
+    if (day) {
+      for (let i = 0; i < 30; i++) blob(hash(i * 5 + 1) * w, hash(i * 5 + 2) * h, (9 + 24 * hash(i * 5 + 3)) * u, '255,255,255', 0.55 + 0.35 * hash(i * 5 + 4));
+      blob(w * 0.22, h * 0.72, 48 * u, '255,248,226', 0.75);                       // the sun behind thin cloud
+    } else {
+      blob(w * 0.04, h * 0.98, 60 * u, '220,70,40', 0.34);                         // the city's glow low on one side
+      blob(-w * 0.02, h * 0.5, 38 * u, '30,210,200', 0.42);                        // a shop's neon round the corner
+      blob(w * 1.02, h * 0.06, 44 * u, '236,50,170', 0.4);
+      for (let i = 0; i < 6; i++) blob(hash(i * 5 + 9) * w, hash(i * 5 + 8) * h, (10 + 20 * hash(i * 5 + 7)) * u, '110,60,140', 0.1);   // clouds lit from below
+      g.fillStyle = '#e8e6ff';
+      for (const q of points(E)) if (!q.rain) {          // a star for each place checked where it is dry right now
+        const x = (q.lon + 180) / 360 * w, y = (0.04 + 0.92 * clamp((80 - q.lat) / 140, 0, 1)) * h, hh = hash(q.id * 3 + 1), d = Math.max(1, u * (hh > 0.85 ? 0.32 : 0.2));
+        g.globalAlpha = 0.25 + 0.65 * hh * hh; g.fillRect(x, y, d, d);
+      }
+      g.globalAlpha = 1;
+      blob(lx, ly, 46 * u, '255,120,40', 0.55); blob(lx, ly, 18 * u, '255,180,90', 0.75); blob(lx, ly, 8 * u, '255,236,190', 1);   // the sodium lamp
+    }
+    // the streetlight: its arm from the kerb and its head, dark from below; the lens lit at night
+    g.strokeStyle = day ? '#34343a' : '#030206'; g.lineCap = 'round';
+    g.lineWidth = 1.5 * u; g.beginPath(); g.moveTo(w * 1.05, ly - 7 * u); g.quadraticCurveTo(lx + 30 * u, ly - 7 * u, lx + 7 * u, ly - 0.5 * u); g.stroke();
+    g.fillStyle = day ? '#3e3e45' : '#050408'; g.beginPath(); g.ellipse(lx, ly, 8.5 * u, 3.3 * u, -0.08, 0, TAU); g.fill();
+    g.fillStyle = day ? '#9a9da4' : '#fff6e2'; g.beginPath(); g.ellipse(lx - 0.6 * u, ly + 0.2 * u, 5.8 * u, 1.9 * u, -0.08, 0, TAU); g.fill();
+    // a maple overhead: bare branches reaching in from two sides (where they end, drops gather and fall)
+    const tips = [];
+    g.strokeStyle = day ? 'rgba(48,40,36,0.94)' : 'rgba(3,2,6,0.97)';
+    const branch = (x, y, a, len, wd, d, sd) => {
+      const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len, bend = (hash(sd * 3 + 7) - 0.5) * 0.6;
+      g.lineWidth = wd; g.beginPath(); g.moveTo(x, y);
+      g.quadraticCurveTo((x + x2) / 2 - Math.sin(a) * len * bend * 0.3, (y + y2) / 2 + Math.cos(a) * len * bend * 0.3, x2, y2); g.stroke();
+      if (d === 0 || len < 1.2 * u) { tips.push([x2 / w, y2 / h]); return; }
+      const n = hash(sd * 5 + 1) < 0.3 ? 3 : 2;
+      for (let i = 0; i < n; i++) branch(x2, y2, a + (i - (n - 1) / 2) * (0.5 + 0.3 * hash(sd * 11 + i)) + (hash(sd * 13 + i) - 0.5) * 0.55,
+                                         len * (0.68 + 0.16 * hash(sd * 17 + i)), Math.max(0.12 * u, wd * 0.66), d - 1, sd * 7 + i + 1);
+    };
+    branch(-w * 0.03, -h * 0.06, 0.6, 30 * u, 2.6 * u, 8, 11);
+    branch(w * 1.03, h * 1.06, Math.PI + 0.72, 27 * u, 2.3 * u, 7, 29);
+    st.tips = tips;
+    return cv;
+  }
+  function envOf(sky, gw, gh) {                      // the small copy the moving water reads from
+    const cv = canvas(gw, gh), g = cv.getContext('2d');
+    g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high'; if ('filter' in g) g.filter = 'blur(0.8px)'; g.drawImage(sky, 0, 0, gw, gh); g.filter = 'none';
+    const d = g.getImageData(0, 0, gw, gh).data, env = new Uint8ClampedArray(gw * gh * 3);
+    for (let i = 0, j = 0; i < d.length; i += 4, j += 3) { env[j] = d[i]; env[j + 1] = d[i + 1]; env[j + 2] = d[i + 2]; }
+    return env;
+  }
+  function puddleGround(st, W, H, dpr, day) {
+    const cv = canvas(W * dpr, H * dpr), g = cv.getContext('2d'), b = st.blob, sk = W / 1600;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = day ? '#6b6863' : '#121115'; g.fillRect(0, 0, W, H);
+    let gr = g.createRadialGradient(W * 0.68, H * 0.32, 0, W * 0.68, H * 0.32, W * 0.75);       // wet asphalt catches the lamp (or the daylight)
+    gr.addColorStop(0, day ? 'rgba(255,255,255,0.12)' : 'rgba(255,140,60,0.16)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    const grains = [new Path2D(), new Path2D(), new Path2D(), new Path2D()];       // the stones in the asphalt
+    for (let i = 0; i < 36000; i++) { const h = hash(i * 7 + 1), d = (0.8 + 2.2 * hash(i * 7 + 4) ** 3) * Math.max(0.7, sk * 1.3); grains[Math.floor(h * 4)].rect(hash(i * 7 + 2) * W, hash(i * 7 + 3) * H, d, d); }
+    (day ? ['rgba(28,26,24,0.34)', 'rgba(40,38,36,0.2)', 'rgba(200,194,184,0.18)', 'rgba(232,226,216,0.32)'] : ['rgba(0,0,0,0.6)', 'rgba(0,0,0,0.3)', 'rgba(130,118,128,0.16)', 'rgba(190,170,170,0.24)'])
+      .forEach((col, i) => { g.fillStyle = col; g.fill(grains[i]); });
+    // fallen leaves stuck to the wet road around the puddle
+    const [LP, LV] = leafPath();
+    for (let i = 0; i < 30; i++) {
+      const a = hash(i * 9 + 1) * TAU, r = 1.02 + 0.3 * hash(i * 9 + 2) ** 2, x = b.cx + Math.cos(a) * b.rx * r * b.rT[Math.floor(a / TAU * 256) % 256], y = b.cy + Math.sin(a) * b.ry * r * b.rT[Math.floor(a / TAU * 256) % 256];
+      const z = (15 + 16 * hash(i * 9 + 3)) * sk * 1.6;
+      g.save(); g.translate(x, y); g.rotate(hash(i * 9 + 4) * TAU); g.scale(z, z);
+      const col = LEAF_COL[i % LEAF_COL.length].split(',').map(v => Math.round(v * (day ? 0.82 : 0.36)));
+      g.fillStyle = `rgb(${col})`; g.fill(LP); g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 0.03; g.stroke(LV);
+      g.restore();
+    }
+    // the shore: a dark wet band, then the water cut out with a soft edge and a faint bright meniscus
+    const blur = 'filter' in g;
+    if (blur) g.filter = `blur(${12 * sk}px)`;
+    g.fillStyle = 'rgba(0,0,0,0.45)'; g.fill(b.path(1.07));
+    if (blur) g.filter = `blur(${2.4 * sk}px)`;
+    g.globalCompositeOperation = 'destination-out'; g.fillStyle = '#000'; g.fill(b.path(0.995));
+    g.globalCompositeOperation = 'source-over';
+    if (blur) g.filter = `blur(${1 * sk}px)`;
+    g.strokeStyle = day ? 'rgba(255,255,255,0.25)' : 'rgba(255,210,170,0.16)'; g.lineWidth = 1.4; g.stroke(b.path(1.0));
+    g.filter = 'none';
+    return cv;
+  }
+  function puddleSetup(st, W, H, E) {
+    st.W = W; st.H = H;
+    const gw = st.gw = 384, gh = st.gh = Math.round(gw * H / W), n = gw * gh, q = Math.min(E.dpr, 1.5);
+    st.cw = W / gw; st.ch = H / gh;
+    st.h0 = new Float32Array(n); st.h1 = new Float32Array(n);
+    st.cv = canvas(gw, gh); st.cx = st.cv.getContext('2d'); st.img = st.cx.createImageData(gw, gh);
+    puddleBlob(st, W, H);
+    const M = st.M = new Float32Array(n);                       // waves die away at the shore
+    for (let y = 1; y < gh - 1; y++) for (let x = 1; x < gw - 1; x++) M[y * gw + x] = 1 - smoothstep(0.92, 1.04, st.blob.rho((x + 0.5) * st.cw, (y + 0.5) * st.ch));
+    st.skyD = puddleSky(st, E, true, W * q, H * q); st.envD = envOf(st.skyD, gw, gh);
+    st.skyN = puddleSky(st, E, false, W * q, H * q); st.envN = envOf(st.skyN, gw, gh); st.ptsRef = E.pts;
+    st.env = new Uint8ClampedArray(n * 3); st.envAt = -1;
+    st.gN = puddleGround(st, W, H, E.dpr, false); st.gD = puddleGround(st, W, H, E.dpr, true);
+    st.rings = []; st.spl = []; st.pend = [];
+    st.drips = st.tips.map(([x, y], i) => ({ x: x * W, y: y * H, next: hash(i * 3 + 1) * 4 })).filter(d => st.blob.rho(d.x, d.y) < 0.9 && d.x > 0 && d.y > 0 && d.x < W && d.y < H).filter((d, i) => i % 4 === 0).slice(0, 10);
+    st.leaves = Array.from({ length: 10 }, (_, i) => { const a = hash(i * 7 + 1) * TAU, r = 0.2 + 0.55 * Math.sqrt(hash(i * 7 + 2));
+      return { x: st.blob.cx + Math.cos(a) * st.blob.rx * r, y: st.blob.cy + Math.sin(a) * st.blob.ry * r, vx: 0, vy: 0, a: hash(i * 7 + 3) * TAU, va: 0,
+               z: (17 + 14 * hash(i * 7 + 4)) * W / 1600 * 1.7, col: LEAF_COL[i % LEAF_COL.length], sd: i }; });
+  }
+  const puddle = {
+    name: 'puddle', title: 'Puddle', dark: true, bolts: false,
+    draw(R, c, E) {
+      const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E), dpr = E.dpr;
+      if (st.W !== W || st.H !== H || !st.h0) puddleSetup(st, W, H, E);
+      if (st.ptsRef !== E.pts) { st.ptsRef = E.pts; const q = Math.min(dpr, 1.5); st.skyN = puddleSky(st, E, false, W * q, H * q); st.envN = envOf(st.skyN, st.gw, st.gh); st.envAt = -1; }
+      const day = dayOf(st, E), { gw, gh, cw, ch, M, blob } = st;
+      let a = st.h0, b = st.h1;
+      // ---- drops: each lands as a dip in the water (the simulation spreads it as rings)
+      const drop = (x, y, A, rr) => {
+        const gx = x / cw, gy = y / ch, r = Math.max(1, rr), r2 = r * r; A = Math.max(-2.6, A);
+        const x0 = Math.max(1, Math.floor(gx - r)), x1 = Math.min(gw - 2, Math.ceil(gx + r)), y0 = Math.max(1, Math.floor(gy - r)), y1 = Math.min(gh - 2, Math.ceil(gy + r));
+        for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) { const d2 = (i - gx) ** 2 + (j - gy) ** 2; if (d2 < r2) a[j * gw + i] += A * (1 - d2 / r2); }
+        if (st.rings.length < 260) st.rings.push({ x, y, t: T, A: Math.min(1.3, -A * 0.45) });
+        if (A < -1.4 && st.spl.length < 60) st.spl.push({ x, y, t: T, n: 5 + Math.floor(-A * 2), sd: rnd() * 1e4 | 0, v: (34 + 24 * -A) * s });
+      };
+      const amt = (0.06 + 0.94 * (1 - calm)) * (1 + 3 * storm) * (1 + 0.25 * e);
+      for (const z of E.sites) {
+        const kind = kindOf(E, z), k = z.k, x0 = W * (0.08 + 0.84 * z.u), y0 = H * (0.08 + 0.84 * southOf(z));
+        let rate = (0.3 + 2.6 * Math.pow(k, 1.5)) * amt;
+        if (kind === 0) rate *= 2.8; else if (kind === 2) rate *= 0.2 + 3.2 * smoothstep(0.05, 0.55, vnoise(T * 0.3 + z.id * 0.1, z.id * 0.37));
+        const big = kind === 3 ? 1.8 : kind === 0 ? 0.32 : kind === 2 ? 1.15 : 1;
+        let m = rate * dt;
+        while (m > 0) {
+          if (m < 1 && rnd() > m) break; m -= 1;
+          const an = rnd() * TAU, rr = Math.sqrt(rnd()) * (8 + 30 * k) * s, x = x0 + Math.cos(an) * rr, y = y0 + Math.sin(an) * rr * 0.9;
+          drop(x, y, -(0.6 + 1.5 * k) * big * (1 + 0.5 * storm), kind === 0 ? 0.8 : 1.2 + 0.9 * k * big);
+          if (kind === 3 && rnd() < 0.6) st.pend.push([T + 0.16 + 0.12 * rnd(), x + (rnd() - 0.5) * 10 * s, y + (rnd() - 0.5) * 10 * s, -0.7 * (0.4 + k)]);   // it bounces
+        }
+      }
+      // a storm throws big drops all over the puddle
+      let ms = storm * 120 * dt;
+      while (ms > 0) { if (ms < 1 && rnd() > ms) break; ms -= 1; drop(W * (0.05 + 0.9 * rnd()), H * (0.05 + 0.9 * rnd()), -(0.8 + 1.2 * rnd()) * (0.6 + storm), 1.4); }
+      // drips from the branches overhead: the puddle is never quite still
+      for (const d of st.drips) if (T > d.next) { d.next = T + 1.6 + 3.5 * rnd() * (0.5 + calm); drop(d.x, d.y, -1.5, 1.3); }
+      // taps: a big drop where it lands; on a raining place a burst of drops there (the wall's own soft notes: one drop)
+      for (const q of tapsOf(R, E).fresh) {
+        const z = q.site != null ? E.sites.find(o => o.id === q.site) : null;
+        if (z) { const x0 = W * (0.08 + 0.84 * z.u), y0 = H * (0.08 + 0.84 * southOf(z)), n = q.echo ? 1 : 6;
+          for (let i = 0; i < n; i++) st.pend.push([T + i * 0.11, x0 + (rnd() - 0.5) * 40 * s, y0 + (rnd() - 0.5) * 30 * s, q.echo ? -1.4 : -2.6]); }
+        else if (!q.echo) drop(q.x, q.y, -3.2, 2.2);
+        if (!q.echo) { const z2 = z ? [W * (0.08 + 0.84 * z.u), H * (0.08 + 0.84 * southOf(z))] : [q.x, q.y]; (st.tapR || (st.tapR = [])).push({ x: z2[0], y: z2[1], t: T });
+          st.spl.push({ x: z2[0], y: z2[1], t: T, n: 16, sd: rnd() * 1e4 | 0, v: 150 * s }); }
+      }
+      st.pend = st.pend.filter(p => { if (T < p[0]) return true; drop(p[1], p[2], p[3], 1.5); return false; });
+      // ---- the breath: gusts race across the water away from where it blows; a storm ruffles all of it
+      const gust = e * (0.8 + 0.2 * Math.sin(T * 5.3)), dir = Math.abs(wx) > 0.1 ? Math.sign(wx) : (st.dir || 1); st.dir = dir;
+      const nk = Math.round((gust * 560 + storm * 140) * Math.min(2, dt * 60));
+      if (nk > 0) {
+        const bx = (0.5 + 0.45 * clamp(E.mx, -1, 1)) * gw, by = (0.5 + 0.4 * clamp(E.my, -1, 1)) * gh, pb = gust / (gust + storm + 1e-6);
+        for (let i = 0; i < nk; i++) {
+          let x, y, A;
+          if (rnd() < pb) {
+            const p = rnd() < 0.5 ? (T * 1.3) % 1 : (T * 1.3 + 0.5) % 1, f = rnd() < 0.6 ? p : p * rnd();     // the gust fronts, and the chop they leave behind
+            x = bx + dir * (f * gw * 0.95 + (rnd() - 0.5) * gw * 0.08); y = by + (rnd() - 0.5) * gh * (0.3 + 0.5 * f);
+            A = (0.3 + 0.5 * gust) * (rnd() - 0.5) * 2;
+          } else { x = rnd() * gw; y = rnd() * gh; A = 0.35 * storm * (rnd() - 0.5) * 2; }
+          if (x > 2 && x < gw - 3 && y > 2 && y < gh - 3) { const i0 = Math.floor(y) * gw + Math.floor(x), h = A * 0.5; a[i0] += A; a[i0 - 1] += h; a[i0 + 1] += h; a[i0 - gw] += h; a[i0 + gw] += h; }
+        }
+      }
+      // ---- the waves (a fixed 60 steps a second)
+      const damp = 0.983 + 0.009 * calm - 0.006 * storm;
+      st.acc = Math.min(4, (st.acc || 0) + dt * 60);
+      while (st.acc >= 1) {
+        st.acc -= 1;
+        for (let y = 1; y < gh - 1; y++) {
+          let i = y * gw + 1;
+          for (let x = 1; x < gw - 1; x++, i++) b[i] = ((a[i - 1] + a[i + 1] + a[i - gw] + a[i + gw]) * 0.5 - b[i]) * damp * M[i];
+        }
+        const t = a; a = b; b = t;
+      }
+      st.h0 = a; st.h1 = b;
+      // ---- the mirror: the sky, still and sharp
+      c.globalCompositeOperation = 'source-over'; c.imageSmoothingEnabled = true;
+      c.drawImage(fade2(st, 'fs', st.skyN, st.skyD, day), 0, 0, W, H);
+      // ---- ... and broken where the water moves: the same sky seen through the slopes of the waves, laid on top
+      if (Math.abs(day - st.envAt) > 0.012 || (day !== st.envAt && (day < 0.002 || day > 0.998))) {
+        st.envAt = day; const N = st.envN, D = st.envD, o = st.env, q = day < 0.002 ? 0 : day > 0.998 ? 1 : day;
+        for (let i = 0; i < o.length; i++) o[i] = N[i] + (D[i] - N[i]) * q;
+      }
+      const [fl] = flicker(R, T);
+      for (const bo of newBolts(R, st, T)) {                       // the lightning, mirrored in the puddle
+        const bc = st.bc || (st.bc = canvas(gw, gh)), bx = bc.getContext('2d');
+        bx.setTransform(1, 0, 0, 1, 0, 0); bx.globalCompositeOperation = 'source-over'; bx.fillStyle = '#000'; bx.fillRect(0, 0, gw, gh);
+        bx.setTransform(gw / W, 0, 0, gh / H, 0, 0); if ('filter' in bx) bx.filter = 'blur(1.2px)'; R._bolt(bx, bo, 0.001, lw * 7); bx.filter = 'none';
+        const d = bx.getImageData(0, 0, gw, gh).data, m = st.bm || (st.bm = new Uint8Array(gw * gh));
+        for (let i = 0; i < m.length; i++) m[i] = d[i * 4 + 1];
+      }
+      const env = st.env, img = st.img.data, bm = fl > 0.02 && st.bm ? st.bm : null, fb2 = fl * 0.9;
+      const Kd = 9, Sp = 26 * (1 - 0.3 * day), tr = 1, tg = 0.84 + 0.16 * day, tb = 0.66 + 0.34 * day, Lx = 0.55, Ly = -0.6, Ka = 1400;
+      for (let y = 1; y < gh - 1; y++) {
+        let i = y * gw + 1, o = i * 4;
+        for (let x = 1; x < gw - 1; x++, i++, o += 4) {
+          if (M[i] === 0) { img[o + 3] = 0; continue; }
+          const gx = a[i + 1] - a[i - 1], gy = a[i + gw] - a[i - gw];
+          let fx = x + gx * Kd, fy = y + gy * Kd;
+          if (fx < 0) fx = 0; else if (fx > gw - 1.001) fx = gw - 1.001;
+          if (fy < 0) fy = 0; else if (fy > gh - 1.001) fy = gh - 1.001;
+          const ix = fx | 0, iy = fy | 0, ux = fx - ix, uy = fy - iy, j = iy * gw + ix, j3 = j * 3, k3 = j3 + gw * 3;   // bilinear, so the broken sky stays smooth
+          const w00 = (1 - ux) * (1 - uy), w10 = ux * (1 - uy), w01 = (1 - ux) * uy, w11 = ux * uy;
+          const sp = (gx * Lx + gy * Ly) * Sp;
+          let r = env[j3] * w00 + env[j3 + 3] * w10 + env[k3] * w01 + env[k3 + 3] * w11 + sp * tr;
+          let g2 = env[j3 + 1] * w00 + env[j3 + 4] * w10 + env[k3 + 1] * w01 + env[k3 + 4] * w11 + sp * tg;
+          let b2 = env[j3 + 2] * w00 + env[j3 + 5] * w10 + env[k3 + 2] * w01 + env[k3 + 5] * w11 + sp * tb;
+          let al = ((gx < 0 ? -gx : gx) + (gy < 0 ? -gy : gy)) * Ka - 25;
+          if (bm) { const v = bm[j] * fb2; r += v; g2 += v; b2 += v * 1.1; if (v > al) al = v; }
+          img[o] = r; img[o + 1] = g2; img[o + 2] = b2; img[o + 3] = al;
+        }
+      }
+      st.cx.putImageData(st.img, 0, 0);
+      c.drawImage(st.cv, 1, 1, gw - 2, gh - 2, 0, 0, W, H);
+      for (const bo of R.bolts) { const age = T - bo.t; if (age >= 0 && age < 1.2) { c.globalAlpha = 0.5; R._bolt(c, bo, age, lw * 0.9); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over'; } }
+      // ---- faint crisp crests on the newest rings, and the droplets thrown up by the big drops
+      const v = 0.7 * 60 * cw, RB = [new Path2D(), new Path2D(), new Path2D()];
+      st.rings = st.rings.filter(q => T - q.t < 1);
+      for (const q of st.rings) {
+        const age = T - q.t, al = q.A * Math.exp(-age * 3.5), r = 1.5 + v * age;
+        if (al < 0.06) continue;
+        const p = RB[al > 0.5 ? 2 : al > 0.22 ? 1 : 0];
+        p.moveTo(q.x + r, q.y); p.arc(q.x, q.y, r, 0, TAU);
+      }
+      const rc = day > 0.5 ? '255,255,255' : '255,222,190';
+      c.lineWidth = lw * 0.5;
+      RB.forEach((p, i) => { c.strokeStyle = `rgba(${rc},${[0.04, 0.08, 0.13][i] * (1 - 0.3 * day)})`; c.stroke(p); });
+      const sp = new Path2D();
+      st.spl = st.spl.filter(q => T - q.t < 0.3);
+      for (const q of st.spl) {
+        const age = T - q.t, r = q.v * age, d = lw * (1.1 - 2.6 * age);
+        for (let k = 0; k < q.n; k++) { const an = hash(q.sd + k) * TAU, rr = r * (0.6 + 0.5 * hash(q.sd + k + 50)); sp.rect(q.x + Math.cos(an) * rr - d / 2, q.y + Math.sin(an) * rr - d / 2, d, d); }
+      }
+      c.fillStyle = `rgba(${rc},0.6)`; c.fill(sp);
+      // a tap: bright rings spreading from where it landed
+      st.tapR = (st.tapR || []).filter(q => T - q.t < 2);
+      for (const q of st.tapR) {
+        const a2 = (T - q.t) / 2, r = 4 + v * 0.8 * (T - q.t);
+        c.lineWidth = lw * 1.2; c.strokeStyle = `rgba(${rc},${0.42 * (1 - a2) * (1 - a2)})`; c.beginPath(); c.ellipse(q.x, q.y, r, r * 0.94, 0.3, 0, TAU); c.stroke();
+        if (r > 30 * s) { c.lineWidth = lw * 0.6; c.strokeStyle = `rgba(${rc},${0.16 * (1 - a2)})`; c.beginPath(); c.ellipse(q.x, q.y, r * 0.58, r * 0.55, 0.3, 0, TAU); c.stroke(); }
+      }
+      // the breath on the water: glints on the cat's-paws racing downwind
+      if (gust > 0.04 || storm > 0.1) {
+        const bxs2 = (0.5 + 0.45 * clamp(E.mx, -1, 1)) * W, bys2 = (0.5 + 0.4 * clamp(E.my, -1, 1)) * H, gl = new Path2D(), n = Math.round((gust * 260 + storm * 120) * W / 1600), wy2 = windY(E);
+        for (let i = 0; i < n; i++) {
+          const h1 = hash(i * 5 + 1), ph2 = (T * (0.9 + 0.7 * h1) + hash(i * 5 + 2)) % 1, all = i < storm * 120 * W / 1600;
+          const x = all ? hash(i * 5 + 3) * W + dir * ph2 * 160 * s : bxs2 + dir * (ph2 * W * 0.9 + (hash(i * 5 + 3) - 0.5) * 60 * s), y = all ? hash(i * 5 + 4) * H : bys2 + (hash(i * 5 + 4) - 0.5) * H * (0.25 + 0.45 * ph2);
+          const l = (8 + 20 * hash(i * 5 + 5)) * s * (1 - 0.5 * ph2);
+          gl.moveTo(x, y); gl.lineTo(x + dir * l, y + wy2 * l * 0.4);
+        }
+        c.strokeStyle = `rgba(${rc},${0.62 * Math.min(1, gust + storm * 0.6)})`; c.lineWidth = lw * 0.85; c.stroke(gl);
+      }
+      // ---- the shore and the road around it
+      c.drawImage(fade2(st, 'fg', st.gN, st.gD, day), 0, 0, W, H);
+      // ---- leaves afloat: the slope of the water nudges them, the breath sails them across, a storm spins them
+      const [LP, LV] = leafPath(), wy = windY(E), bxs = (0.5 + 0.45 * clamp(E.mx, -1, 1)) * W;
+      for (const L of st.leaves) {
+        const gi = clamp(Math.floor(L.y / ch), 1, gh - 2) * gw + clamp(Math.floor(L.x / cw), 1, gw - 2);
+        const sx = a[gi + 1] - a[gi - 1], sy = a[gi + gw] - a[gi - gw];
+        const air = 0.35 + 0.65 * Math.exp(-((L.x - bxs) ** 2) / (0.5 * W * W));
+        L.vx += (-sx * 900 * s + dir * gust * air * 440 * s + storm * 260 * s * vnoise(T * 0.5, L.sd * 3.1)) * dt;
+        L.vy += (-sy * 900 * s + wy * gust * air * 280 * s + storm * 200 * s * vnoise(T * 0.5 + 9, L.sd * 2.3)) * dt;
+        const rho = blob.rho(L.x, L.y);
+        if (rho > 0.8) { L.vx -= (L.x - blob.cx) / blob.rx * (rho - 0.8) * 2400 * s * dt; L.vy -= (L.y - blob.cy) / blob.ry * (rho - 0.8) * 2400 * s * dt; }
+        if (L.x < 0.03 * W) L.vx += 300 * s * dt; if (L.x > 0.97 * W) L.vx -= 300 * s * dt; if (L.y < 0.04 * H) L.vy += 300 * s * dt; if (L.y > 0.96 * H) L.vy -= 300 * s * dt;
+        const dr = Math.exp(-dt * 1.1); L.vx *= dr; L.vy *= dr;
+        L.x += L.vx * dt; L.y += L.vy * dt;
+        L.va += ((L.vx * 0.004 - L.vy * 0.002) / s * (0.5 + gust + storm) - L.va * 0.8) * dt * 2; L.a += (L.va + 0.03 * Math.sin(T * 0.3 + L.sd)) * dt;
+        const z = L.z * (1 + 0.6 * clamp(a[gi], -0.2, 0.2)), ca = Math.cos(L.a) * z, sa = Math.sin(L.a) * z;
+        c.setTransform(ca * dpr, sa * dpr, -sa * dpr, ca * dpr, (L.x + 2.5 * s) * dpr, (L.y + 3 * s) * dpr);
+        c.fillStyle = 'rgba(0,0,0,0.32)'; c.fill(LP);
+        c.setTransform(ca * dpr, sa * dpr, -sa * dpr, ca * dpr, L.x * dpr, L.y * dpr);
+        const col = L.col.split(',').map(q => Math.round(Math.min(255, q * (0.5 + 0.5 * day + 0.4 * fl))));
+        c.fillStyle = `rgb(${col})`; c.fill(LP);
+        c.strokeStyle = 'rgba(40,10,0,0.35)'; c.lineWidth = 0.035; c.stroke(LV);
+      }
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (fl > 0.02) { c.fillStyle = `rgba(214,222,255,${0.18 * fl})`; c.fillRect(0, 0, W, H); }
+    },
+  };
+
+  /* ============================================================== 12  Umbrellas
+     A plaza in the rain, seen from a high window. Every raining place is somebody crossing it under an
+     umbrella: where they walk from where the place is (east-west across, north on the far side, south on
+     the near one), the size of the umbrella from how hard it is raining there, its colour from the latitude
+     (coral and orange in the tropics, yellow, green and teal in the middle latitudes, lavender toward the
+     poles) and its pattern from the kind of rain: drizzle plain, rain two-tone, showers rainbow,
+     thunderstorms black with a coloured rim. A breath is a gust across the plaza: the umbrellas lean away
+     from the side it came from, people stagger downwind and the weaker umbrellas blow inside out; a storm
+     turns many inside out and tears a few out of people's hands; lightning lights the plaza white with
+     hard shadows and everyone jumps. Calm, the umbrellas close, the sun comes out, long shadows fall across
+     the wet stone and a rainbow shows in a puddle. A tap twirls the umbrella of the place tapped (or the
+     ones near where it lands); the wall's own soft notes give a little twirl. */
+  const COATS = ['43,45,53', '74,59,50', '31,42,58', '90,47,47', '47,59,45', '60,58,70', '96,82,60'];
+  function umbCam(st, W, H) {
+    const ph = 1.02, D = 21, F = W * 1.05, cp = Math.cos(ph), sp = Math.sin(ph), Cy = -D * cp, Cz = D * sp;
+    st.P = (X, Y, Z, out) => { const dy = Y - Cy, dz = Z - Cz, zc = dy * cp - dz * sp, yc = dy * sp + dz * cp, k = F / zc; out[0] = W / 2 + X * k; out[1] = H / 2 - yc * k; out[2] = k; return out; };
+    st.G = (sx, sy) => { const rx = (sx - W / 2) / F, ry = -(sy - H / 2) / F, dy = cp + ry * sp, dz = -sp + ry * cp, t = -Cz / dz; return [t * rx, Cy + t * dy]; };
+  }
+  function umbBg(st, W, H, dpr, day) {
+    const cv = canvas(W * dpr, H * dpr), g = cv.getContext('2d'), P = st.P, p = [0, 0, 0];
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.fillStyle = day ? '#b3ada2' : '#17181d'; g.fillRect(0, 0, W, H);
+    // big stone slabs, each a slightly different stone, wet
+    const S = 1.6, joints = new Path2D(), tones = [[], [], [], [], []];
+    for (let j = -5; j < 9; j++) for (let i = -11; i < 11; i++) {
+      const q = [];
+      for (const [a, b] of [[0, 0], [1, 0], [1, 1], [0, 1]]) { P((i + a) * S, (j + b) * S, 0, p); q.push([p[0], p[1]]); }
+      const path = new Path2D(); q.forEach(([x, y], n) => n ? path.lineTo(x, y) : path.moveTo(x, y)); path.closePath();
+      tones[Math.floor(hash(i * 31 + j * 17 + 5) * 5)].push(path);
+      q.forEach(([x, y], n) => n ? joints.lineTo(x, y) : joints.moveTo(x, y)); joints.lineTo(q[0][0], q[0][1]);
+    }
+    const T5 = day ? ['178,171,160', '186,180,170', '170,164,154', '192,186,176', '164,158,150'] : ['27,28,34', '31,32,38', '24,25,31', '35,35,42', '22,23,28'];
+    tones.forEach((list, n) => { g.fillStyle = `rgb(${T5[n]})`; for (const path of list) g.fill(path); });
+    g.strokeStyle = day ? 'rgba(90,84,76,0.45)' : 'rgba(0,0,0,0.6)'; g.lineWidth = 1.2; g.stroke(joints);
+    // a band of dark granite running across the plaza
+    g.fillStyle = day ? 'rgba(80,76,72,0.35)' : 'rgba(0,0,0,0.3)';
+    const band = new Path2D(); [[-20, 1.6], [20, 1.6], [20, 3.2], [-20, 3.2]].forEach(([x, y], n) => { P(x, y, 0, p); n ? band.lineTo(p[0], p[1]) : band.moveTo(p[0], p[1]); }); band.closePath(); g.fill(band);
+    // the light: lamps on the wet stone at night, a patch of sun by day
+    if (!day) for (const [x, y] of st.lamps) {
+      P(x, y, 0, p); const r = 4.2 * p[2];
+      g.save(); g.translate(p[0], p[1]); g.scale(1, 0.86);
+      const q = g.createRadialGradient(0, 0, 0, 0, 0, r); q.addColorStop(0, 'rgba(255,170,90,0.34)'); q.addColorStop(0.4, 'rgba(255,140,70,0.12)'); q.addColorStop(1, 'rgba(255,140,70,0)');
+      g.fillStyle = q; g.fillRect(-r, -r, 2 * r, 2 * r); g.restore();
+    } else {
+      const q = g.createRadialGradient(W * 0.62, H * 0.42, 0, W * 0.62, H * 0.42, W * 0.6); q.addColorStop(0, 'rgba(255,236,190,0.42)'); q.addColorStop(0.6, 'rgba(255,226,170,0.12)'); q.addColorStop(1, 'rgba(255,220,160,0)');
+      g.fillStyle = q; g.fillRect(0, 0, W, H);
+    }
+    // puddles: the sky in them (a rainbow in one, by day)
+    for (let n = 0; n < 6; n++) {
+      const cx = n === 2 ? 3.5 : (hash(n * 7 + 1) - 0.5) * 18, cy = n === 2 ? -1 : -3 + hash(n * 7 + 2) * 10, r = n === 2 ? 1.7 : 0.8 + 1.4 * hash(n * 7 + 3), path = new Path2D();
+      for (let i = 0; i <= 24; i++) { const a = i / 24 * TAU, rr = r * (1 + 0.35 * vnoise(Math.cos(a) * 1.5 + n * 3, Math.sin(a) * 1.5)); P(cx + Math.cos(a) * rr * 1.5, cy + Math.sin(a) * rr, 0, p); i ? path.lineTo(p[0], p[1]) : path.moveTo(p[0], p[1]); }
+      path.closePath();
+      g.fillStyle = day ? 'rgba(186,210,232,0.9)' : 'rgba(10,12,26,0.85)'; g.fill(path);
+      g.strokeStyle = day ? 'rgba(255,255,255,0.35)' : 'rgba(120,130,170,0.18)'; g.lineWidth = 1.5; g.stroke(path);
+      g.save(); g.clip(path);
+      if (day && n === 2) {
+        P(cx, cy + r * 0.6, 0, p); const k = p[2];
+        ['255,60,60', '255,150,40', '255,230,60', '80,200,90', '60,140,255', '140,80,220'].forEach((col, i) => { g.strokeStyle = `rgba(${col},0.32)`; g.lineWidth = 0.09 * k; g.beginPath(); g.ellipse(p[0], p[1] + r * k * 0.4, r * k * (1.2 - i * 0.09), r * k * 0.7 * (1.2 - i * 0.09), 0, Math.PI, TAU); g.stroke(); });
+      }
+      if (!day) { P(cx, cy, 0, p); const q = g.createLinearGradient(p[0], p[1] - r * p[2], p[0], p[1] + r * p[2]); q.addColorStop(0, 'rgba(255,160,90,0)'); q.addColorStop(0.5, 'rgba(255,160,90,0.12)'); q.addColorStop(1, 'rgba(255,160,90,0)'); g.fillStyle = q; g.fill(path); }
+      g.restore();
+    }
+    // grain, and a darker edge
+    const gr = [new Path2D(), new Path2D()];
+    for (let i = 0; i < 9000; i++) gr[i & 1].rect(hash(i * 3 + 1) * W, hash(i * 3 + 2) * H, 1.2, 1.2);
+    g.fillStyle = day ? 'rgba(60,54,46,0.1)' : 'rgba(0,0,0,0.25)'; g.fill(gr[0]); g.fillStyle = day ? 'rgba(255,255,250,0.12)' : 'rgba(255,255,255,0.03)'; g.fill(gr[1]);
+    const v = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.45, W / 2, H / 2, Math.hypot(W, H) * 0.62);
+    v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, day ? 'rgba(40,30,20,0.22)' : 'rgba(0,0,0,0.5)');
+    g.fillStyle = v; g.fillRect(0, 0, W, H);
+    return cv;
+  }
+  function umbTree(st, r, day, sd) {                // a tree crown seen from above (Seattle in autumn)
+    const S = Math.ceil(r * 2.3), cv = canvas(S, S), g = cv.getContext('2d'), m = S / 2;
+    const cols = day ? ['58,92,44', '82,112,48', '170,146,52', '206,124,40', '120,120,50', '190,80,40'] : ['22,36,26', '30,44,28', '64,52,22', '78,46,18', '36,42,24', '70,30,20'];
+    for (let i = 0; i < 420; i++) {
+      const a = hash(sd + i * 3) * TAU, d = Math.sqrt(hash(sd + i * 3 + 1)) * r * 0.9, x = m + Math.cos(a) * d, y = m + Math.sin(a) * d, z = r * (0.08 + 0.12 * hash(sd + i * 3 + 2));
+      const col = cols[Math.floor(hash(sd + i * 7) * cols.length)];
+      g.fillStyle = `rgba(${col},0.9)`; g.beginPath(); g.arc(x, y, z * 0.7, 0, TAU); g.fill();
+      g.fillStyle = day ? 'rgba(255,250,220,0.18)' : 'rgba(120,120,100,0.08)'; g.beginPath(); g.arc(x - z * 0.2, y - z * 0.2, z * 0.35, 0, TAU); g.fill();
+    }
+    return cv;
+  }
+  function umbPeople(st, E, W, H) {
+    st.ref = E.sites;
+    const old = new Map((st.ppl || []).map(q => [q.id, q])), out = [];
+    for (const z of E.sites) {
+      const kind = kindOf(E, z), lat = latOf(z), [h, sa, l] = latColor(lat), R = 0.42 + 0.5 * z.k;
+      const [hx, hy] = st.G(W * (0.06 + 0.88 * z.u), H * (0.12 + 0.8 * southOf(z)));
+      const q = old.get(z.id) || { id: z.id, x: hx, y: hy, vx: 0, vy: 0, hd: hash(z.id) * TAU, ph: hash(z.id + 1) * 9, tx: 0, ty: 0, tvx: 0, tvy: 0, io: 0, iot: 0, calmT: 0,
+                                   sp: 0.5 + 0.45 * hash(z.id + 2), spin: hash(z.id + 3) * TAU, om: 0, o: E.fresh ? 1 : 0, lost: 0, th: 0.5 + 0.4 * hash(z.id + 4), gx: hx, gy: hy, gt: 0,
+                                   coat: COATS[Math.floor(hash(z.id + 5) * COATS.length)], hair: hash(z.id + 6) < 0.7 ? '24,20,18' : hash(z.id + 6) < 0.85 ? '120,100,80' : '170,170,170' };
+      Object.assign(q, { hx, hy, R, kind, k: z.k });
+      // the canopy's colours, panel by panel
+      const sat = Math.min(95, sa + 10), lit = clamp(l - 6, 38, 64), base = hsl2rgb(h, sat, lit).split(',').map(Number);
+      q.cols = [];
+      for (let i = 0; i < 8; i++) q.cols.push(kind === 0 ? hsl2rgb(h, sat - 15, Math.min(76, lit + 12)).split(',').map(Number) : kind === 1 ? (i & 1 ? [242, 236, 222] : base)
+                                                : kind === 2 ? hsl2rgb(h + i * 45, 70, 58).split(',').map(Number) : [40, 40, 50]);
+      q.rim = kind === 3 ? base : null;
+      out.push(q);
+    }
+    st.ppl = out;
+  }
+  const umbrellas = {
+    name: 'umbrellas', title: 'Umbrellas', dark: true, bolts: false,
+    draw(R, c, E) {
+      const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E), wy = windY(E), dpr = E.dpr;
+      if (st.W !== W || st.H !== H || !st.bgN) {
+        st.W = W; st.H = H; umbCam(st, W, H);
+        st.lamps = [[-7.5, 5.5], [0.5, 5.5], [8, 5.5], [-6, -2.6], [6.5, -2.6]];
+        st.bgN = umbBg(st, W, H, dpr, false); st.bgD = umbBg(st, W, H, dpr, true);
+        const rt = Math.min(W, H) * 0.26;
+        st.trees = [[-0.02 * W, 0.18 * H, rt, 11], [1.03 * W, 0.62 * H, rt * 1.15, 47], [0.12 * W, 1.04 * H, rt * 0.9, 83]].map(([x, y, r, sd]) => ({ x, y, r, n: umbTree(st, r, false, sd), d: umbTree(st, r, true, sd) }));
+        st.ref = null; st.fly = []; st.ppl = null;
+      }
+      if (st.ref !== E.sites) umbPeople(st, E, W, H);
+      const day = dayOf(st, E), P = st.P, p = [0, 0, 0], q2 = [0, 0, 0], ppl = st.ppl;
+      const [fl, fb] = flicker(R, T);
+      // ---- the wind: the breath from the side it comes in, gusts in a storm
+      const dir = Math.abs(wx) > 0.12 ? Math.sign(wx) : (st.dir || 1); st.dir = dir;
+      const bxs = (0.5 + 0.45 * clamp(E.mx, -1, 1)) * W, wdx = Math.abs(wx) > 0.12 ? wx : dir * 0.8, wdy = -wy * 0.8;
+      const amt = (1 - calm) * (1 + 1.5 * storm);
+      const openT = 1 - smoothstep(0.45, 0.9, calm);
+      // startled by a strike: everybody jumps away from it; taps twirl umbrellas
+      const strikes = newBolts(R, st, T);
+      const tp = tapsOf(R, E);
+      for (const q of ppl) {
+        P(q.x, q.y, 2, p); const sx = p[0], sy = p[1];
+        const G = e * (0.3 + 0.7 * Math.exp(-((sx - bxs) ** 2) / (0.2 * W * W))) * (0.85 + 0.15 * Math.sin(T * 7 + q.id)) + storm * (0.5 + 0.5 * vnoise(T * 0.9, q.id * 0.37));
+        // walking: toward a spot near home, a new one now and then
+        if (T > q.gt || Math.hypot(q.gx - q.x, q.gy - q.y) < 0.4) { q.gt = T + 6 + 8 * rnd(); const a = rnd() * TAU, r = 0.5 + 2.4 * Math.sqrt(rnd()); q.gx = q.hx + Math.cos(a) * r * 1.4; q.gy = q.hy + Math.sin(a) * r; }
+        const dx = q.gx - q.x, dy = q.gy - q.y, dd = Math.hypot(dx, dy) + 1e-6, run = q.lost > T ? 2 : 1;
+        const spd = q.sp * (0.8 + 0.5 * (1 - calm) + 0.9 * storm) * run;
+        let ax = dx / dd * spd + wdx * G * 1.6, ay = dy / dd * spd + wdy * G * 1.6;
+        if (sx < W * 0.04) ax += 1.5; if (sx > W * 0.96) ax -= 1.5; if (sy < H * 0.08) ay -= 1.5; if (sy > H * 0.96) ay += 1.5;
+        for (const b of strikes) { const ux = q.x - ((b.u == null ? 0.5 : b.u) - 0.5) * 16, uy = q.y - 2, ud = Math.hypot(ux, uy) + 0.5; q.vx += ux / ud * 3.5 * (b.power || 0.6); q.vy += uy / ud * 3.5 * (b.power || 0.6); q.om += (rnd() - 0.5) * 14; q.tvx += (rnd() - 0.5) * 3; q.tvy += (rnd() - 0.5) * 3; }
+        const kv = 1 - Math.exp(-dt * 2.5); q.vx += (ax - q.vx) * kv; q.vy += (ay - q.vy) * kv;
+        q.x += q.vx * dt; q.y += q.vy * dt;
+        const vm = Math.hypot(q.vx, q.vy);
+        if (vm > 0.05) { let dh = Math.atan2(q.vy, q.vx) - q.hd; dh = Math.atan2(Math.sin(dh), Math.cos(dh)); q.hd += dh * Math.min(1, dt * 4); }
+        q.ph += dt * vm * 5;
+        // the umbrella leans with the wind (a spring), and may blow inside out
+        const lean = 0.95 * G * (1.25 - 0.35 * q.R);
+        q.tvx += ((wdx * lean + 0.03 * Math.sin(q.ph) - q.tx) * 34 - q.tvx * 6) * dt; q.tvy += ((wdy * lean + 0.03 * Math.cos(q.ph * 0.5) - q.ty) * 34 - q.tvy * 6) * dt;
+        q.tx = clamp(q.tx + q.tvx * dt, -0.9, 0.9); q.ty = clamp(q.ty + q.tvy * dt, -0.9, 0.9);
+        if (G > q.th + 0.12 * (q.R - 0.5) && openT > 0.5) { if (!q.iot) { q.om += (rnd() - 0.5) * 16; q.tvx += wdx * 4; q.tvy += wdy * 4; } q.iot = 1; q.calmT = T; }   // pop!
+        else if (G < q.th * 0.45 && T - q.calmT > 1.4) q.iot = 0;
+        q.io += (q.iot - q.io) * (1 - Math.exp(-dt * (q.iot > q.io ? 16 : 2.4)));
+        // a storm tears a few out of people's hands
+        if (storm > 0.3 && q.io > 0.9 && q.lost < T && st.fly.length < 3 && rnd() < dt * storm * 0.05) {
+          q.lost = T + 7 + 6 * rnd(); q.o = 0;
+          st.fly.push({ x: q.x, y: q.y, z: 2.2, vx: wdx * 5, vy: wdy * 5, vz: 2.5, cols: q.cols, rim: q.rim, R: q.R, spin: q.spin, om: 9 * (rnd() < 0.5 ? -1 : 1), tx: wdx * 0.6, ty: 0.5, t: T });
+        }
+        const ot = q.lost > T ? 0 : openT;
+        q.o += (ot - q.o) * (1 - Math.exp(-dt * (ot > q.o ? 2.2 : 1.3)));
+        // twirls
+        for (const t of tp.fresh) {
+          if (t.site === q.id) q.om += t.echo ? 2.6 : 11 * (hash(t.seed) < 0.5 ? -1 : 1);
+          else if (!t.echo && t.site == null) { const [gx, gy] = st.G(t.x, t.y), d = Math.hypot(gx - q.x, gy - q.y); if (d < 3) { q.om += (3 - d) * 3; q.vx += (q.x - gx) / (d + 0.3) * 1.5; q.vy += (q.y - gy) / (d + 0.3) * 1.5; } }
+        }
+        q.om *= Math.exp(-dt * 0.7); q.om += (rnd() - 0.5) * storm * 30 * dt; q.spin += q.om * dt;
+      }
+      // keep a little room between people
+      for (let i = 0; i < ppl.length; i++) for (let j = i + 1; j < ppl.length; j++) {
+        const A = ppl[i], B = ppl[j], dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) + 1e-6, m = (A.R + B.R) * 0.85 - d;
+        if (m > 0) { const f = m * 2.5 * dt / d; A.x -= dx * f; A.y -= dy * f; B.x += dx * f; B.y += dy * f; }
+      }
+      // ---- draw: the plaza
+      c.globalCompositeOperation = 'source-over';
+      c.drawImage(fade2(st, 'fb', st.bgN, st.bgD, day), 0, 0, W, H);
+      // splashes on the stone
+      const spl = new Path2D(), nsp = Math.round((14 + 120 * amt) * W / 1600);
+      for (let i = 0; i < nsp; i++) {
+        const ph = T / 0.4 + hash(i * 7 + 3), cyc = Math.floor(ph), f = ph - cyc, sd = i * 131 + cyc * 7919;
+        P((hash(sd) - 0.5) * 26, -6 + hash(sd + 1) * 16, 0, p); if (p[0] < -10 || p[0] > W + 10 || p[1] < -10 || p[1] > H + 10) continue;
+        const r = (0.04 + 0.2 * f) * p[2];
+        spl.moveTo(p[0] + r, p[1]); spl.ellipse(p[0], p[1], r, r * 0.82, 0, 0, TAU);
+      }
+      c.strokeStyle = `rgba(${day > 0.5 ? '255,255,255' : '200,210,235'},${0.16 + 0.1 * storm})`; c.lineWidth = lw * 0.6; c.stroke(spl);
+      // ---- each person: the canopy's points in space (tilted with the wind, inside out if it blew), then shadows and paint
+      const L = day > 0.5 ? [0.62, 0.42, 0.66] : [-0.55, 0.42, 0.72];
+      const lb = fb ? [((fb.u == null ? 0.5 : fb.u) - 0.5) * -1.6, -0.5, 0.75] : null;
+      const geo = (q, x, y, zh, ox) => {                        // -> {apex, tips, mids} as [X, Y, Z]
+        const o = ox == null ? q.o : ox, io = q.io, R = q.R * (0.14 + 0.86 * o) * (1 + 0.22 * io), zr = 2.05 - (1 - o) * 0.75 * q.R + 0.03 * Math.sin(q.ph * 2);
+        const za = zr + q.R * 0.42 * o * (1 - 2 * io), tw = (pt) => { const dz = pt[2] - zh; pt[0] += q.tx * dz; pt[1] += q.ty * dz; pt[2] -= 0.5 * (q.tx * q.tx + q.ty * q.ty) * dz; return pt; };
+        const apex = tw([x, y, za]), tips = [], mids = [];
+        for (let i = 0; i < 8; i++) {
+          const a = q.spin + i * TAU / 8, a2 = a + TAU / 16, j = io * (hash(q.id * 9 + i) - 0.5);
+          tips.push(tw([x + Math.cos(a + 0.25 * j) * R * (1 + 0.45 * j), y + Math.sin(a + 0.25 * j) * R * (1 + 0.45 * j), zr - 0.06 * q.R + io * 0.3 * q.R * hash(q.id * 7 + i)]));
+          mids.push(tw([x + Math.cos(a2) * R * 0.86, y + Math.sin(a2) * R * 0.86, zr + 0.02 * q.R + io * 0.1 * q.R]));
+        }
+        return { apex, tips, mids };
+      };
+      const list = ppl.map(q => { P(q.x, q.y, 2, p); return [p[1], q]; }).sort((a, b) => a[0] - b[0]).map(a => a[1]);
+      // shadows: soft pools under each (lamplight), hard shapes by day and in a lightning flash
+      const soft = 1 - day;
+      if (soft > 0.02) {
+        const sp = [new Path2D(), new Path2D()];
+        for (const q of list) { P(q.x + 0.25, q.y - 0.2, 0, p); const r = q.R * (0.5 + 0.6 * q.o) * p[2]; sp[0].moveTo(p[0] + r * 1.25, p[1]); sp[0].ellipse(p[0], p[1], r * 1.25, r, 0, 0, TAU); sp[1].moveTo(p[0] + r * 0.8, p[1]); sp[1].ellipse(p[0], p[1], r * 0.8, r * 0.62, 0, 0, TAU); }
+        c.fillStyle = `rgba(0,0,0,${0.13 * soft})`; c.fill(sp[0]); c.fill(sp[1]);
+      }
+      const hard = (Lv, a) => {
+        const path = new Path2D();
+        for (const q of list) {
+          const gq = geo(q, q.x, q.y, 1.1), proj = pt => P(pt[0] - Lv[0] * pt[2] / Lv[2], pt[1] - Lv[1] * pt[2] / Lv[2], 0, p);
+          if (q.o > 0.2) { gq.tips.forEach((t, i) => { proj(t); i ? path.lineTo(p[0], p[1]) : path.moveTo(p[0], p[1]); }); path.closePath(); }
+          proj([q.x, q.y, 1.5]); const ex = p[0], ey = p[1]; P(q.x, q.y, 0, q2);    // the person's own shadow
+          path.moveTo(q2[0] + 0.2 * q2[2], q2[1]); path.lineTo(ex + 0.16 * q2[2], ey); path.lineTo(ex - 0.16 * q2[2], ey); path.lineTo(q2[0] - 0.2 * q2[2], q2[1]); path.closePath();
+        }
+        c.fillStyle = `rgba(20,16,12,${a})`; c.fill(path);
+      };
+      if (day > 0.02) hard(L, 0.3 * day);
+      if (fl > 0.05 && lb) hard(lb, 0.5 * fl);
+      // people (seen when the umbrella is closed or gone) and canopies, far ones first
+      const seams = new Path2D(), ribs = new Path2D(), caps = new Path2D(), drops = new Path2D();
+      const paint = (q, gq, alpha) => {
+        const A = P(gq.apex[0], gq.apex[1], gq.apex[2], [0, 0, 0]), tips = gq.tips.map(t => P(t[0], t[1], t[2], [0, 0, 0])), mids = gq.mids.map(t => P(t[0], t[1], t[2], [0, 0, 0]));
+        const Lx = L[0] * (1 - fl) + (lb ? lb[0] : 0) * fl, Ly = L[1], Lz = L[2];
+        c.globalAlpha = alpha;
+        for (let i = 0; i < 8; i++) {
+          const t0 = gq.tips[i], t1 = gq.tips[(i + 1) % 8], ap = gq.apex;
+          const ax = t0[0] - ap[0], ay = t0[1] - ap[1], az = t0[2] - ap[2], bx = t1[0] - ap[0], by = t1[1] - ap[1], bz = t1[2] - ap[2];
+          let nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx; const nm = Math.hypot(nx, ny, nz) + 1e-9; nx /= nm; ny /= nm; nz /= nm;
+          const under = q.io > 0.5, d = Math.max(0, nx * Lx + ny * Ly + nz * Lz);          // inside out: we look into the cup, at the lining
+          const lit = (under ? 0.26 + 0.4 * d : 0.38 + 0.78 * d) * (0.74 + 0.26 * day) + 0.5 * fl, col = q.cols[i];
+          c.fillStyle = `rgb(${Math.min(255, col[0] * lit) | 0},${Math.min(255, col[1] * lit) | 0},${Math.min(255, col[2] * lit) | 0})`;
+          c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(tips[i][0], tips[i][1]); c.quadraticCurveTo(mids[i][0], mids[i][1], tips[(i + 1) % 8][0], tips[(i + 1) % 8][1]); c.closePath(); c.fill();
+          seams.moveTo(A[0], A[1]); seams.lineTo(tips[i][0], tips[i][1]);
+          if (q.io > 0.3) { ribs.moveTo(A[0], A[1]); ribs.lineTo(tips[i][0], tips[i][1]); }
+          caps.rect(tips[i][0] - 1.1, tips[i][1] - 1.1, 2.2, 2.2);
+        }
+        if (q.rim) {                                           // the black ones: a coloured rim
+          c.strokeStyle = `rgb(${q.rim})`; c.lineWidth = Math.max(1.1, 0.026 * A[2]); c.beginPath();
+          for (let i = 0; i <= 8; i++) { const t = tips[i % 8]; if (!i) c.moveTo(t[0], t[1]); else c.quadraticCurveTo(mids[i - 1][0], mids[i - 1][1], t[0], t[1]); }
+          c.stroke();
+        }
+        c.fillStyle = day > 0.5 ? 'rgba(250,246,238,0.95)' : 'rgba(220,214,206,0.9)'; c.beginPath(); c.arc(A[0], A[1], Math.max(1.6, 0.05 * A[2]), 0, TAU); c.fill();
+        c.globalAlpha = 1;
+        // rain landing on it
+        if (amt > 0.02 && alpha > 0.5) for (let n = 0, m = Math.round(amt * (1.5 + 2 * q.k)); n < m; n++) {
+          const i = Math.floor(rnd() * 8), f = rnd() * 0.85; const x = A[0] + (tips[i][0] - A[0]) * f, y = A[1] + (tips[i][1] - A[1]) * f, d = 1.2 + 1.4 * rnd();
+          drops.rect(x - d / 2, y - d / 2, d, d);
+        }
+      };
+      for (const q of list) {
+        // the person underneath: shoulders and head, the closed umbrella at their side
+        const vis = 1 - smoothstep(0.15, 0.6, q.o);
+        if (vis > 0.01) {
+          P(q.x, q.y, 1.45, p); const k = p[2], ch = Math.cos(q.hd), shh = Math.sin(q.hd), sw = Math.sin(q.ph) * 0.06;
+          c.globalAlpha = vis;
+          c.fillStyle = `rgb(${q.coat})`; c.beginPath(); c.ellipse(p[0], p[1], 0.3 * k, 0.15 * k, q.hd + Math.PI / 2, 0, TAU); c.fill();
+          c.fillStyle = `rgb(${q.hair})`; P(q.x + ch * 0.04, q.y + shh * 0.04, 1.7, q2); c.beginPath(); c.arc(q2[0], q2[1], 0.12 * q2[2], 0, TAU); c.fill();
+          if (q.lost < T) {                                  // the closed umbrella, swinging at their side
+            const sx = q.x - shh * 0.3 + ch * sw, sy = q.y + ch * 0.3 + shh * sw;
+            P(sx, sy, 0.95, p); P(sx + ch * 0.62, sy + shh * 0.62, 0.2, q2);
+            const ux = q2[0] - p[0], uy = q2[1] - p[1], ul = Math.hypot(ux, uy) + 1e-6, nx = -uy / ul * 0.07 * p[2], ny = ux / ul * 0.07 * p[2];
+            c.fillStyle = `rgb(${q.cols[0].map(v => v * 0.85 | 0)})`; c.beginPath(); c.moveTo(p[0] - ux * 0.1, p[1] - uy * 0.1);
+            c.quadraticCurveTo(p[0] + ux * 0.3 + nx, p[1] + uy * 0.3 + ny, q2[0], q2[1]); c.quadraticCurveTo(p[0] + ux * 0.3 - nx, p[1] + uy * 0.3 - ny, p[0] - ux * 0.1, p[1] - uy * 0.1); c.fill();
+          }
+          c.globalAlpha = 1;
+        }
+        if (q.o > 0.15) paint(q, geo(q, q.x, q.y, 1.1), smoothstep(0.15, 0.5, q.o));
+      }
+      c.lineWidth = lw * 0.45; c.strokeStyle = 'rgba(0,0,0,0.22)'; c.stroke(seams);
+      c.strokeStyle = 'rgba(232,232,240,0.9)'; c.lineWidth = lw * 1.1; c.stroke(ribs);
+      c.fillStyle = 'rgba(240,236,230,0.7)'; c.fill(caps);
+      c.fillStyle = `rgba(235,242,255,${0.55 + 0.2 * storm})`; c.fill(drops);
+      // umbrellas the storm tore away, tumbling off downwind
+      st.fly = st.fly.filter(f => {
+        f.vx += (wdx * 7 - f.vx) * dt * 0.8; f.vy += (wdy * 7 - f.vy) * dt * 0.8; f.vz += (-1.2 + 2 * Math.sin(T * 3 + f.t)) * dt;
+        f.x += f.vx * dt; f.y += f.vy * dt; f.z = Math.max(0.6, f.z + f.vz * dt); f.spin += f.om * dt; f.tx = 0.8 * Math.sin(T * 2.3 + f.t); f.ty = 0.8 * Math.cos(T * 1.9 + f.t);
+        const q = { id: 999, R: f.R, o: 1, io: 0.6 + 0.4 * Math.sin(T * 4 + f.t), tx: f.tx, ty: f.ty, spin: f.spin, ph: 0, cols: f.cols, rim: f.rim, k: 0 };
+        paint(q, geo(q, f.x, f.y, f.z - 1), 1);
+        P(f.x, f.y, f.z, p); return p[0] > -200 && p[0] < W + 200 && p[1] > -200 && p[1] < H + 200 && T - f.t < 12;
+      });
+      // ---- the rain itself, falling past the window
+      const rain = new Path2D(), nr = Math.round((40 + 700 * amt) * W / 1600 * (0.4 + 0.6 * (E.pts.length ? 1 : 0.6)));
+      const slx = wdx * (0.25 + 1.2 * e + 0.8 * storm), sly = wdy * (0.25 + 1.2 * e + 0.8 * storm);
+      for (let i = 0; i < nr; i++) {
+        const z = 9 - ((T * 9 + hash(i * 3 + 3) * 9) % 9), X = (hash(i * 3 + 1) - 0.5) * 30 + slx * (9 - z) * 0.3, Y = -6 + hash(i * 3 + 2) * 18 + sly * (9 - z) * 0.3;
+        P(X, Y, z, p); P(X - slx * 0.12, Y - sly * 0.12, z + 0.55, q2);
+        if (p[0] < -20 || p[0] > W + 20 || p[1] < -20 || p[1] > H + 20) continue;
+        rain.moveTo(q2[0], q2[1]); rain.lineTo(p[0], p[1]);
+      }
+      c.strokeStyle = day > 0.5 ? 'rgba(255,255,255,0.35)' : 'rgba(200,214,240,0.3)'; c.lineWidth = lw * 0.6; c.stroke(rain);
+      // the lamp heads (lit at night) and the trees' crowns
+      for (const [x, y] of st.lamps) {
+        P(x, y, 5.2, p); const k = p[2];
+        c.fillStyle = day > 0.5 ? '#3a3a40' : '#0c0c10'; c.beginPath(); c.arc(p[0], p[1], 0.17 * k, 0, TAU); c.fill();
+        if (day < 0.98) { c.globalAlpha = 1 - day; c.drawImage(glow('255,200,140', 64, 0.3), p[0] - 0.7 * k, p[1] - 0.7 * k, 1.4 * k, 1.4 * k); c.fillStyle = '#ffe9c8'; c.beginPath(); c.arc(p[0], p[1], 0.09 * k, 0, TAU); c.fill(); c.globalAlpha = 1; }
+      }
+      for (const t of st.trees) {
+        const sw = (wdx * (e + storm) * 0.025 + 0.004 * Math.sin(T * 0.7 + t.r)) * t.r, z = t.r * 2.3;
+        if (day < 0.996) c.drawImage(t.n, t.x - z / 2 + sw, t.y - z / 2, z, z);
+        if (day > 0.004) { c.globalAlpha = day; c.drawImage(t.d, t.x - z / 2 + sw, t.y - z / 2, z, z); c.globalAlpha = 1; }
+      }
+      if (fl > 0.02) { c.fillStyle = `rgba(236,240,255,${0.38 * fl})`; c.fillRect(0, 0, W, H); }
+    },
+  };
+
+  /* ============================================================== 13  Sumi-e
+     An ink-wash landscape, after the Song painters of misty rain (and Mi Fu's dotted mountains). Four rows of
+     peaks, far to near, from north to south; every raining place raises a peak in its row (across by
+     longitude, taller where it rains harder) with a wet cloud over it and its rain falling from it as
+     dry-brush strokes: drizzle as a fine stipple, rain as long hairlines, showers as sheets that sweep,
+     thunderstorms as heavy black strokes that spatter. Each of the 320 places checked is one of the Mi dots
+     on the slopes (wet and dark where it rains, a dry fleck where it does not). Mist lies in the valleys.
+     A breath drives the mist across the peaks away from the side it came from, slants the rain and sways the
+     pine; a storm darkens the sky, the rain thrashes and ink spatters; lightning is a single dry-brush
+     stroke and the paper flashes. Calm, the rain stops, the mist settles and the moon comes out in a pale
+     wash. A tap drops ink on the paper (on a raining place, onto its peak, and its rain pours). */
+  const SUMI_ROWS = [{ b: 0.5, a: 0.95, ink: [64, 72, 84], al: 0.42 }, { b: 0.61, a: 1, ink: [44, 48, 56], al: 0.6 }, { b: 0.72, a: 0.9, ink: [30, 30, 34], al: 0.78 }, { b: 0.84, a: 0.8, ink: [18, 16, 15], al: 0.95 }];
+  const sumiRow = lat => lat > 32 ? 0 : lat > 6 ? 1 : lat > -20 ? 2 : 3;
+  function sumiSprites(st, W, H, dpr) {
+    const sk = Math.min(W / 1600, H / 900);
+    // the paper: rice paper by day, dusky old silk in the rain
+    const paper = day => {
+      const cv = canvas(W * dpr, H * dpr), g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.fillStyle = day ? '#f1ebdd' : '#b3ab98'; g.fillRect(0, 0, W, H);
+      let gr = g.createLinearGradient(0, 0, 0, H * 0.6);
+      gr.addColorStop(0, day ? 'rgba(120,110,90,0.06)' : 'rgba(26,26,34,0.42)'); gr.addColorStop(1, 'rgba(26,26,34,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      for (let i = 0; i < 70; i++) { const x = hash(i * 5 + 1) * W, y = hash(i * 5 + 2) * H, r = (40 + 160 * hash(i * 5 + 3)) * sk, q = g.createRadialGradient(x, y, 0, x, y, r);
+        q.addColorStop(0, `rgba(${hash(i) < 0.5 ? '255,250,236' : '120,104,80'},${0.04 + 0.04 * hash(i * 5 + 4)})`); q.addColorStop(1, 'rgba(120,104,80,0)'); g.fillStyle = q; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
+      const fib = [new Path2D(), new Path2D()];                    // fibres in the paper
+      for (let i = 0; i < 2600; i++) { const x = hash(i * 7 + 1) * W, y = hash(i * 7 + 2) * H, a = hash(i * 7 + 3) * TAU, l = (4 + 22 * hash(i * 7 + 4)) * sk, p = fib[i & 1];
+        p.moveTo(x, y); p.quadraticCurveTo(x + Math.cos(a + 0.6) * l * 0.5, y + Math.sin(a + 0.6) * l * 0.5, x + Math.cos(a) * l, y + Math.sin(a) * l); }
+      g.lineWidth = 0.6; g.strokeStyle = day ? 'rgba(150,130,100,0.12)' : 'rgba(70,60,46,0.14)'; g.stroke(fib[0]);
+      g.strokeStyle = day ? 'rgba(255,255,250,0.5)' : 'rgba(220,212,196,0.18)'; g.stroke(fib[1]);
+      gr = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.45, W / 2, H / 2, Math.hypot(W, H) * 0.6);
+      gr.addColorStop(0, 'rgba(90,70,40,0)'); gr.addColorStop(1, day ? 'rgba(110,86,50,0.18)' : 'rgba(40,30,20,0.45)');
+      g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      return cv;
+    };
+    st.pN = paper(false); st.pD = paper(true);
+    // a band of mist (white; tinted to the paper below)
+    const mw = 640, mh = 150, m = canvas(mw, mh), mg = m.getContext('2d');
+    for (let i = 0; i < 70; i++) { const x = (0.08 + 0.84 * hash(i * 3 + 1)) * mw, y = mh * (0.5 + 0.22 * (hash(i * 3 + 2) - 0.5)), r = mh * (0.18 + 0.3 * hash(i * 3 + 3)) * (1 - Math.abs(x / mw - 0.5));
+      const q = mg.createRadialGradient(x, y, 0, x, y, r); q.addColorStop(0, 'rgba(255,255,255,0.5)'); q.addColorStop(1, 'rgba(255,255,255,0)'); mg.fillStyle = q; mg.fillRect(x - r, y - r, 2 * r, 2 * r); }
+    st.mistMask = m; st.mistTint = {};
+    // wet blots of ink: for clouds, and for drops of ink on the paper (with the darker rim of a drying drop)
+    const blot = (rim, sd) => {
+      const S = 160, cv = canvas(S, S), g = cv.getContext('2d'), c0 = S / 2;
+      for (let i = 0; i < 26; i++) { const a = hash(sd + i * 3) * TAU, d = Math.sqrt(hash(sd + i * 3 + 1)) * S * 0.22, r = S * (0.12 + 0.16 * hash(sd + i * 3 + 2)), x = c0 + Math.cos(a) * d, y = c0 + Math.sin(a) * d * (rim ? 1 : 0.55);
+        const q = g.createRadialGradient(x, y, 0, x, y, r); q.addColorStop(0, `rgba(0,0,0,${rim ? 0.3 : 0.22})`); q.addColorStop(rim ? 0.85 : 1, `rgba(0,0,0,${rim ? 0.36 : 0})`); q.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = q; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
+      return cv;
+    };
+    st.cloud = [blot(false, 11), blot(false, 211), blot(false, 401)]; st.blot = [blot(true, 77), blot(true, 577)];
+    // the seal: 雨 (rain), carved into red stone
+    const ss = 96, seal = st.seal = canvas(ss, ss), g = seal.getContext('2d');
+    g.fillStyle = '#b3261c'; g.beginPath(); g.moveTo(3, 5); g.lineTo(ss - 4, 3); g.lineTo(ss - 3, ss - 5); g.lineTo(5, ss - 3); g.closePath(); g.fill();
+    g.globalCompositeOperation = 'destination-out'; g.lineCap = 'square'; g.lineWidth = ss * 0.075; g.strokeStyle = '#000';
+    const L = (pts) => { g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x * ss, y * ss) : g.moveTo(x * ss, y * ss)); g.stroke(); };
+    L([[0.14, 0.15], [0.86, 0.15]]); L([[0.5, 0.15], [0.5, 0.86]]); L([[0.18, 0.86], [0.18, 0.31], [0.82, 0.31], [0.82, 0.8], [0.74, 0.86]]);
+    for (const [x, y] of [[0.31, 0.45], [0.31, 0.65], [0.65, 0.45], [0.65, 0.65]]) L([[x, y], [x + 0.06, y + 0.08]]);
+    for (let i = 0; i < 220; i++) { const d = 0.6 + 2 * hash(i * 3 + 5); g.globalAlpha = 0.3 + 0.5 * hash(i * 3 + 6); g.fillRect(hash(i * 3 + 7) * ss, hash(i * 3 + 8) * ss, d, d); }
+    g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+    // a pine reaching in from the cliff on the left (it sways in the wind)
+    const pw = Math.round(W * 0.42), ph = Math.round(H * 0.4), pine = st.pine = canvas(pw * dpr, ph * dpr), pg = pine.getContext('2d');
+    pg.setTransform(dpr, 0, 0, dpr, 0, 0); pg.lineCap = 'round'; pg.strokeStyle = 'rgba(18,16,14,0.92)';
+    const limb = (x, y, a, len, w, d, sd) => {
+      const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len;
+      for (let k = 0; k < 3; k++) { pg.globalAlpha = k ? 0.35 : 0.9; pg.lineWidth = w * (k ? 0.35 : 1); pg.beginPath(); pg.moveTo(x + k * 1.5, y + k * 1.2); pg.quadraticCurveTo((x + x2) / 2 + (hash(sd + k) - 0.5) * len * 0.4, (y + y2) / 2 + len * 0.12, x2, y2); pg.stroke(); }
+      if (d === 0) {                                     // a fan of needles
+        pg.globalAlpha = 0.85; pg.lineWidth = 1.1 * sk + 0.4; pg.beginPath();
+        for (let k = 0; k < 17; k++) { const b = -Math.PI * 0.95 + k / 16 * Math.PI * 0.9, l = len * (0.5 + 0.25 * hash(sd * 7 + k)); pg.moveTo(x2, y2); pg.lineTo(x2 + Math.cos(b) * l, y2 + Math.sin(b) * l * 0.75); }
+        pg.stroke(); return;
+      }
+      const n = 2 + (hash(sd) < 0.4 ? 1 : 0);
+      for (let i = 0; i < n; i++) limb(x2, y2, a + (i - (n - 1) / 2) * 0.7 + (hash(sd * 3 + i) - 0.5) * 0.4, len * (0.62 + 0.15 * hash(sd * 5 + i)), w * 0.62, d - 1, sd * 7 + i + 1);
+    };
+    limb(-pw * 0.02, ph * 0.5, -0.16, pw * 0.34, 10 * sk + 2, 3, 5);
+    pg.globalAlpha = 1;
+    st.pineW = pw; st.pineH = ph;
+  }
+  function sumiRows(st, E, W, H, dpr) {
+    st.ref = E.sites; st.ref2 = E.pts;
+    const NX = 241, rows = [], sk = Math.min(W / 1600, H / 900), q = Math.min(dpr, 1.5);
+    for (let L = 0; L < 4; L++) {
+      const cfg = SUMI_ROWS[L], ridge = new Float32Array(NX), peaks = [];
+      for (const z of E.sites) if (sumiRow(latOf(z)) === L) peaks.push({ x: 0.03 + 0.94 * z.u, h: (0.07 + 0.21 * z.k) * cfg.a, w: 0.02 + 0.035 * z.k, z });
+      for (let i = 0; i < 3; i++) peaks.push({ x: hash(L * 31 + i * 7) , h: 0.035 + 0.04 * hash(L * 31 + i * 7 + 1), w: 0.05 + 0.05 * hash(L * 31 + i * 7 + 2), z: null });   // a few low hills anyway
+      for (let i = 0; i < NX; i++) {
+        const x = i / (NX - 1);
+        let m = 0.012 + 0.05 * Math.pow(fbm(x * 4.1 + L * 7.1, L * 1.9) * 0.5 + 0.5, 1.6) + 0.025 * Math.max(0, fbm(x * 11 + L * 3, 2 + L)) + 0.006 * fbm(x * 31 + L, 5 + L);
+        for (const p of peaks) { const d = Math.abs(x - p.x) / p.w; if (d < 1) m = Math.max(m, p.h * Math.pow(1 - Math.pow(d, 1.8), 1.35) + 0.012 * fbm(x * 40 + L, p.x * 9)); }
+        ridge[i] = (cfg.b - m) * H;
+      }
+      let top = H; for (const v of ridge) top = Math.min(top, v);
+      const y0 = Math.max(0, Math.floor(top - 12)), y1 = L === 3 ? H : Math.min(H, Math.ceil(cfg.b * H + H * 0.13)), hh = y1 - y0;
+      const cv = canvas(W * q, hh * q), g = cv.getContext('2d'); g.setTransform(q, 0, 0, q, 0, -y0 * q);
+      const rx = x => ridge[clamp(Math.round(x / W * (NX - 1)), 0, NX - 1)], ink = cfg.ink.join(',');
+      // the body: ink at the tops, dissolving into mist below
+      const body = new Path2D(); body.moveTo(-2, y1);
+      for (let i = 0; i < NX; i++) body.lineTo(i / (NX - 1) * W, ridge[i]);
+      body.lineTo(W + 2, y1); body.closePath();
+      let gr = g.createLinearGradient(0, top, 0, cfg.b * H + H * 0.1);
+      gr.addColorStop(0, `rgba(${ink},${cfg.al * 0.85})`); gr.addColorStop(0.45, `rgba(${ink},${cfg.al * 0.4})`); gr.addColorStop(1, `rgba(${ink},0)`);
+      g.fillStyle = gr; g.fill(body);
+      // wet dark tops, and the dry-brush outline of the ridge
+      g.save(); g.clip(body);
+      g.lineJoin = 'round'; g.strokeStyle = `rgba(${ink},${0.25 * cfg.al})`; g.lineWidth = (16 - L * 2) * sk + 4;
+      const rp = new Path2D(); let pon = false; for (let i = 0; i < NX; i++) { if (cfg.b * H - ridge[i] < H * 0.05) { pon = false; continue; } pon ? rp.lineTo(i / (NX - 1) * W, ridge[i] + 3) : rp.moveTo(i / (NX - 1) * W, ridge[i] + 3); pon = true; }
+      g.stroke(rp); g.restore();
+      for (let k = 0; k < 3; k++) {
+        const p = new Path2D(); let on = false;
+        for (let i = 0; i < NX; i++) { const x = i / (NX - 1) * W, y = ridge[i] + k * 1.6 + (hash(L * 977 + i * 3 + k) - 0.5) * 1.2;
+          if (hash(L * 131 + i * 7 + k * 3) < 0.12 || cfg.b * H - ridge[i] < H * 0.045) { on = false; continue; } on ? p.lineTo(x, y) : p.moveTo(x, y); on = true; }
+        g.strokeStyle = `rgba(${ink},${(k ? 0.28 : 0.7) * cfg.al})`; g.lineWidth = (k ? 0.8 : 1.6 + 0.6 * L) * (0.6 + 0.4 * sk); g.stroke(p);
+      }
+      // hemp-fibre strokes down the slopes
+      const cun = new Path2D();
+      for (let i = 0; i < 70 + L * 20; i++) { const x = hash(L * 51 + i * 3) * W, y = rx(x) + 4, l = (cfg.b * H - y) * (0.3 + 0.5 * hash(L * 51 + i * 3 + 1)); if (l < 6) continue;
+        cun.moveTo(x, y); cun.bezierCurveTo(x + (hash(i * 9 + L) - 0.5) * 14 * sk, y + l * 0.3, x + (hash(i * 9 + L + 1) - 0.5) * 18 * sk, y + l * 0.7, x + (hash(i * 9 + L + 2) - 0.5) * 10 * sk, y + l); }
+      g.strokeStyle = `rgba(${ink},${0.16 * cfg.al})`; g.lineWidth = 1; g.stroke(cun);
+      // Mi dots: soft horizontal dabs crowding the tops
+      const dots = [new Path2D(), new Path2D(), new Path2D()];
+      for (let i = 0; i < 1100 + L * 300; i++) {
+        const x = hash(L * 7919 + i * 3) * W, top2 = rx(x), dep = Math.pow(hash(L * 7919 + i * 3 + 1), 2.2) * (cfg.b * H - top2 + 10), y = top2 + 3 + dep;
+        if (cfg.b * H - top2 < H * 0.04 && hash(L * 7919 + i * 3 + 5) < 0.75) continue;
+        const r = (2.2 + 3.8 * hash(L * 7919 + i * 3 + 2)) * (0.7 + 0.25 * L) * sk + 0.6, b = dep < 18 ? 2 : dep < 50 ? 1 : 0;
+        dots[b].moveTo(x + r, y); dots[b].ellipse(x, y, r, r * 0.42, 0, 0, TAU);
+      }
+      dots.forEach((p, b) => { g.fillStyle = `rgba(${ink},${[0.08, 0.16, 0.28][b] * cfg.al})`; g.fill(p); });
+      // the places checked: wet dark dabs where it rains, a dry fleck where it does not
+      const wet = new Path2D(), dry = new Path2D();
+      for (const pt of points(E)) {
+        if (sumiRow(pt.lat) !== L) continue;
+        const x = (0.03 + 0.94 * (pt.lon + 180) / 360) * W, t2 = rx(x), y = t2 + 6 + (0.08 + 0.55 * hash(pt.id * 5 + 1)) * (cfg.b * H - t2);
+        if (pt.rain) { const r = (2.4 + 4 * pt.k) * sk + 1; for (let k = 0; k < 3; k++) { const ox = (hash(pt.id * 11 + k) - 0.5) * r * 1.6, oy = (hash(pt.id * 13 + k) - 0.5) * r * 0.5; wet.moveTo(x + ox + r, y + oy); wet.ellipse(x + ox, y + oy, r, r * 0.42, 0, 0, TAU); } }
+        else { const r = 2 * sk + 0.8; dry.moveTo(x + r, y); dry.ellipse(x, y, r, r * 0.5, 0, 0, TAU); }
+      }
+      g.fillStyle = `rgba(${ink},${0.22 * cfg.al + 0.08})`; g.fill(wet);
+      g.fillStyle = `rgba(${ink},${0.22 * cfg.al})`; g.fill(dry);
+      // little trees along the near ridges
+      if (L >= 2) {
+        const tr = new Path2D();
+        for (let i = 0; i < 160; i++) { const x = hash(L * 313 + i) * W, y = rx(x) + 1, h = (5 + 9 * hash(L * 313 + i + 1)) * sk * (L === 3 ? 1.5 : 1); if (cfg.b * H - y < H * 0.05) continue;
+          for (let k = 0; k < 4; k++) { const yy = y - h * k / 4, w = h * 0.32 * (1 - k / 5); tr.moveTo(x + w, yy); tr.ellipse(x, yy, w, w * 0.45, 0, 0, TAU); } }
+        g.fillStyle = `rgba(${ink},${0.55 * cfg.al})`; g.fill(tr);
+      }
+      rows.push({ cv, y0, h: hh, ridge, peaks: peaks.filter(p => p.z), cfg });
+    }
+    st.rows = rows;
+    st.ridgeAt = (L, x) => rows[L].ridge[clamp(Math.round(x / W * (NX - 1)), 0, NX - 1)];
+    if (!st.mist) {                                       // mist in the valleys: two bands in front of each row
+      st.mist = [];
+      for (let L = 0; L < 4; L++) for (let k = 0; k < 2; k++) st.mist.push({ L, x: hash(L * 17 + k * 5) * W * 1.4 - W * 0.2, y: (SUMI_ROWS[L].b + 0.01 + 0.04 * hash(L * 17 + k * 5 + 1)) * H, w: W * (0.7 + 0.4 * hash(L * 17 + k * 5 + 2)), h: H * (0.1 + 0.06 * hash(L * 17 + k * 5 + 3)), vx: 0, sd: L * 3 + k });
+    }
+  }
+  const sumie = {
+    name: 'sumie', title: 'Sumi-e', dark: true, bolts: false,
+    draw(R, c, E) {
+      const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E), dpr = E.dpr, sk = Math.min(W / 1600, H / 900);
+      if (st.W !== W || st.H !== H || !st.pN) { st.W = W; st.H = H; sumiSprites(st, W, H, dpr); st.ref = null; st.mist = null; st.blooms = []; st.spat = []; st.puffs = []; st.burst = new Map(); }
+      if (st.ref !== E.sites || st.ref2 !== E.pts) sumiRows(st, E, W, H, dpr);
+      const day = dayOf(st, E), rows = st.rows;
+      const [fl, fb] = flicker(R, T);
+      const dir = Math.abs(wx) > 0.12 ? Math.sign(wx) : (st.dir || 1); st.dir = dir;
+      const gust = e * (0.85 + 0.15 * Math.sin(T * 6.1)), wind = wx * gust * 1.1 + dir * storm * (0.5 + 0.35 * vnoise(T * 0.7, 3.3));
+      st.slant = (st.slant || 0) + (clamp(wind * 0.9, -1.2, 1.2) - (st.slant || 0)) * (1 - Math.exp(-dt * 7));
+      const slant = st.slant + 0.2, amt = (0.03 + 0.97 * (1 - calm)) * (1 + 1.4 * storm);
+      const ink = `${Math.round(lerp(14, 22, day))},${Math.round(lerp(13, 19, day))},${Math.round(lerp(14, 18, day))}`;
+      // ---- the paper; a storm darkens the sky with a wash
+      c.globalCompositeOperation = 'source-over';
+      const paper = fade2(st, 'fp', st.pN, st.pD, day);
+      if (storm > 0.02) {                                  // the storm's dark sky, kept with the paper while it holds still
+        let pw = st.pw; if (!pw || pw.cv.width !== paper.width || pw.cv.height !== paper.height) pw = st.pw = { cv: canvas(paper.width, paper.height), src: null, storm: -1, day: -1 };
+        if (pw.src !== paper || Math.abs(pw.storm - storm) > 0.03 || Math.abs(pw.day - day) > 0.02) {
+          const g = pw.cv.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(paper, 0, 0); g.setTransform(paper.width / W, 0, 0, paper.height / H, 0, 0);
+          const gr = g.createLinearGradient(0, 0, 0, H * 0.5); gr.addColorStop(0, `rgba(20,20,26,${0.32 * storm})`); gr.addColorStop(1, 'rgba(20,20,26,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, H * 0.5);
+          pw.src = paper; pw.storm = storm; pw.day = day;
+        }
+        c.drawImage(pw.cv, 0, 0, W, H);
+      } else c.drawImage(paper, 0, 0, W, H);
+      // ---- the moon, when it clears (a disc left as paper inside a pale wash)
+      const moon = smoothstep(0.35, 0.95, calm) * (1 - storm);
+      if (moon > 0.01) {
+        const mx = W * 0.8, my = H * 0.17, mr = H * 0.055, gr = c.createRadialGradient(mx, my, mr * 0.98, mx, my, mr * 3.2);
+        gr.addColorStop(0, `rgba(60,64,80,${0.2 * moon})`); gr.addColorStop(0.35, `rgba(60,64,80,${0.08 * moon})`); gr.addColorStop(1, 'rgba(60,64,80,0)');
+        c.fillStyle = gr; c.beginPath(); c.arc(mx, my, mr * 3.2, 0, TAU); c.fill();
+        c.fillStyle = `rgba(255,253,244,${0.85 * moon})`; c.beginPath(); c.arc(mx, my, mr, 0, TAU); c.fill();
+      }
+      // ---- taps: ink dropped on the paper; on a raining place onto its peak, and its rain pours
+      for (const t of tapsOf(R, E).fresh) {
+        let x = t.x, y = t.y, big = !t.echo;
+        if (t.site != null) { const z = E.sites.find(o => o.id === t.site); if (z) { const L = sumiRow(latOf(z)); x = (0.03 + 0.94 * z.u) * W; y = st.ridgeAt(L, x) + 8 * sk; if (!t.echo) st.burst.set(z.id, T + 3.5); } }
+        else if (t.echo) continue;
+        if (st.blooms.length < 24) st.blooms.push({ x, y, t: T, r: (big ? 70 : 26) * sk * (0.8 + 0.4 * rnd()), v: Math.floor(rnd() * 2), a: rnd() * TAU, al: big ? 0.6 : 0.3 });
+      }
+      // ---- the mist moves: a slow drift, the breath drives it across, a storm churns it
+      const drift = 6 * sk * (1 + storm * 2);
+      for (const m of st.mist) {
+        const tv = (drift * (m.sd % 2 ? 1 : -0.6) + wind * 520 * sk * (0.6 + 0.4 * (m.L + 1) / 4)) * (1 - 0.6 * calm);
+        m.vx += (tv - m.vx) * (1 - Math.exp(-dt * (Math.abs(tv) > Math.abs(m.vx) ? 4 : 0.8)));
+        m.x += m.vx * dt; if (m.x > W + 40) m.x -= W + m.w + 80; if (m.x + m.w < -40) m.x += W + m.w + 80;
+      }
+      if (gust > 0.25 && T - (st.puffT || 0) > 0.32 && st.puffs.length < 6) {        // the breath blows fresh mist in from its side
+        st.puffT = T; const by = (0.45 + 0.35 * clamp(E.my, -1, 1)) * H + (rnd() - 0.5) * H * 0.3;
+        st.puffs.push({ x: (0.5 + 0.48 * clamp(E.mx, -1, 1)) * W - W * 0.3, y: by, w: W * (0.5 + 0.3 * rnd()), h: H * (0.12 + 0.1 * rnd()), vx: (Math.abs(wx) > 0.1 ? wx : dir) * (700 + 500 * gust) * sk, t: T });
+      }
+      const mistTint = () => {
+        const key = Math.round(day * 20), c0 = st.mistTint[key];
+        if (c0) return c0;
+        const cv = canvas(st.mistMask.width, st.mistMask.height), g = cv.getContext('2d');
+        g.drawImage(st.mistMask, 0, 0); g.globalCompositeOperation = 'source-in';
+        g.fillStyle = `rgb(${mix([196, 189, 172], [246, 241, 230], key / 20)})`; g.fillRect(0, 0, cv.width, cv.height);
+        return (st.mistTint[key] = cv);
+      };
+      const mt = mistTint();
+      // ---- each row, far to near: the hills, its clouds and rain, then the mist in front of it
+      const rainOf = (pk, L, RP) => {
+        const z = pk.z, k = z.k, kind = kindOf(E, z), xs = pk.x * W, top = st.ridgeAt(L, xs);
+        const pour = (st.burst.get(z.id) || 0) > T ? 3 : 1;
+        const cx = xs + wind * 40 * sk + Math.sin(T * 0.1 + z.id) * 8 * sk, cy = Math.max(H * 0.05, top - (0.07 + 0.09 * k) * H * (L ? 1 : 0.8));
+        // the cloud: a wet blot, darker for heavier rain and thunder
+        const cs = (70 + 150 * k) * sk * (1 + 0.15 * storm), ca = Math.min(0.75, (0.18 + 0.36 * k + (kind === 3 ? 0.2 : 0)) * (0.2 + 0.8 * amt)) * (1 - 0.85 * calm);
+        if (ca > 0.03) { c.globalAlpha = ca; c.drawImage(st.cloud[z.id % 3], cx - cs / 2, cy - cs * 0.3, cs, cs * 0.6); c.globalAlpha = 1; }
+        const n = Math.round((4 + 30 * Math.pow(k, 1.2)) * Math.min(1.2, amt) * pour * (kind === 0 ? 2 : 1)), wc = (0.045 + 0.07 * k) * W, fallH = top - cy + 6;
+        if (n <= 0 || fallH < 10) return;
+        const sweep = kind === 2 ? Math.sin(T * 0.7 + z.id) * wc * 0.7 : 0;
+        for (let i = 0; i < n; i++) {
+          const h1 = hash(z.id * 97 + i * 3), h2 = hash(z.id * 97 + i * 3 + 1), dur = 0.55 + 0.4 * h2;
+          const f = ((T / dur + h1) % 1), len = kind === 0 ? 3 : (0.12 + 0.4 * h2 * h2) * fallH;
+          const y0 = cy + (hash(z.id * 97 + i * 3 + 5) - 0.3) * 30 * sk, y = y0 + f * (top - y0 + len) - len, x0 = cx + sweep + (hash(z.id * 97 + i * 3 + 2) - 0.5) * wc;
+          const ya = Math.max(y0, y), yb = Math.min(top, y + len); if (yb <= ya) continue;
+          const xa = x0 + slant * (ya - cy) * 0.6, xb = x0 + slant * (yb - cy) * 0.6;
+          if (kind === 0) { const u = hash(z.id * 97 + i * 3 + 7); RP.stip.rect(lerp(xa, xb, u), lerp(ya, yb, u), 1.6 * sk + 0.6, 1.6 * sk + 0.6); continue; }
+          const p = kind === 3 ? RP.heavy : RP.s[Math.floor(h2 * 3)];
+          if (h1 < 0.35 && yb - ya > 20) { const ym = (ya + yb) / 2; p.moveTo(xa, ya); p.lineTo(lerp(xa, xb, 0.42), lerp(ya, yb, 0.42)); p.moveTo(lerp(xa, xb, 0.55), lerp(ya, yb, 0.55)); p.lineTo(xb, yb); }   // the dry brush skips
+          else { p.moveTo(xa, ya); p.lineTo(xb, yb); }
+          if (kind === 3 && f > 0.9 && rnd() < 0.08 && st.spat.length < 140) st.spat.push({ x: xb + (rnd() - 0.5) * 30 * sk, y: yb + (rnd() - 0.3) * 12 * sk, r: (1 + 2.5 * rnd()) * sk + 0.5, t: T });
+        }
+      };
+      const flushRain = RP => {
+        c.lineCap = 'butt';
+        RP.s.forEach((p, i) => { c.strokeStyle = `rgba(${ink},${[0.18, 0.28, 0.4][i]})`; c.lineWidth = (0.55 + 0.3 * i) * (0.7 + 0.4 * sk); c.stroke(p); });
+        c.strokeStyle = `rgba(${ink},0.55)`; c.lineWidth = 1.3 * sk + 0.5; c.stroke(RP.heavy);
+        c.fillStyle = `rgba(${ink},0.45)`; c.fill(RP.stip);
+      };
+      for (let L = 0; L < 4; L++) {
+        const r = rows[L];
+        c.drawImage(r.cv, 0, r.y0, W, r.h);
+        const RP = { s: [new Path2D(), new Path2D(), new Path2D()], heavy: new Path2D(), stip: new Path2D() };
+        for (const pk of r.peaks) rainOf(pk, L, RP);
+        flushRain(RP);
+        for (const m of st.mist) if (m.L === L) { c.globalAlpha = 0.75 + 0.2 * calm; c.drawImage(mt, m.x, m.y - m.h / 2, m.w, m.h); }
+        c.globalAlpha = 1;
+      }
+      // ---- fine rain over everything, slanting with the wind
+      const fine = new Path2D(), nf = Math.round((10 + 140 * (1 - calm) + 420 * storm) * W / 1600);
+      for (let i = 0; i < nf; i++) {
+        const dur = 0.7 + 0.5 * hash(i * 3 + 2), f = (T / dur + hash(i * 3 + 1)) % 1, len = (30 + 60 * hash(i * 3 + 4)) * sk * (1 + storm);
+        const y = f * (H + len) - len, x = hash(i * 3 + 3) * (W + 400) - 200 + slant * y * 0.6;
+        fine.moveTo(x, y); fine.lineTo(x + slant * len * 0.6, y + len);
+      }
+      c.strokeStyle = `rgba(${ink},${0.14 + 0.1 * storm})`; c.lineWidth = 0.8 * (0.7 + 0.4 * sk); c.stroke(fine);
+      // ---- the river below, its ripples, and a fisherman's boat
+      const wv = new Path2D();
+      for (let i = 0; i < 26; i++) { const y = H * (0.9 + 0.09 * hash(i * 3 + 1)), x = (hash(i * 3 + 2) * 1.2 - 0.1) * W + Math.sin(T * 0.4 + i) * 6 * sk + wind * 30 * sk, l = (30 + 90 * hash(i * 3 + 3)) * sk;
+        wv.moveTo(x, y); wv.quadraticCurveTo(x + l / 2, y - 2 - 3 * gust, x + l, y); }
+      c.strokeStyle = `rgba(${ink},0.22)`; c.lineWidth = 1; c.stroke(wv);
+      st.bx = (st.bx == null ? 0 : st.bx) + ((wind * 60 * sk) - (st.bx || 0)) * (1 - Math.exp(-dt * 0.8));
+      const bx = W * 0.2 + st.bx, by = H * 0.935 + Math.sin(T * 1.1) * 1.5 * sk, bs = 38 * sk + 8;
+      c.fillStyle = `rgba(${ink},0.85)`; c.beginPath(); c.moveTo(bx - bs, by - bs * 0.12); c.quadraticCurveTo(bx, by + bs * 0.22, bx + bs * 1.05, by - bs * 0.2); c.quadraticCurveTo(bx, by + bs * 0.05, bx - bs, by - bs * 0.12); c.fill();
+      c.beginPath(); c.moveTo(bx + bs * 0.05, by - bs * 0.62); c.lineTo(bx - bs * 0.22, by - bs * 0.42); c.lineTo(bx + bs * 0.32, by - bs * 0.42); c.closePath(); c.fill();     // his hat
+      c.fillRect(bx - bs * 0.03, by - bs * 0.42, bs * 0.12, bs * 0.32);
+      c.strokeStyle = `rgba(${ink},0.6)`; c.lineWidth = 1; c.beginPath(); c.moveTo(bx + bs * 0.1, by - bs * 0.3); c.lineTo(bx + bs * 1.6, by - bs * 1.1); c.lineTo(bx + bs * 1.62, by + bs * 0.1); c.stroke();
+      // ---- ink spattered by the storm and by lightning, drying away
+      for (const b of newBolts(R, st, T)) for (let i = 0; i < 18; i++) st.spat.push({ x: (b.u == null ? 0.5 : b.u) * W + (rnd() - 0.5) * 160 * sk, y: H * (0.45 + 0.3 * rnd()), r: (1 + 3.5 * rnd()) * sk + 0.5, t: T });
+      let ns = storm * 20 * dt; while (ns > 0) { if (ns < 1 && rnd() > ns) break; ns -= 1; if (st.spat.length < 160) st.spat.push({ x: rnd() * W, y: H * (0.35 + 0.6 * rnd()), r: (0.8 + 2.5 * rnd()) * sk + 0.5, t: T }); }
+      st.spat = st.spat.filter(p => T - p.t < 4);
+      const sp = new Path2D(); for (const p of st.spat) { const r = p.r * (1 + 0.15 * Math.min(1, (T - p.t) * 4)); sp.moveTo(p.x + r, p.y); sp.arc(p.x, p.y, r, 0, TAU); }
+      c.fillStyle = `rgba(${ink},0.55)`; c.fill(sp);
+      // ---- drops of ink from taps, spreading into the paper
+      st.blooms = st.blooms.filter(b => T - b.t < 9);
+      for (const b of st.blooms) {
+        const a = T - b.t, r = b.r * (1 - Math.exp(-a * 2.2)) + 2, al = b.al * (1 - smoothstep(3, 9, a));
+        c.globalAlpha = al; c.save(); c.translate(b.x, b.y); c.rotate(b.a); c.drawImage(st.blot[b.v], -r, -r, r * 2, r * 2); c.restore();
+      }
+      c.globalAlpha = 1;
+      // ---- the pine in front, swaying; mist blown in by the breath drifting across everything
+      const sw = (wind * 0.06 + 0.008 * Math.sin(T * 0.8)) * (1 + storm);
+      c.save(); c.translate(0, H * 0.06 + st.pineH * 0.5); c.rotate(sw); c.drawImage(st.pine, 0, -st.pineH * 0.5, st.pineW, st.pineH); c.restore();
+      st.puffs = st.puffs.filter(m => T - m.t < 3.2 && m.x < W + 60 && m.x + m.w > -60);
+      for (const m of st.puffs) { m.x += m.vx * dt; m.vx *= Math.exp(-dt * 0.5); c.globalAlpha = 0.85 * Math.min(1, (T - m.t) * 5) * (1 - smoothstep(1.8, 3.2, T - m.t)); c.drawImage(mt, m.x, m.y - m.h / 2, m.w, m.h); }
+      c.globalAlpha = 1;
+      // ---- lightning: one quick dry-brush stroke, and the paper flashes
+      if (fl > 0.02 && fb) {
+        c.fillStyle = `rgba(255,252,240,${0.4 * fl})`; c.fillRect(0, 0, W, H);
+        const sd = fb.seed | 0, p = [new Path2D(), new Path2D()]; let x = (fb.u == null ? 0.5 : fb.u) * W, y = -10; const end = st.ridgeAt(2, x) || H * 0.6;
+        const pts = [[x, y]]; let n = 0;
+        while (y < end && n < 40) { x += (hash(sd + n * 3) - 0.5) * 60 * sk; y += (24 + 30 * hash(sd + n * 3 + 1)) * sk; pts.push([x, y]); n++; }
+        for (let k = 0; k < 2; k++) pts.forEach(([px, py], i) => { if (i && hash(sd + i * 7 + k) < 0.18) return; i ? p[k].lineTo(px + k * 2.5, py + k * 1.5) : p[k].moveTo(px + k * 2.5, py); });
+        c.lineCap = 'round'; c.lineJoin = 'round';
+        c.strokeStyle = `rgba(${ink},${0.9 * Math.min(1, fl * 1.4)})`; c.lineWidth = 4.5 * sk + 1.5; c.stroke(p[0]);
+        c.strokeStyle = `rgba(${ink},${0.5 * Math.min(1, fl * 1.4)})`; c.lineWidth = 1.5 * sk + 0.6; c.stroke(p[1]);
+      }
+      // ---- the seal
+      const ss = Math.round(H * 0.06); c.globalAlpha = 0.92; c.drawImage(st.seal, W * 0.92 - ss, H * 0.07, ss, ss); c.globalAlpha = 1;
+    },
+  };
+
+  /* ============================================================== 14  Rain Score
+     The world's rain written as music on a grand staff. Every raining place is a note that falls onto the
+     staff like a raindrop: its pitch is its latitude (the equator is middle C, the north high on the treble
+     staff, the south low on the bass), its place in the bar its longitude, its note value how hard it rains
+     (light rain a half note, then quarters, eighths and beamed sixteenths for the heaviest), with a brushed
+     tail as long as it rings; drizzle is played staccato, showers tremolo, thunderstorms accented. Each of
+     the 320 places checked is a faint dot, a silent note. A golden playhead sweeps the bars; each note it
+     passes rings out in rings of colour, then evaporates behind it and falls again as a drop before the next
+     pass, so the rain keeps rewriting the score. A breath bends the staff and the notes slide and gliss away
+     from the side it came from; a storm is fortissimo: tone clusters, scribbles, accents and a racing
+     playhead; lightning is a sforzando slash that sets every note ringing. Calm, the notes open into long
+     held whole notes under slurs and fermatas. A tap rings the note of the place tapped (or drops a grace
+     note where it lands); the wall's own soft notes ring theirs, in time with what it plays. */
+  const SCORE_COL = [[110, 214, 236], [128, 162, 255], [196, 140, 255], [255, 190, 80]];
+  function scorePaper(W, H, dpr, day) {
+    const cv = canvas(W * dpr, H * dpr), g = cv.getContext('2d'), sk = Math.min(W / 1600, H / 900);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    let gr = g.createLinearGradient(0, 0, W * 0.3, H);
+    if (day) { gr.addColorStop(0, '#f6f0e2'); gr.addColorStop(1, '#ebe2cf'); } else { gr.addColorStop(0, '#111a30'); gr.addColorStop(1, '#0a0f20'); }
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    const sp = [new Path2D(), new Path2D()];
+    for (let i = 0; i < 14000; i++) sp[i & 1].rect(hash(i * 3 + 1) * W, hash(i * 3 + 2) * H, 1, 1);
+    g.fillStyle = day ? 'rgba(120,100,70,0.08)' : 'rgba(150,170,220,0.05)'; g.fill(sp[0]); g.fillStyle = day ? 'rgba(255,255,250,0.4)' : 'rgba(0,0,0,0.25)'; g.fill(sp[1]);
+    for (let i = 0; i < 40; i++) { const x = hash(i * 5 + 1) * W, y = hash(i * 5 + 2) * H, r = (60 + 200 * hash(i * 5 + 3)) * sk, q = g.createRadialGradient(x, y, 0, x, y, r);
+      q.addColorStop(0, day ? `rgba(150,120,80,${0.03 * hash(i)})` : `rgba(60,80,140,${0.05 * hash(i)})`); q.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = q; g.fillRect(x - r, y - r, 2 * r, 2 * r); }
+    gr = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.45, W / 2, H / 2, Math.hypot(W, H) * 0.6);
+    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, day ? 'rgba(100,76,40,0.16)' : 'rgba(0,0,0,0.5)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    return cv;
+  }
+  function scoreNotes(st, E, L) {
+    st.ref = E.sites; st.ref2 = E.pts;
+    const notes = E.sites.map(z => {
+      const lat = latOf(z), kind = kindOf(E, z), k = z.k;
+      return { id: z.id, z, k, kind, p: clamp(Math.round(lat / 5), -13, 15), f: 0.015 + 0.97 * z.u, val: k < 0.3 ? 2 : k < 0.55 ? 4 : k < 0.8 ? 8 : 16, h: hash(z.id * 7 + 3), ring: -9, dx: 0, vx: 0 };
+    }).sort((a, b) => a.f - b.f);
+    // chords: notes in the same staff that nearly coincide share a stem position; a second step apart sits beside
+    for (let i = 1; i < notes.length; i++) { const a = notes[i - 1], b = notes[i]; if ((a.p >= 0) === (b.p >= 0) && (b.f - a.f) * L.w < L.sp * 0.9) { b.f = a.f; if (Math.abs(a.p - b.p) === 1) b.side = 1; } }
+    // beams: runs of eighths and sixteenths close together in one bar of one staff
+    st.beams = [];
+    for (const tr of [true, false]) {
+      const ns = notes.filter(n => (n.p >= 0) === tr && n.val >= 8);
+      let run = [];
+      const flush = () => { if (run.length > 1) st.beams.push(run); else if (run.length) run[0].beam = null; run = []; };
+      for (const n of ns) {
+        const last = run[run.length - 1];
+        if (last && ((n.f - last.f) * L.w > 2.8 * L.sp || Math.abs(n.p - last.p) > 4 || Math.floor(n.f * 4) !== Math.floor(last.f * 4) || run.length >= 3 || n.f === last.f)) flush();
+        n.beam = run; run.push(n);
+      }
+      flush();
+    }
+    st.notes = notes;
+  }
+  /* a treble and a bass clef, drawn as strokes (in staff spaces, y down; G line / F line at 0) */
+  function clefPaths() {
+    const G = new Path2D();
+    G.moveTo(0.25, -0.3); G.bezierCurveTo(0.25, -0.8, -0.5, -0.8, -0.5, -0.05); G.bezierCurveTo(-0.55, 0.7, 0.4, 0.95, 0.78, 0.35);
+    G.bezierCurveTo(1.08, -0.2, 0.75, -0.95, 0.12, -1.1); G.bezierCurveTo(-0.8, -1.35, -0.85, -2.35, -0.1, -3.0);
+    G.bezierCurveTo(0.4, -3.45, 0.6, -4.2, 0.28, -4.45); G.bezierCurveTo(-0.05, -4.6, -0.32, -4.05, -0.26, -3.45); G.lineTo(0.22, 1.7);
+    G.bezierCurveTo(0.3, 2.25, 0.0, 2.55, -0.38, 2.32);
+    const F = new Path2D();
+    F.moveTo(-0.1, 0); F.bezierCurveTo(-0.1, -1.1, 1.45, -1.15, 1.4, 0.15); F.bezierCurveTo(1.35, 1.35, 0.45, 2.3, -0.45, 2.75);
+    return { G, F };
+  }
+  const score = {
+    name: 'score', title: 'Rain Score', dark: true, bolts: false,
+    draw(R, c, E) {
+      const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E), dpr = E.dpr, sk = Math.min(W / 1600, H / 900);
+      const sp = H * 0.044, yC = H * 0.5, xs = W * 0.045, x0 = W * 0.14, x1 = W * 0.965, L = { sp, w: x1 - x0 - W * 0.012 };
+      if (st.W !== W || st.H !== H || !st.pN) { st.W = W; st.H = H; st.pN = scorePaper(W, H, dpr, false); st.pD = scorePaper(W, H, dpr, true); st.clef = clefPaths(); st.ref = null; st.extra = []; st.spl = []; }
+      if (st.ref !== E.sites || st.ref2 !== E.pts) scoreNotes(st, E, L);
+      const day = dayOf(st, E), notes = st.notes;
+      const INKc = mix([233, 225, 207], [29, 27, 34], day), ink = INKc.join(','), [fl, fb] = flicker(R, T);
+      const dir = Math.abs(wx) > 0.12 ? Math.sign(wx) : (st.dir || 1); st.dir = dir;
+      const gust = e * (0.85 + 0.15 * Math.sin(T * 5.7)), bxs = (0.5 + 0.45 * clamp(E.mx, -1, 1)) * W;
+      // ---- the playhead: slow in the calm, faster in rain, racing in a storm; a breath pushes it on
+      const cyc = 1 / (1 / 22 + (1 - calm) * (1 / 14 - 1 / 22) + storm * 0.11 + gust * 0.05);
+      st.P = (st.P == null ? (T / 14) % 1 : st.P) + dt / cyc;
+      const P = st.P, ph = P % 1, phx = x0 + ph * (x1 - x0);
+      // ---- the breath bends the staff: a wave running downwind from where it blows; a storm makes it tremble
+      const bend = (x, T2) => {
+        const env = Math.exp(-((x - bxs - dir * W * 0.12) ** 2) / (0.09 * W * W));
+        return sp * (gust * 0.9 * env * Math.sin((x - bxs) * dir * 0.012 / sk - T2 * 9) + storm * 0.22 * Math.sin(x * 0.05 / sk + T2 * 23) + 0.05 * Math.sin(x * 0.004 + T2 * 0.6));
+      };
+      const yOf = p => yC - p * sp / 2;
+      // ---- paper, and the rain falling across it
+      c.globalCompositeOperation = 'source-over';
+      c.drawImage(fade2(st, 'fp', st.pN, st.pD, day), 0, 0, W, H);
+      const slant = wx * gust * 0.9 + dir * storm * 0.5 + 0.15;
+      const rain = new Path2D(), nr = Math.round((14 + 120 * (1 - calm) + 360 * storm) * W / 1600);
+      for (let i = 0; i < nr; i++) { const dur = 0.8 + 0.6 * hash(i * 3 + 2), f = (T / dur + hash(i * 3 + 1)) % 1, len = (24 + 50 * hash(i * 3 + 4)) * sk * (1 + storm), y = f * (H + len) - len, x = hash(i * 3 + 3) * (W + 300) - 150 + slant * y * 0.5;
+        rain.moveTo(x, y); rain.lineTo(x + slant * len * 0.5, y + len); }
+      c.strokeStyle = `rgba(${ink},${0.07 + 0.06 * storm})`; c.lineWidth = 0.8; c.stroke(rain);
+      // ---- the playhead's glow
+      const pg = c.createLinearGradient(phx - 90 * sk, 0, phx + 14 * sk, 0);
+      pg.addColorStop(0, 'rgba(255,196,96,0)'); pg.addColorStop(0.85, `rgba(255,196,96,${0.1 + 0.05 * storm})`); pg.addColorStop(1, 'rgba(255,196,96,0)');
+      c.fillStyle = pg; c.fillRect(phx - 90 * sk, yOf(16), 104 * sk, yOf(-14) - yOf(16));
+      // ---- the staff: ten lines (they bend), bar lines, the brace, clefs and common time
+      const lines = new Path2D(), N = 90;
+      for (const p of [2, 4, 6, 8, 10, -2, -4, -6, -8, -10]) for (let i = 0; i <= N; i++) { const x = xs + (x1 - xs) * i / N, y = yOf(p) + bend(x, T); i ? lines.lineTo(x, y) : lines.moveTo(x, y); }
+      c.lineCap = 'butt'; c.strokeStyle = `rgba(${ink},${0.42 + 0.1 * day})`; c.lineWidth = Math.max(1, 1.1 * sk); c.stroke(lines);
+      const bars = new Path2D();
+      for (let b = 1; b <= 4; b++) { const x = b < 4 ? x0 + (x1 - x0) * b / 4 : x1; for (const [pa, pb] of [[10, 2], [-2, -10]]) { bars.moveTo(x, yOf(pa) + bend(x, T)); bars.lineTo(x, yOf(pb) + bend(x, T)); } }
+      bars.moveTo(xs, yOf(10) + bend(xs, T)); bars.lineTo(xs, yOf(-10) + bend(xs, T));
+      c.lineWidth = Math.max(1, 1.3 * sk); c.stroke(bars);
+      c.fillStyle = `rgba(${ink},0.85)`; c.fillRect(x1 + 2.5 * sk, yOf(10) + bend(x1, T), 4 * sk, yOf(-10) - yOf(10));        // the final double bar
+      // the brace
+      const by0 = yOf(10), by1 = yOf(-10), bm = (by0 + by1) / 2, bxx = xs - 10 * sk;
+      c.beginPath(); c.moveTo(bxx, by0); c.bezierCurveTo(bxx - 16 * sk, by0 + 20 * sk, bxx + 6 * sk, bm - 30 * sk, bxx - 12 * sk, bm); c.bezierCurveTo(bxx + 6 * sk, bm + 30 * sk, bxx - 16 * sk, by1 - 20 * sk, bxx, by1);
+      c.bezierCurveTo(bxx - 10 * sk, by1 - 24 * sk, bxx + 12 * sk, bm + 26 * sk, bxx - 9 * sk, bm); c.bezierCurveTo(bxx + 12 * sk, bm - 26 * sk, bxx - 10 * sk, by0 + 24 * sk, bxx, by0); c.fill();
+      const clefAt = (path, x, y, w) => { c.save(); c.translate(x, y); c.scale(sp, sp); c.lineWidth = w; c.lineCap = 'round'; c.strokeStyle = `rgba(${ink},0.9)`; c.stroke(path); c.restore(); };
+      clefAt(st.clef.G, xs + 2.3 * sp, yOf(4) + bend(xs + 2.3 * sp, T), 0.17);
+      c.beginPath(); c.arc(xs + 2.3 * sp - 0.38 * sp, yOf(4) + 2.3 * sp, 0.22 * sp, 0, TAU); c.fill();
+      clefAt(st.clef.F, xs + 1.8 * sp, yOf(-4) + bend(xs + 1.8 * sp, T), 0.22);
+      c.beginPath(); c.arc(xs + 1.7 * sp, yOf(-4) + bend(xs, T), 0.3 * sp, 0, TAU); c.arc(xs + 3.4 * sp, yOf(-3), 0.15 * sp, 0, TAU); c.moveTo(xs + 3.4 * sp + 0.15 * sp, yOf(-5)); c.arc(xs + 3.4 * sp, yOf(-5), 0.15 * sp, 0, TAU); c.fill();
+      for (const p of [6, -6]) { const x = xs + 4.6 * sp, y = yOf(p) + bend(x, T); c.strokeStyle = `rgba(${ink},0.9)`; c.lineWidth = 0.28 * sp; c.beginPath(); c.arc(x, y, 0.85 * sp, 0.85, TAU - 0.85); c.stroke(); }   // common time
+      // ---- the silent notes: every place checked where it is dry, a faint dot
+      const ghost = new Path2D();
+      for (const q of points(E)) { if (q.rain) continue; const x = x0 + (0.015 + 0.97 * (q.lon + 180) / 360) * L.w, y = yOf(clamp(Math.round(q.lat / 5), -13, 15)) + bend(x, T), r = sp * 0.12; ghost.moveTo(x + r, y); ghost.arc(x, y, r, 0, TAU); }
+      c.fillStyle = `rgba(${ink},0.16)`; c.fill(ghost);
+      // ---- taps ring their note; a tap elsewhere drops a grace note where it lands
+      for (const t of tapsOf(R, E).fresh) {
+        const n = t.site != null ? notes.find(o => o.id === t.site) : null;
+        if (n) { n.ring = T; n.big = t.echo ? 0.5 : 1.6; }
+        else if (!t.echo && st.extra.length < 12) st.extra.push({ x: clamp(t.x, x0, x1), p: clamp(Math.round((yC - t.y) / (sp / 2)), -13, 15), t: T });
+      }
+      for (const b of newBolts(R, st, T)) { for (const n of notes) { n.ring = T + Math.abs(n.f - (b.u == null ? 0.5 : b.u)) * 0.6; n.big = 1.2; } st.sfz = { x: x0 + (b.u == null ? 0.5 : b.u) * L.w, t: T, sd: b.seed | 0 }; }
+      // ---- the notes
+      const heads = new Path2D(), hollow = new Path2D(), stems = new Path2D(), flags = new Path2D(), beamP = new Path2D(), ledg = new Path2D(), arts = new Path2D(), dots = new Path2D(), slurs = new Path2D();
+      const tails = [new Path2D(), new Path2D(), new Path2D(), new Path2D()], lit = [new Path2D(), new Path2D(), new Path2D(), new Path2D()], rings = [[], [], [], []];
+      const drops = new Path2D(), hr = sp * 0.6, hv = sp * 0.43, rot = -0.35, whole = smoothstep(0.45, 0.9, calm);
+      const pos = [];
+      for (const n of notes) {
+        // played when the playhead passes; it evaporates some way behind it and falls again as a drop
+        const local = (((P - n.f) % 1) + 1) % 1, g0 = 0.42 + 0.22 * n.h, gone = local > g0 && local < g0 + 0.16;
+        if (local < (st.lastLocal && st.lastLocal.get(n.id)) && T - n.ring > 0.3) { n.ring = T; n.big = 1; }
+        (st.lastLocal || (st.lastLocal = new Map())).set(n.id, local);
+        let x = x0 + n.f * L.w, y = yOf(n.p);
+        // the breath pushes the notes downwind (they spring back); the staff carries them up and down
+        const env = Math.exp(-((x - bxs) ** 2) / (0.12 * W * W));
+        n.vx += ((dir * gust * env * 0.05 * W + storm * 6 * sk * Math.sin(T * 13 + n.h * 40)) - n.dx) * 30 * dt - n.vx * 7 * dt; n.dx += n.vx * dt;
+        const x2 = x + n.dx + (n.side ? hr * 2.05 : 0), y2 = y + bend(x2, T);
+        if (Math.abs(n.dx) > sp * 0.6) { const yy = y + bend(x, T); slurs.moveTo(x, yy); for (let k = 1; k <= 8; k++) { const t = k / 8; slurs.lineTo(lerp(x, x2, t), lerp(yy, y2, t) + Math.sin(t * Math.PI * 4) * sp * 0.25 * (1 - t)); } }   // a glissando where it was pushed from
+        let a = 1, fall = -1;
+        if (gone) { const u = (local - g0) / 0.16; if (u < 0.35) a = 1 - u / 0.35; else { a = 0; fall = (u - 0.35) / 0.65; } }
+        if (fall >= 0) { const yy = lerp(-30, y2, fall * fall); drops.moveTo(x2 + sp * 0.18, yy); drops.arc(x2, yy, sp * 0.18, 0, Math.PI); drops.lineTo(x2, yy - sp * 0.55); drops.closePath(); pos.push(null); continue; }
+        if (!gone && local < g0 + 0.2 && local > g0 + 0.16 - 0.001 && !n.landed) { n.landed = true; st.spl.push({ x: x2, y: y2, t: T }); } if (local < g0) n.landed = false;
+        pos.push([x2, y2]);
+        // ledger lines above and below the staves (and middle C)
+        const lp = []; if (n.p === 0 || n.p === 1 || n.p === -1) lp.push(0); for (let q = 12; q <= n.p; q += 2) lp.push(q); for (let q = -12; q >= n.p; q -= 2) lp.push(q);
+        for (const q of lp) if (n.p !== 1 && n.p !== -1 || q === 0 && Math.abs(n.p) === 0) { const yy = yOf(q) + bend(x2, T); ledg.moveTo(x2 - hr * 1.6, yy); ledg.lineTo(x2 + hr * 1.6, yy); }
+        // the tail: as long as the note rings, as thick as it is loud; it lights up while it sounds
+        const ra = T - n.ring, ringing = ra >= 0 && ra < 2.6, tl = (1.2 + 6 * n.k) * sp * (1 + 0.6 * whole), tw = (0.12 + 0.35 * n.k) * sp;
+        const tp = ringing ? lit[n.kind] : tails[n.kind], bendT = dir * gust * env * sp * 1.5;
+        if (a > 0.3) { tp.moveTo(x2 + hr * 0.7, y2 - tw * 0.5); tp.quadraticCurveTo(x2 + tl * 0.5, y2 - tw * 0.4 + bendT, x2 + tl, y2 + bendT * 1.5); tp.quadraticCurveTo(x2 + tl * 0.5, y2 + tw * 0.4 + bendT, x2 + hr * 0.7, y2 + tw * 0.5); }
+        if (ringing) rings[n.kind].push([x2, y2, ra, n.big || 1]);
+        // head, stem, flags, articulation
+        const open = n.val === 2 || whole > 0.5, up = n.p >= 0 ? n.p < 6 : n.p < -6;
+        const hp = open ? hollow : heads;
+        if (a > 0.05) { hp.moveTo(x2 + hr, y2); hp.ellipse(x2, y2, hr, hv, rot, 0, TAU); }
+        const sa = a * (1 - whole);
+        n.sx = up ? x2 + hr * 0.92 : x2 - hr * 0.92; n.sy = y2 + (up ? -0.15 : 0.15) * sp; n.up = up; n.a = sa;
+        if (sa > 0.05 && !(n.beam && n.beam.length > 1)) {
+          stems.moveTo(n.sx, n.sy); stems.lineTo(n.sx, y2 + (up ? -3.4 : 3.4) * sp);
+          for (let k = 0; k < (n.val === 16 ? 2 : n.val === 8 ? 1 : 0); k++) { const fy = y2 + (up ? -3.4 + k * 0.8 : 3.4 - k * 0.8) * sp, d = up ? 1 : -1;
+            flags.moveTo(n.sx, fy); flags.bezierCurveTo(n.sx + sp * 0.15, fy + d * sp * 0.7, n.sx + sp * 1.1, fy + d * sp * 0.9, n.sx + sp * 0.8, fy + d * sp * 1.9); }
+        }
+        if (a > 0.3) {
+          const ay = y2 + (up ? 1 : -1) * sp * 1.1;
+          if (n.kind === 0) { dots.moveTo(x2 + sp * 0.16, ay); dots.arc(x2, ay, sp * 0.16, 0, TAU); }                    // drizzle: staccato
+          if (n.kind === 3 || storm > 0.5) { const ay2 = y2 + (up ? 1.3 : -1.3) * sp; arts.moveTo(x2 - sp * 0.6, ay2 - sp * 0.3); arts.lineTo(x2 + sp * 0.6, ay2); arts.lineTo(x2 - sp * 0.6, ay2 + sp * 0.3); }   // accents
+          if (n.kind === 2 && sa > 0.05) for (let k = 0; k < 3; k++) { const ty = y2 + (up ? -1.6 - k * 0.5 : 1.6 + k * 0.5) * sp; arts.moveTo(n.sx - sp * 0.5, ty + sp * 0.25); arts.lineTo(n.sx + sp * 0.5, ty - sp * 0.25); }   // showers: tremolo
+          if (whole > 0.3 && n.h < 0.28) { const fy = y2 - 2.2 * sp; arts.moveTo(x2 - sp * 0.8, fy); arts.quadraticCurveTo(x2, fy - sp * 1.2, x2 + sp * 0.8, fy); dots.moveTo(x2 + sp * 0.13, fy - sp * 0.2); dots.arc(x2, fy - sp * 0.2, sp * 0.13, 0, TAU); }   // fermata
+        }
+      }
+      // beams join the short notes close together (their stems meet the beam)
+      for (const g of st.beams) {
+        if (g.some(n => !(n.a > 0.05))) continue;
+        const up = g.filter(n => n.up).length * 2 >= g.length, f0 = g[0], f1 = g[g.length - 1];
+        let ya = Math.min(...g.map(n => n.sy)), yb = ya;
+        if (up) { ya = f0.sy - 3.3 * sp; yb = f1.sy - 3.3 * sp; const top = Math.min(...g.map(n => n.sy)) - 2.6 * sp; const m = Math.min(ya, yb, top); ya = Math.min(ya, m + sp * 0.6); yb = Math.min(yb, m + sp * 0.6); }
+        else { ya = f0.sy + 3.3 * sp; yb = f1.sy + 3.3 * sp; const bot = Math.max(...g.map(n => n.sy)) + 2.6 * sp; const m = Math.max(ya, yb, bot); ya = Math.max(ya, m - sp * 0.6); yb = Math.max(yb, m - sp * 0.6); }
+        const xa = f0.sx, xb = f1.sx, mid = (ya + yb) / 2, sl = clamp(yb - ya, -0.25 * (xb - xa), 0.25 * (xb - xa)); ya = mid - sl / 2; yb = mid + sl / 2;
+        const by = x => lerp(ya, yb, (x - xa) / ((xb - xa) || 1));
+        for (const n of g) { stems.moveTo(n.sx, n.sy); stems.lineTo(n.sx, by(n.sx)); }
+        for (let k = 0; k < (g.some(n => n.val === 16) ? 2 : 1); k++) { const o = (up ? 1 : -1) * k * sp * 0.75, t = sp * 0.24;
+          beamP.moveTo(xa, ya + o - t); beamP.lineTo(xb, yb + o - t); beamP.lineTo(xb, yb + o + t); beamP.lineTo(xa, ya + o + t); beamP.lineTo(xa, ya + o - t); }
+      }
+      // calm: long slurs over the held notes, staff by staff
+      if (whole > 0.05) for (const tr of [true, false]) {
+        let prev = null;
+        notes.forEach((n, i) => { if ((n.p >= 0) !== tr || !pos[i]) return; const [x, y] = pos[i];
+          if (prev && x - prev[0] > sp * 2 && x - prev[0] < W * 0.2) { const yy = Math.min(prev[1], y) - sp * (1.4 + 0.02 * (x - prev[0]) / sk); slurs.moveTo(prev[0], prev[1] - sp * 0.8); slurs.quadraticCurveTo((prev[0] + x) / 2, yy, x, y - sp * 0.8); }
+          prev = [x, y]; });
+      }
+      // grace notes dropped by taps
+      st.extra = st.extra.filter(g => T - g.t < 7);
+      for (const g of st.extra) { const a = T - g.t, y = yOf(g.p) + bend(g.x, T), yy = a < 0.4 ? lerp(-20, y, (a / 0.4) ** 2) : y; if (a < 0.4) continue; heads.moveTo(g.x + hr * 0.7, yy); heads.ellipse(g.x, yy, hr * 0.7, hv * 0.7, rot, 0, TAU);
+        stems.moveTo(g.x + hr * 0.62, yy); stems.lineTo(g.x + hr * 0.62, yy - 2.6 * sp); arts.moveTo(g.x - sp * 0.2, yy - sp * 1.2); arts.lineTo(g.x + sp * 1.3, yy - sp * 2.2);
+        if (!g.rang) { g.rang = true; st.spl.push({ x: g.x, y, t: T, big: 1 }); } }
+      // ---- paint: tails (lit ones in colour), rings, then the ink
+      c.globalCompositeOperation = 'source-over';
+      for (let k = 0; k < 4; k++) {
+        c.fillStyle = `rgba(${ink},${0.1 + 0.06 * day})`; c.fill(tails[k]);
+        c.fillStyle = `rgba(${SCORE_COL[k]},${0.65 - 0.15 * day})`; c.fill(lit[k]);
+      }
+      for (let k = 0; k < 4; k++) {
+        const P1 = new Path2D(), P2 = new Path2D();
+        for (const [x, y, ra, big] of rings[k]) { if (ra > 1.8) continue; for (let j = 0; j < 2; j++) { const r = sp * (0.9 + (ra - j * 0.25) * 2.4 * big); if (r < sp * 0.9) continue; const p = ra < 0.8 ? P1 : P2; p.moveTo(x + r, y); p.ellipse(x, y, r, r * 0.42, 0, 0, TAU); } }
+        const al = 0.55 - 0.2 * day;
+        c.lineWidth = Math.max(1, 1.4 * sk); c.strokeStyle = `rgba(${SCORE_COL[k]},${al})`; c.stroke(P1);
+        c.lineWidth = Math.max(0.8, 0.9 * sk); c.strokeStyle = `rgba(${SCORE_COL[k]},${al * 0.5})`; c.stroke(P2);
+      }
+      // ringing heads glow in their colour
+      notes.forEach((n, i) => { const ra = T - n.ring; if (ra < 0 || ra > 1.2 || !pos[i]) return; const z = sp * (3 + 3 * (n.big || 1)) * (1 - ra / 1.4); c.globalAlpha = (1 - ra / 1.2) * (0.7 - 0.3 * day); c.drawImage(glow(SCORE_COL[n.kind].join(','), 64, 0.3), pos[i][0] - z / 2, pos[i][1] - z / 2, z, z); });
+      c.globalAlpha = 1;
+      // splashes where the drops land
+      st.spl = st.spl.filter(q => T - q.t < 0.6);
+      const sp2 = new Path2D();
+      for (const q of st.spl) { const a = T - q.t; for (let k = 0; k < 7; k++) { const an = -Math.PI * (0.1 + 0.8 * k / 6), r = sp * (0.4 + a * 4); sp2.rect(q.x + Math.cos(an) * r, q.y + Math.sin(an) * r * 0.8 + a * a * sp * 6, 1.6 * sk + 0.6, 1.6 * sk + 0.6); } }
+      c.fillStyle = `rgba(${ink},0.7)`; c.fill(sp2);
+      c.lineCap = 'butt';
+      c.strokeStyle = `rgba(${ink},0.55)`; c.lineWidth = Math.max(1, 1.2 * sk); c.stroke(ledg);
+      c.strokeStyle = `rgba(${ink},0.85)`; c.lineWidth = Math.max(1, 1.3 * sk); c.stroke(stems);
+      c.fillStyle = `rgba(${ink},0.92)`; c.fill(heads); c.fill(beamP); c.fill(dots); c.fill(drops);
+      c.lineCap = 'round'; c.lineWidth = sp * 0.2; c.stroke(flags); c.lineCap = 'butt';
+      c.lineWidth = sp * 0.17; c.stroke(hollow);
+      c.lineWidth = Math.max(1.2, 1.6 * sk); c.lineJoin = 'round'; c.stroke(arts);
+      c.strokeStyle = `rgba(${ink},0.6)`; c.lineWidth = Math.max(1, 1.3 * sk); c.stroke(slurs);
+      // ---- dynamics: hairpins under the bass from bar to bar, louder where it rains harder
+      const loud = [0, 0, 0, 0], cnt = [0, 0, 0, 0];
+      for (const n of notes) { const b = clamp(Math.floor(n.f * 4), 0, 3); loud[b] += n.k; cnt[b]++; }
+      const hy = yOf(-13.5), hp2 = new Path2D();
+      for (let b = 0; b < 3; b++) {
+        const la = cnt[b] ? loud[b] / cnt[b] + cnt[b] * 0.02 : 0, lb = cnt[b + 1] ? loud[b + 1] / cnt[b + 1] + cnt[b + 1] * 0.02 : 0, xa = x0 + L.w * (b + 0.32) / 4, xb = x0 + L.w * (b + 0.95) / 4, o = sp * 0.5;
+        if (Math.abs(la - lb) < 0.03) continue;
+        if (lb > la) { hp2.moveTo(xb, hy - o); hp2.lineTo(xa, hy); hp2.lineTo(xb, hy + o); } else { hp2.moveTo(xa, hy - o); hp2.lineTo(xb, hy); hp2.lineTo(xa, hy + o); }
+      }
+      c.strokeStyle = `rgba(${ink},0.55)`; c.lineWidth = Math.max(1, 1.2 * sk); c.stroke(hp2);
+      c.font = `italic 600 ${Math.round(sp * 1.25)}px "Cormorant Garamond", Georgia, serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = `rgba(${ink},0.75)`;
+      for (let b = 0; b < 4; b++) { const la = cnt[b] ? loud[b] / cnt[b] : 0, m = cnt[b] ? (la + cnt[b] * 0.015 + storm * 0.6 - calm * 0.3) : -1; c.fillText(m < 0 ? '' : m < 0.35 ? 'pp' : m < 0.5 ? 'p' : m < 0.65 ? 'mp' : m < 0.8 ? 'mf' : m < 1 ? 'f' : 'ff', x0 + L.w * (b + 0.12) / 4, hy); }
+      // ---- the storm: fortissimo scribbles and tone clusters by the heavy notes
+      if (storm > 0.08) {
+        if (!st.scrT || T - st.scrT > 0.09) {
+          st.scrT = T; const scr = st.scr = new Path2D(), cl = st.cl = new Path2D();
+          notes.forEach((n, i) => { if (!pos[i] || n.k < 0.55 - 0.3 * storm || rnd() > storm) return; const [x, y] = pos[i];
+            if (rnd() < 0.5) { const hh = sp * (1 + 2.5 * n.k); cl.rect(x - hr * 0.5, y - hh, hr, hh * 2); }
+            else { scr.moveTo(x, y); for (let k = 0; k < 7; k++) scr.lineTo(x + (rnd() - 0.3) * sp * 4 * storm, y + (rnd() - 0.5) * sp * 5 * storm); } });
+        }
+        c.globalAlpha = Math.min(1, storm * 1.3); c.fillStyle = `rgba(${ink},0.85)`; c.fill(st.cl); c.strokeStyle = `rgba(${ink},0.5)`; c.lineWidth = Math.max(1, 1.1 * sk); c.stroke(st.scr); c.globalAlpha = 1;
+      }
+      // ---- the playhead itself, and lightning as a sforzando slash
+      c.strokeStyle = `rgba(255,206,120,${0.75 + 0.2 * storm})`; c.lineWidth = Math.max(1.2, 1.8 * sk);
+      c.beginPath(); c.moveTo(phx, yOf(15)); c.lineTo(phx, yOf(-14)); c.stroke();
+      if (st.sfz && T - st.sfz.t < 1.2) {
+        const a = 1 - (T - st.sfz.t) / 1.2, p = new Path2D(); let x = st.sfz.x, y = yOf(17);
+        p.moveTo(x, y); for (let k = 0; y < yOf(-15); k++) { x += (hash(st.sfz.sd + k) - 0.5) * sp * 2.4; y += sp * (0.9 + 0.8 * hash(st.sfz.sd + k + 50)); p.lineTo(x, y); }
+        c.lineJoin = 'miter'; c.strokeStyle = `rgba(255,214,120,${a})`; c.lineWidth = sp * 0.3 * a + 1; c.stroke(p);
+        c.fillStyle = `rgba(255,224,150,${0.18 * fl})`; c.fillRect(0, 0, W, H);
+      }
+    },
+  };
+
+  /* ============================================================== 15  Splash
+     Rain in high-speed macro photography: drops falling onto a dark glossy pool in slow motion, each one a
+     crown splash. Every raining place is a spot on the pool, in perspective (east-west across, north far
+     away and south close by), dropping again and again: heavier rain = more often, a bigger crown and a
+     taller jet; drizzle only dimples the surface, showers fall in pairs, thunderstorms throw huge crowns
+     and spray. The liquid takes the colour of the latitude (coral and amber in the tropics, green and
+     teal in the middle latitudes, violet toward the poles). The places checked where it is dry are small
+     beads resting on the surface. A breath is a gust of air across the set: the crowns lean away from the
+     side it came from, their droplets are torn off downwind as spray and cat's-paws race over the pool; a
+     storm speeds the film up and fills it with splashes; lightning is the photographer's flash: the picture
+     freezes for an instant in hard white light. Calm, the studio turns high-key white and the film runs
+     slower still, a few perfect crowns at a time. A tap drops a drop where it lands (on a raining place,
+     a big one there). */
+  const SPL_N = 14;
+  function splashBg(st, W, H, dpr, day, E) {
+    const cv = canvas(W * dpr, H * dpr), g = cv.getContext('2d'), hy = st.hy;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    let gr = g.createLinearGradient(0, 0, 0, H);
+    if (day) { gr.addColorStop(0, '#f4f4f6'); gr.addColorStop(0.32, '#e8e9ee'); gr.addColorStop(0.36, '#d4d6de'); gr.addColorStop(1, '#bcbfca'); }
+    else { gr.addColorStop(0, '#050509'); gr.addColorStop(0.3, '#0b0b14'); gr.addColorStop(0.34, '#06060b'); gr.addColorStop(1, '#020204'); }
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    // the lights behind the set, and their long reflection in the pool
+    for (const [x, col, a] of day ? [[0.3, '255,255,255', 0.7], [0.75, '255,250,240', 0.5]] : [[0.22, '220,60,170', 0.42], [0.78, '40,170,240', 0.42], [0.5, '255,210,160', 0.18]]) {
+      let q = g.createRadialGradient(x * W, hy, 0, x * W, hy, W * 0.38); q.addColorStop(0, `rgba(${col},${a})`); q.addColorStop(1, `rgba(${col},0)`);
+      g.fillStyle = q; g.fillRect(0, 0, W, H);
+      g.save(); g.translate(x * W, hy); g.scale(1, 0.18);
+      q = g.createRadialGradient(0, 0, 0, 0, 0, W * 0.32); q.addColorStop(0, `rgba(${col},${a * 0.9})`); q.addColorStop(1, `rgba(${col},0)`);
+      g.fillStyle = q; g.fillRect(-W, 0, 2 * W, H * 5); g.restore();
+    }
+    g.fillStyle = day ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.1)'; g.fillRect(0, hy - 0.5, W, 1);
+    // the places checked where it is dry: small beads resting on the surface
+    const P = st.P, p = [0, 0, 0], beads = [];
+    for (const q of points(E)) if (!q.rain) {
+      const Z = 1 / lerp(1 / 4.8, 1 / 1.15, clamp((80 - q.lat) / 140, 0, 1)), X = ((q.lon + 180) / 360 - 0.5) * 0.98 * W * Z / st.f;
+      P(X, 0, Z, p); beads.push([p[0], p[1], p[2]]);
+    }
+    for (const [x, y, k] of beads) {
+      const r = Math.max(0.7, 0.004 * k);
+      g.fillStyle = day ? 'rgba(90,96,120,0.16)' : 'rgba(0,0,0,0.3)'; g.beginPath(); g.ellipse(x, y + r * 0.3, r * 1.4, r * 0.45, 0, 0, TAU); g.fill();
+      g.fillStyle = day ? 'rgba(255,255,255,0.75)' : 'rgba(210,220,250,0.32)'; g.beginPath(); g.ellipse(x - r * 0.2, y - r * 0.2, r * 0.6, r * 0.35, 0, 0, TAU); g.fill();
+    }
+    gr = g.createRadialGradient(W / 2, H * 0.6, Math.min(W, H) * 0.4, W / 2, H * 0.6, Math.hypot(W, H) * 0.65);
+    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, day ? 'rgba(60,64,80,0.25)' : 'rgba(0,0,0,0.6)');
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    return cv;
+  }
+  const _spheres = new Map();
+  function sphere(rgb) {                            // a lit drop of liquid, one per colour
+    const key = rgb.join(','); let s = _spheres.get(key); if (s) return s;
+    s = canvas(64, 64); const g = s.getContext('2d');
+    let q = g.createRadialGradient(26, 24, 2, 32, 32, 31);
+    q.addColorStop(0, `rgba(${mix(rgb, [255, 255, 255], 0.55)},1)`); q.addColorStop(0.45, `rgba(${rgb},0.95)`); q.addColorStop(0.85, `rgba(${mix(rgb, [0, 0, 0], 0.45)},0.95)`); q.addColorStop(1, `rgba(${mix(rgb, [0, 0, 0], 0.6)},0)`);
+    g.fillStyle = q; g.beginPath(); g.arc(32, 32, 31, 0, TAU); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.9)'; g.beginPath(); g.ellipse(23, 20, 7, 4.5, -0.6, 0, TAU); g.fill();
+    g.fillStyle = `rgba(${mix(rgb, [255, 255, 255], 0.7)},0.6)`; g.beginPath(); g.ellipse(38, 46, 9, 3, 0.3, 0, TAU); g.fill();
+    _spheres.set(key, s); return s;
+  }
+  const splash = {
+    name: 'splash', title: 'Splash', dark: true, bolts: false,
+    draw(R, c, E) {
+      const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E), wy = windY(E), dpr = E.dpr;
+      if (st.W !== W || st.H !== H || !st.P) {
+        st.W = W; st.H = H; st.hy = H * 0.3; st.f = W * 0.9; const f = st.f, hc = (H * 1.03 - st.hy) / f, hy = st.hy;
+        st.hc = hc;
+        st.P = (X, Y, Z, out) => { const k = f / Z; out[0] = W / 2 + X * k; out[1] = hy + (hc - Y) * k; out[2] = k; return out; };
+        st.ev = []; st.clk = 0; st.bgN = null; st.ref2 = null;
+      }
+      if (st.ref2 !== E.pts || !st.bgN) { st.ref2 = E.pts; st.bgN = splashBg(st, W, H, dpr, false, E); st.bgD = splashBg(st, W, H, dpr, true, E); }
+      const day = dayOf(st, E), P = st.P, hc = st.hc, p = [0, 0, 0], p2 = [0, 0, 0];
+      const [fl] = flicker(R, T);
+      // ---- the film runs slow; faster in a storm; a lightning flash freezes it for an instant
+      for (const b of newBolts(R, st, T)) st.freeze = T + 0.28;
+      const frozen = st.freeze > T;
+      const rho = frozen ? 0 : (0.3 + 0.32 * (1 - calm) + 0.75 * storm + 0.2 * e);
+      st.clk += dt * rho; const clk = st.clk;
+      const dir = Math.abs(wx) > 0.12 ? Math.sign(wx) : (st.dir || 1); st.dir = dir;
+      const gust = e * (0.85 + 0.15 * Math.sin(T * 6.3)), bxs = (0.5 + 0.45 * clamp(E.mx, -1, 1)) * W;
+      const windAt = x => (wx * gust * (0.35 + 0.65 * Math.exp(-((x - bxs) ** 2) / (0.15 * W * W))) + dir * storm * (0.45 + 0.4 * vnoise(T * 0.9, x * 0.003)));
+      // ---- drops: every raining place drops again and again (on the film's clock)
+      const placeOf = z => { const Z = 1 / lerp(1 / 4.8, 1 / 1.55, southOf(z)); return [(z.u - 0.5) * 0.92 * W * Z / st.f, Z]; };
+      const spawn = (X, Z, k, kind, col, big, lead) => {
+        if (st.ev.length > 70) return;
+        st.ev.push({ X, Z, k: Math.min(1.4, k * big), kind, col, t0: clk + (lead == null ? 0.5 : lead), sd: rnd() * 1e5 | 0, n: SPL_N + Math.round(8 * k) });
+      };
+      const amt = (0.08 + 0.92 * (1 - calm)) * (1 + 2.2 * storm);
+      const cols = st.cols || (st.cols = new Map());
+      for (const z of E.sites) {
+        let col = cols.get(z.id); if (!col) { const [h] = latColor(latOf(z)); col = hsl2rgb(h, 88, 56).split(',').map(Number); cols.set(z.id, col); }
+        const kind = kindOf(E, z);
+        let m = (0.07 + 0.3 * z.k) * amt * dt * rho;
+        while (m > 0) { if (m < 1 && rnd() > m) break; m -= 1; const [X, Z] = placeOf(z);
+          spawn(X + (rnd() - 0.5) * 0.04, Z + (rnd() - 0.5) * 0.08, z.k, kind, col, 1);
+          if (kind === 2) spawn(X + (rnd() - 0.5) * 0.12, Z + (rnd() - 0.5) * 0.15, z.k * 0.7, kind, col, 1, 0.75 + 0.3 * rnd()); }
+      }
+      if (!E.sites.length && st.ev.filter(v => clk - v.t0 < 2.4).length < 2) spawn((rnd() - 0.5) * 0.8 * 2.5 * W / st.f, 2.5 + rnd(), 0.5, 1, [214, 220, 236], 1);   // no data yet: a few plain drops
+      if (E.sites.length && st.ev.filter(v => clk - v.t0 < 2.4).length < 3) { const z = E.sites[Math.floor(rnd() * E.sites.length)], [X, Z] = placeOf(z); spawn(X, Z, Math.max(0.5, z.k), kindOf(E, z), cols.get(z.id) || [200, 210, 240], 1); }
+      for (const t of tapsOf(R, E).fresh) {
+        const z = t.site != null ? E.sites.find(o => o.id === t.site) : null;
+        if (z) { const [X, Z] = placeOf(z); spawn(X, Z, Math.max(0.7, z.k), Math.max(1, kindOf(E, z)), cols.get(z.id) || [220, 225, 240], t.echo ? 1 : 1.5, 0.3); }
+        else if (!t.echo && t.y > st.hy + 10) { const Z = Math.min(5, st.f * hc / (t.y - st.hy)), X = (t.x - W / 2) * Z / st.f; spawn(X, Z, 1, 1, [236, 240, 250], 1.4, 0.3); }
+      }
+      st.ev = st.ev.filter(v => clk - v.t0 < 3.6);
+      // ---- draw: the studio and the pool
+      c.globalCompositeOperation = 'source-over';
+      c.drawImage(fade2(st, 'fb', st.bgN, st.bgD, day), 0, 0, W, H);
+      const ev = st.ev.slice().sort((a, b) => b.Z - a.Z);
+      // ripples on the surface, from every impact
+      const rip = [new Path2D(), new Path2D()];
+      for (const v of ev) {
+        const a = clk - v.t0; if (a < 0) continue;
+        P(v.X, 0, v.Z, p); const k = p[2], q = hc / v.Z;
+        for (let j = 0; j < 2; j++) { const r = (0.03 + 0.12 * (a - j * 0.35)) * (0.6 + 0.6 * v.k) * k; if (r < 2) continue; const al = 1 - a / 3.6;
+          rip[al > 0.5 ? 1 : 0].moveTo(p[0] + r, p[1]); rip[al > 0.5 ? 1 : 0].ellipse(p[0], p[1], r, r * q, 0, 0, TAU); }
+      }
+      const rc = day > 0.5 ? '60,64,84' : '200,214,255';
+      c.lineWidth = lw * 0.6; c.strokeStyle = `rgba(${rc},0.1)`; c.stroke(rip[0]); c.strokeStyle = `rgba(${rc},0.22)`; c.stroke(rip[1]);
+      // cat's-paws: the breath ruffling the pool, racing downwind
+      if (gust > 0.05 || storm > 0.1) {
+        const cp = new Path2D(), n = Math.round((gust * 160 + storm * 90) * W / 1600);
+        for (let i = 0; i < n; i++) {
+          const ph = (T * (0.9 + 0.5 * hash(i * 3 + 1)) + hash(i * 3 + 2)) % 1, Z = 1.1 + 3.5 * hash(i * 3 + 3) ** 1.4;
+          const X0 = ((bxs - W / 2) / st.f) * Z, X = X0 + dir * ph * 1.6 * Z * 0.5 + (hash(i * 3 + 4) - 0.5) * 0.4 * Z;
+          P(X, 0, Z, p); const l = (0.05 + 0.08 * hash(i * 3 + 5)) * p[2];
+          cp.moveTo(p[0] - l, p[1]); cp.lineTo(p[0] + l, p[1]);
+        }
+        c.strokeStyle = `rgba(${day > 0.5 ? '255,255,255' : '190,210,255'},${0.18 * Math.min(1, gust + storm)})`; c.lineWidth = lw * 0.7; c.stroke(cp);
+      }
+      // ---- each splash, far ones first: the falling drop, the crown, the jet and the droplets
+      for (const v of ev) {
+        const a = clk - v.t0, k = v.k, col = v.col, sph = sphere(col);
+        P(v.X, 0, v.Z, p); const bx = p[0], by = p[1], K = p[2], q = hc / v.Z;
+        if (bx < -200 || bx > W + 200) continue;
+        const lean = windAt(bx) * 0.9, rd = (0.006 + 0.006 * k) * K;
+        if (a < 0) {                                         // falling: a stretched drop with its reflection below
+          const yw = 1.4 * (a / 0.5) ** 2, x = bx - lean * yw * K * 0.25, y = by - yw * K, st2 = 1.12 + 0.25 * Math.min(1, -a * 3);
+          if (a > -0.5) { c.globalAlpha = 0.95; c.drawImage(sph, x - rd, y - rd * st2, rd * 2, rd * 2 * st2); c.globalAlpha = 0.18; c.drawImage(sph, x - rd, by + (by - y) * 0.6 - rd, rd * 2, rd * 2); c.globalAlpha = 1; }
+          continue;
+        }
+        const big = v.kind === 3 ? 1.5 : v.kind === 0 ? 0.35 : 1;
+        // the crown: a thin wall rising round the impact and falling back, its rim breaking into spikes
+        if (v.kind !== 0 && a < 1.5) {
+          const grow = 1 - Math.exp(-a * 5), r = (0.035 + 0.05 * k) * big * (0.4 + 0.6 * grow), h = r * (0.75 + 0.35 * hash(v.sd)) * Math.pow(Math.sin(Math.PI * Math.min(1, a / 1.5)), 0.6);
+          const rx = r * K * 0.85, ry = rx * q, top = h * K, tr = r * K * 1.4, tx = bx + lean * top * 0.7, ty = by - top, mr = r * K * 0.95, my = by - top * 0.55, mx = bx + lean * top * 0.3;
+          const wall = (from, to) => {                     // a band from the base ellipse up to the flared rim, its sides curving out
+            const pp = new Path2D(), N = 14;
+            for (let i = 0; i <= N; i++) { const t = from + (to - from) * i / N; i ? pp.lineTo(bx + Math.cos(t) * rx, by + Math.sin(t) * ry) : pp.moveTo(bx + Math.cos(t) * rx, by + Math.sin(t) * ry); }
+            pp.quadraticCurveTo(mx + Math.cos(to) * mr * 1.02, my + Math.sin(to) * mr * q, tx + Math.cos(to) * tr, ty + Math.sin(to) * tr * q);
+            for (let i = N; i >= 0; i--) { const t = from + (to - from) * i / N; pp.lineTo(tx + Math.cos(t) * tr, ty + Math.sin(t) * tr * q); }
+            pp.quadraticCurveTo(mx + Math.cos(from) * mr * 1.02, my + Math.sin(from) * mr * q, bx + Math.cos(from) * rx, by + Math.sin(from) * ry); return pp; };
+          c.fillStyle = `rgba(${mix(col, [0, 0, 0], 0.3)},0.32)`; c.fill(wall(Math.PI, TAU));          // the far side, seen through the near one
+          const gr = c.createLinearGradient(bx - tr, 0, bx + tr, 0);                                    // glassy: bright and dense at the edges, thin in the middle
+          gr.addColorStop(0, `rgba(${mix(col, [255, 255, 255], 0.35)},0.92)`); gr.addColorStop(0.16, `rgba(${col},0.55)`); gr.addColorStop(0.3, `rgba(${mix(col, [255, 255, 255], 0.55)},0.6)`);
+          gr.addColorStop(0.42, `rgba(${col},0.25)`); gr.addColorStop(0.75, `rgba(${col},0.32)`); gr.addColorStop(1, `rgba(${mix(col, [0, 0, 0], 0.25)},0.9)`);
+          c.fillStyle = gr; c.fill(wall(0, Math.PI));
+          c.lineWidth = Math.max(1.2, tr * 0.07); c.strokeStyle = `rgba(${mix(col, [255, 255, 255], 0.3)},0.95)`; c.beginPath(); c.ellipse(tx, ty, tr, tr * q, 0, 0, TAU); c.stroke();   // the rolled rim
+          c.lineWidth = Math.max(0.8, tr * 0.025); c.strokeStyle = 'rgba(255,255,255,0.85)'; c.beginPath(); c.ellipse(tx, ty - tr * 0.01, tr, tr * q, 0, 0.35, Math.PI - 0.35); c.stroke();
+          // spikes on the rim, each with a droplet; they break away and fly
+          const spk = new Path2D();
+          for (let i = 0; i < v.n; i++) {
+            const t = (i + hash(v.sd + i) * 0.5) / v.n * TAU, ca = Math.cos(t), sa = Math.sin(t), hs = hash(v.sd + i * 7 + 1);
+            const ex = tx + ca * tr, ey = ty + sa * tr * q, sl = top * (0.3 + 0.45 * hs) * Math.min(1, a * 3), wd = Math.max(0.8, tr * 0.05);
+            if (a < 0.65) {
+              const sx = ex + ca * sl * 0.5 + lean * sl * 0.6, sy = ey - sl * (0.8 + 0.2 * sa);
+              spk.moveTo(ex - wd, ey); spk.quadraticCurveTo(ex + ca * sl * 0.1, ey - sl * 0.5, sx, sy); spk.quadraticCurveTo(ex + ca * sl * 0.1 + wd * 0.5, ey - sl * 0.5, ex + wd, ey);
+              const d = rd * (0.5 + 0.45 * hs); c.drawImage(sph, sx - d, sy - d, d * 2, d * 2);
+            } else {
+              const tt = a - 0.65, vx = ca * (0.08 + 0.08 * hs) + lean * 0.5, vy = (0.25 + 0.2 * hs) * r * 6, yw = h * 1.15 + vy * tt - 0.9 * tt * tt;
+              if (yw < 0) continue;
+              const X2 = v.X + ca * r * 1.4 + vx * tt, Z2 = v.Z + sa * r * 1.4 * 0.8; P(X2, yw, Z2, p2);
+              const d = rd * (0.3 + 0.3 * hs); c.drawImage(sph, p2[0] - d, p2[1] - d, d * 2, d * 2);
+            }
+          }
+          c.fillStyle = `rgba(${mix(col, [255, 255, 255], 0.35)},0.9)`; c.fill(spk);
+        }
+        // the jet: a column rising from the middle, a drop pinching off its top and falling back
+        const ja = a - 0.8, J = (0.04 + 0.12 * k) * (v.kind === 0 ? 0.6 : big * 0.9);
+        if (ja > 0 && ja < 1.6) {
+          const jh = J * Math.sin(Math.PI * Math.min(1, ja / 1.3)), w = (0.006 + 0.008 * k) * K * (1 - 0.5 * ja / 1.6), top = jh * K, jl = windAt(bx) * top * 0.5;
+          if (top > 1) {
+            const gr = c.createLinearGradient(bx - w, 0, bx + w, 0);
+            gr.addColorStop(0, `rgba(${mix(col, [0, 0, 0], 0.35)},0.9)`); gr.addColorStop(0.35, `rgba(${mix(col, [255, 255, 255], 0.45)},0.95)`); gr.addColorStop(1, `rgba(${col},0.85)`);
+            c.fillStyle = gr; c.beginPath(); c.moveTo(bx - w * 1.6, by); c.quadraticCurveTo(bx - w * 0.5, by - top * 0.5, bx - w * 0.45 + jl, by - top); c.lineTo(bx + w * 0.45 + jl, by - top); c.quadraticCurveTo(bx + w * 0.5, by - top * 0.5, bx + w * 1.6, by); c.closePath(); c.fill();
+            c.globalAlpha = 0.2; c.beginPath(); c.moveTo(bx - w * 1.2, by); c.lineTo(bx - w * 0.4 + jl * 0.6, by + top * 0.55); c.lineTo(bx + w * 0.4 + jl * 0.6, by + top * 0.55); c.lineTo(bx + w * 1.2, by); c.fill(); c.globalAlpha = 1;   // its reflection
+            const d = w * 1.25; c.drawImage(sph, bx + jl - d, by - top - d * 1.4, d * 2, d * 2);
+          }
+          if (ja > 0.55) {                                    // the pinched-off drop
+            const tt = ja - 0.55, yw = J * 1.05 + 0.5 * J * tt * 2.2 - 2.4 * J * tt * tt * 2.2;
+            if (yw > 0) { P(v.X + windAt(bx) * tt * 0.25, yw, v.Z, p2); const d = (0.006 + 0.005 * k) * K; c.drawImage(sph, p2[0] - d, p2[1] - d * 1.2, d * 2, d * 2.4); c.globalAlpha = 0.18; c.drawImage(sph, p2[0] - d, by + (by - p2[1]) * 0.6 - d, d * 2, d * 2); c.globalAlpha = 1; }
+          }
+        }
+        if (v.kind === 0 && a < 0.4) { c.strokeStyle = `rgba(${mix(col, [255, 255, 255], 0.5)},${0.8 * (1 - a / 0.4)})`; c.lineWidth = Math.max(0.8, rd * 0.4); c.beginPath(); c.ellipse(bx, by, rd * 2.5, rd * 2.5 * q, 0, 0, TAU); c.stroke(); }
+      }
+      // ---- the flash: hard white light, everything frozen
+      if (fl > 0.02) { c.fillStyle = `rgba(255,255,255,${0.42 * fl})`; c.fillRect(0, 0, W, H); }
+      if (frozen) { c.strokeStyle = 'rgba(255,255,255,0.55)'; c.lineWidth = 2; c.strokeRect(W * 0.02, H * 0.03, W * 0.96, H * 0.94); }
+    },
+  };
+
+  return [currents, planet, garden, radar, glass, mobile, op, strings, maze, murm, puddle, umbrellas, sumie, score, splash];
 })();
