@@ -58,6 +58,17 @@ const ART_MODES = (() => {
     return out;
   }
   const codeOf = (E, z) => { const p = E.pts[z.id - 5000]; return p && p[3] != null ? p[3] : null; };
+  /* the colour of a latitude as [h, s, l]: warm coral and orange in the tropics, teal and green in the middle
+     latitudes, icy lavender near the poles */
+  function latColor(lat) {
+    const a = Math.abs(lat);
+    const S = [[0, 12, 86, 63], [16, 22, 92, 61], [24, 40, 92, 58], [31, 96, 52, 50], [41, 166, 58, 45], [52, 190, 58, 52], [61, 250, 55, 72], [90, 268, 45, 84]];
+    for (let i = 1; i < S.length; i++) if (a <= S[i][0]) {
+      const p = S[i - 1], q = S[i], t = (a - p[0]) / (q[0] - p[0]);
+      return [lerp(p[1], q[1], t), lerp(p[2], q[2], t), lerp(p[3], q[3], t)];
+    }
+    return S[S.length - 1].slice(1);
+  }
 
   /* ============================================================== 1  Currents
      Every place where it is raining right now becomes a source in a slowly turning sunflower spiral
@@ -137,654 +148,573 @@ const ART_MODES = (() => {
     },
   };
 
-  /* ============================================================== 2  Planet
-     The Earth as a slowly turning sphere of dots (land on an even lattice, plus all 320 points checked
-     for rain, at their true latitude and longitude). Where it is raining a glowing column rises from the
-     surface: taller and hotter where it rains harder (deep blue -> violet -> white). A breath spins the
-     planet faster (blowing from the left turns its face to the right) and leans it toward the blow; a
-     storm makes the columns flicker and throws arcs between nearby raining places. */
-  const PLANET_COL = [[38, 78, 255], [72, 92, 255], [122, 84, 255], [176, 92, 255], [232, 128, 255], [255, 236, 255]];
-  const unit = (lat, lon) => { const f = lat * Math.PI / 180, l = lon * Math.PI / 180; return [Math.cos(f) * Math.sin(l), Math.sin(f), Math.cos(f) * Math.cos(l)]; };
-  function planetSetup(st, W, H, dpr) {
-    st.W = W; st.H = H;
-    const R0 = Math.min(W, H) * 0.35, D = 3.6, Rb = R0 * D / Math.sqrt(D * D - 1);
-    Object.assign(st, { R0, D, Rb });
-    // deep navy into black, faint nebulae, a dust of stars
-    const bg = st.bg = canvas(W * dpr, H * dpr), g = bg.getContext('2d');
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    let gr = g.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.hypot(W, H) * 0.62);
-    gr.addColorStop(0, '#0d1b44'); gr.addColorStop(0.32, '#081230'); gr.addColorStop(0.68, '#030718'); gr.addColorStop(1, '#010208');
-    g.fillStyle = gr; g.fillRect(0, 0, W, H);
-    for (const [x, y, r, col, a] of [[0.16, 0.22, 0.55, '96,60,210', 0.12], [0.86, 0.78, 0.5, '30,110,210', 0.1], [0.74, 0.12, 0.32, '170,60,200', 0.06], [0.3, 0.9, 0.4, '40,60,180', 0.07]]) {
-      const q = g.createRadialGradient(x * W, y * H, 0, x * W, y * H, r * W);
-      q.addColorStop(0, `rgba(${col},${a})`); q.addColorStop(1, `rgba(${col},0)`);
-      g.fillStyle = q; g.fillRect(0, 0, W, H);
-    }
-    for (let i = 0; i < 700; i++) {
-      const x = hash(i * 3 + 11) * W, y = hash(i * 3 + 12) * H, b = hash(i * 3 + 13);
-      g.fillStyle = `rgba(${b > 0.93 ? '255,236,214' : b > 0.6 ? '206,218,255' : '160,175,235'},${0.12 + 0.6 * b * b})`;
-      const d = b > 0.985 ? 2 : b > 0.75 ? 1.3 : 0.8;
-      g.fillRect(x, y, d, d);
-    }
-    // the body: a navy night side with a lit limb and a thin atmosphere
-    const S = Math.ceil(Rb * 2.9), body = st.body = canvas(S * dpr, S * dpr), b = body.getContext('2d'), m = S / 2;
-    b.setTransform(dpr, 0, 0, dpr, 0, 0);
-    gr = b.createRadialGradient(m, m, Rb * 0.97, m, m, Rb * 1.42);
-    gr.addColorStop(0, 'rgba(80,140,255,0.34)'); gr.addColorStop(0.22, 'rgba(70,100,240,0.13)'); gr.addColorStop(1, 'rgba(40,60,200,0)');
-    b.fillStyle = gr; b.fillRect(0, 0, S, S);
-    gr = b.createRadialGradient(m - Rb * 0.4, m - Rb * 0.45, Rb * 0.05, m, m, Rb * 1.02);
-    gr.addColorStop(0, '#1a3478'); gr.addColorStop(0.5, '#0b1844'); gr.addColorStop(1, '#040a24');
-    b.fillStyle = gr; b.beginPath(); b.arc(m, m, Rb, 0, TAU); b.fill();
-    gr = b.createRadialGradient(m, m, Rb * 0.7, m, m, Rb);
-    gr.addColorStop(0, 'rgba(90,150,255,0)'); gr.addColorStop(1, 'rgba(120,175,255,0.3)');
-    b.fillStyle = gr; b.beginPath(); b.arc(m, m, Rb, 0, TAU); b.fill();
-    b.strokeStyle = 'rgba(160,200,255,0.5)'; b.lineWidth = 1.2; b.beginPath(); b.arc(m, m, Rb, 0, TAU); b.stroke();
-    st.S = S;
-    // land as an even lattice of dots, so the continents show
-    if (!st.land) {
-      st.land = [];
-      const N = 11000, ga = Math.PI * (3 - Math.sqrt(5));
-      for (let i = 0; i < N; i++) {
-        const y = 1 - (i + 0.5) / N * 2, lat = Math.asin(y) * 180 / Math.PI;
-        const lon = ((i * ga * 180 / Math.PI) % 360) - 180;
-        if (typeof isLand === 'function' && isLand(lat, lon)) st.land.push(unit(lat, lon));
+  /* ============================================================== 2  Marbling
+     Ebru, Turkish paper marbling, seen from above: ink floats on a bath and every new drop pushes all the
+     ink before it outward into rings and veins (the exact mathematics of marbling: the ink keeps its area
+     and never blurs). Every raining place drops ink at its own spot again and again: heavier rain = bigger
+     drops, more often; the colour comes from the kind of rain and the latitude (drizzle: aqua and celadon,
+     a sprinkle of small drops; rain: teal and emerald in the tropics, cobalt in the middle latitudes,
+     violet toward the poles; showers: saffron, coral and rose, in bursts of rings; thunderstorms: crimson
+     and ink black with a white vein), and now and then clear size water rings a drop in ivory. A breath
+     is the marbler's comb: tines drawn through the bath in the direction it blows, around where the mist
+     moved, pulling the rings into feathers. A storm stirs the bath into whirlpools; lightning leaves a
+     jagged chain of white drops. Calm, the drops come slowly and the bath rests like a finished print.
+     A tap drops gold where it lands (on a raining place: a bull's-eye of rings). */
+  const MARB_IVORY = [246, 238, 220], MARB_GOLD = [240, 182, 46], NVB = 7500, MAXD = 120;   // how many outline points and drops the bath may hold
+  function marbInk(kind, lat, h) {                 // the ink a place drops: by its kind of rain, then its latitude
+    const a = Math.abs(lat), pick = L => L[Math.floor(h * L.length) % L.length];
+    if (kind === 0) return pick([[86, 194, 204], [146, 208, 180], [120, 172, 232], [190, 226, 220]]);
+    if (kind === 2) return pick([[246, 172, 28], [240, 104, 66], [222, 58, 108], [250, 136, 40]]);
+    if (kind === 3) return pick([[172, 18, 46], [30, 22, 42], [108, 22, 84]]);
+    return a < 23 ? pick([[0, 134, 146], [16, 150, 108], [0, 112, 170]]) : a < 50 ? pick([[26, 70, 184], [46, 50, 156], [18, 98, 198]]) : pick([[104, 66, 180], [58, 46, 124], [150, 98, 204]]);
+  }
+  /* the ink moves: drops spreading (each [x, y, added r^2]) and the comb / the whirlpools, for every vertex */
+  function marbMove(st, ev, comb, vort) {
+    const ne = ev.length, nv = vort ? vort.length : 0;
+    for (const d of st.drops) {
+      const p = d.p;
+      for (let i = 0; i < p.length; i += 2) {
+        let x = p[i], y = p[i + 1];
+        for (let j = 0; j < ne; j += 3) {
+          const dx = x - ev[j], dy = y - ev[j + 1], u = ev[j + 2] / (dx * dx + dy * dy + 1e-6), f = u < 0.004 ? 1 + u * 0.5 : Math.sqrt(1 + u);
+          x = ev[j] + dx * f; y = ev[j + 1] + dy * f;
+        }
+        if (comb) {                                   // tines along M, spaced S across: a shear that keeps area
+          const sN = (x - comb.bx) * comb.nx + (y - comb.by) * comb.ny, band = sN * sN * comb.iB;
+          if (band < 5) {
+            const dd = Math.abs(sN - comb.S * (Math.round(sN / comb.S - comb.o) + comb.o)), m = comb.v * Math.exp(-band) * (Math.exp(-dd * comb.ic) - comb.m0);   // the ink between the tines flows back: nothing is carried off
+            x += m * comb.mx; y += m * comb.my;
+          }
+        }
+        for (let j = 0; j < nv; j += 4) {             // whirlpools: a turn that fades with the distance
+          const dx = x - vort[j], dy = y - vort[j + 1], k = (dx * dx + dy * dy) * vort[j + 3];
+          if (k > 8) continue;
+          const a = vort[j + 2] * Math.exp(-k), ca = Math.cos(a), sa = Math.sin(a); x = vort[j] + dx * ca - dy * sa; y = vort[j + 1] + dx * sa + dy * ca;
+        }
+        p[i] = x; p[i + 1] = y;
       }
-      st.eq = [];                                   // the equator, as a dotted line
-      for (let i = 0; i < 180; i++) st.eq.push(unit(0, i * 2 - 180));
     }
   }
-  const planet = {
-    name: 'globe', title: 'Planet', dark: true,
+  /* keep the outlines smooth and light: a point where an edge has stretched (straight runs may keep longer edges),
+     none where two crowd or where a point lies on the line through its neighbours; note each drop's bounds */
+  function marbTidy(st, W, H, T) {
+    const mx = W * 0.1, my = H * 0.1;
+    let tot = 0;
+    for (const d of st.drops) {
+      const p = d.p, n = p.length >> 1, o = [], fix = d.till > T || n < 17;     // (not while a new drop is still spreading from a speck)
+      const sg = st.sig * clamp(n / 700, 1, 3), L = st.Lmax * sg, L2 = L * L, Ls2 = L2 * 9, lm = st.Lmin * sg, l2 = lm * lm, e2 = Math.pow(0.12 * sg, 2);   // a very long outline is kept coarser
+      let lx = p[p.length - 2], ly = p[p.length - 1], x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, tx = 0, ty = 0;
+      for (let i = 0; i < p.length; i += 2) {
+        const x = p[i], y = p[i + 1], dx = x - lx, dy = y - ly, l = dx * dx + dy * dy;
+        const j = i + 2 < p.length ? i + 2 : 0, ax = p[j] - lx, ay = p[j + 1] - ly, la = ax * ax + ay * ay;
+        if (!fix && i > 0) {
+          if (l < l2) continue;
+          if (la < Ls2) { const cr = dx * ay - dy * ax; if (cr * cr < e2 * la) continue; }
+        }
+        if (l > L2) {
+          // straight here (the edge runs on in the direction it came, and on to the next point)? then it may stay longer
+          const lt = Math.hypot(tx, ty) * Math.sqrt(l), st1 = lt > 0 ? (tx * dx + ty * dy) / lt : 0, bx = p[j] - x, by = p[j + 1] - y, lb = Math.sqrt((bx * bx + by * by) * l), st2 = lb > 0 ? (bx * dx + by * dy) / lb : 0;
+          const lim = st1 > 0.995 && st2 > 0.995 ? Ls2 : L2;
+          if (l > lim) {
+            const near = (x > -mx && x < W + mx && y > -my && y < H + my) || (lx > -mx && lx < W + mx && ly > -my && ly < H + my);
+            if (near || l > L2 * 36) { const k = Math.min(24, Math.ceil(Math.sqrt(l / lim)) - 1); for (let q = 1; q <= k; q++) { const t = q / (k + 1); o.push(lx + dx * t, ly + dy * t); } }
+          }
+        }
+        o.push(x, y); tx = dx; ty = dy; lx = x; ly = y;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+      d.p = o; d.bb = [x0, y0, x1, y1]; tot += o.length >> 1;
+    }
+    st.nv = tot;
+  }
+  /* which drops still show: the ink drawn small, one flat colour per drop, counted. A ring stretched thinner
+     than a few pixels (or buried) fades away, which keeps the outlines to a budget */
+  function marbSeen(st, W, H, T) {
+    const w = Math.round(W / 5), h = Math.round(H / 5), D = st.drops;
+    if (!st.idc || st.idc.width !== w || st.idc.height !== h) { st.idc = canvas(w, h); st.idx = st.idc.getContext('2d', { willReadFrequently: true }); }
+    const g = st.idx;
+    g.setTransform(w / W, 0, 0, h / H, 0, 0); g.globalAlpha = 1; g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+    for (let i = 0; i < D.length; i++) {
+      const p = D[i].p, k = i + 1;
+      g.fillStyle = `rgb(${k & 255},${k >> 8},0)`; g.beginPath(); g.moveTo(p[0], p[1]);
+      for (let j = 2; j < p.length; j += 2) g.lineTo(p[j], p[j + 1]);
+      g.fill();
+    }
+    const px = g.getImageData(0, 0, w, h).data, cnt = new Uint16Array(D.length + 2);
+    for (let i = 0; i < px.length; i += 4) { const k = px[i] | (px[i + 1] << 8); if (k <= D.length) cnt[k]++; }
+    for (let i = 0; i < D.length; i++) { D[i].vis = cnt[i + 1]; if (cnt[i + 1] < 2 && T - D[i].t0 > 2.5 && D[i].fade == null) D[i].fade = T; }
+    st.seenAt = st.n;
+  }
+  function inPoly(p, x, y) {
+    let c = false;
+    for (let i = 0, j = p.length - 2; i < p.length; j = i, i += 2) {
+      const yi = p[i + 1], yj = p[j + 1];
+      if ((yi > y) !== (yj > y) && x < (p[j] - p[i]) * (y - yi) / (yj - yi) + p[i]) c = !c;
+    }
+    return c;
+  }
+  function marbLight(W, H, dpr, day) {             // the light on the bath, laid over the ink
+    const cv = canvas(W * dpr, H * dpr), g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (day) {
+      for (let i = 0; i < 12000; i++) { g.fillStyle = `rgba(${hash(i * 5 + 4) < 0.5 ? '255,250,236' : '90,70,40'},${0.03 + 0.06 * hash(i * 5 + 1)})`; g.fillRect(hash(i * 5 + 2) * W, hash(i * 5 + 3) * H, 1.2, 1.2); }
+      let gr = g.createRadialGradient(W * 0.35, H * 0.3, 0, W * 0.35, H * 0.3, W * 0.8);
+      gr.addColorStop(0, 'rgba(255,252,240,0.16)'); gr.addColorStop(1, 'rgba(255,252,240,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      gr = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.45, W / 2, H / 2, Math.hypot(W, H) * 0.6);
+      gr.addColorStop(0, 'rgba(120,96,60,0)'); gr.addColorStop(1, 'rgba(120,96,60,0.22)'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    } else {
+      let gr = g.createRadialGradient(W * 0.3, H * 0.22, 0, W * 0.3, H * 0.22, W * 0.55);
+      gr.addColorStop(0, 'rgba(255,236,206,0.13)'); gr.addColorStop(0.5, 'rgba(255,236,206,0.04)'); gr.addColorStop(1, 'rgba(255,236,206,0)'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      gr = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.hypot(W, H) * 0.58);
+      gr.addColorStop(0, 'rgba(2,3,10,0)'); gr.addColorStop(1, 'rgba(2,3,10,0.62)'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    }
+    return cv;
+  }
+  const marbling = {
+    name: 'marbling', title: 'Marbling', dark: true, bolts: false,
     draw(R, c, E) {
-      const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E), wy = windY(E);
-      if (st.W !== W || st.H !== H || !st.bg) planetSetup(st, W, H, E.dpr);
-      c.globalCompositeOperation = 'source-over';
-      c.drawImage(st.bg, 0, 0, W, H);
-      const cx = W / 2, cy = H / 2, R0 = st.R0, D = st.D, lim = 1 / D;
-      // motion. A breath spins it up (it keeps turning a while after, then settles) and leans it
-      const spin = 0.05 + 0.05 * (1 - calm) + 0.3 * storm + e * (1.1 + 1.3 * wx);
-      st.w = st.w == null ? spin : st.w + (spin - st.w) * (1 - Math.exp(-dt * (Math.abs(spin) > Math.abs(st.w) ? 5 : 0.6)));
-      st.yaw = (st.yaw == null ? (T * 0.06) % TAU : st.yaw) + st.w * dt;
-      const pT = 0.38 + 0.6 * e * wy + 0.05 * storm * Math.sin(T * 2.3), rT = -0.55 * e * wx + 0.06 * storm * Math.sin(T * 1.7) - 0.12;
-      const kt = 1 - Math.exp(-dt * 3);
-      st.p = st.p == null ? pT : st.p + (pT - st.p) * kt; st.r = st.r == null ? rT : st.r + (rT - st.r) * kt;
-      const cyw = Math.cos(st.yaw), syw = Math.sin(st.yaw), cp = Math.cos(st.p), sp = Math.sin(st.p), cr = Math.cos(st.r), sr = Math.sin(st.r);
-      // rotation = roll(r) * pitch(p) * yaw(y)
-      const m00 = cyw * cr - syw * sp * sr, m01 = -cp * sr, m02 = syw * cr + cyw * sp * sr;
-      const m10 = cyw * sr + syw * sp * cr, m11 = cp * cr, m12 = syw * sr - cyw * sp * cr;
-      const m20 = -syw * cp, m21 = sp, m22 = cyw * cp;
-      const P = [0, 0, 0, 0];                                       // projected x, y, depth z, perspective k
-      const proj = (v, rad) => {
-        const X = v[0] * rad, Y = v[1] * rad, Z = v[2] * rad;
-        const z = m20 * X + m21 * Y + m22 * Z, k = D / (D - z);
-        P[0] = cx + (m00 * X + m01 * Y + m02 * Z) * R0 * k; P[1] = cy - (m10 * X + m11 * Y + m12 * Z) * R0 * k; P[2] = z; P[3] = k;
-        return P;
+      const { T, W, H, st, storm, e } = E, dt = Math.min(E.dt, 1 / 30), calm = calmOf(E), wx = windX(E), wy = windY(E), sk = W / 1600;
+      if (st.W !== W || st.H !== H || !st.g) {
+        st.W = W; st.H = H; st.q = Math.min(1, 600 / W);
+        st.cv = canvas(W * st.q, H * st.q); st.g = st.cv.getContext('2d');
+        st.Lmax = 10 * sk + 3; st.Lmin = 2.4 * sk + 0.6;
+        st.drops = []; st.grow = []; st.pend = []; st.rings = []; st.next = new Map(); st.nv = 0; st.n = 0; st.seenAt = 0; st.sig = 1;
+        st.bath = E.light ? [234, 226, 208] : [20, 24, 54]; st.lD = marbLight(W, H, E.dpr, true); st.lN = marbLight(W, H, E.dpr, false);
+        st.vort = [0, 1, 2].map(i => ({ sd: i * 7.3 + 1, sg: i % 2 ? -1 : 1 }));
+        st.seeded = false;
+      }
+      const day = dayOf(st, E), g = st.g;
+      // the places: where each drops, its ink, how big
+      let sites = E.sites;
+      if (!sites.length) sites = st.idle || (st.idle = Array.from({ length: 9 }, (_, i) => ({ id: 90000 + i, u: hash(i * 3 + 1), v: 0.25 + 0.5 * hash(i * 3 + 2), k: 0.25 + 0.4 * hash(i * 3 + 3) })));
+      const spot = z => [W * (0.06 + 0.88 * z.u), H * (0.08 + 0.84 * hash(z.id * 7 + 3))];
+      const inkOf = z => { const m = st.ink || (st.ink = new Map()); let q = m.get(z.id); if (!q) m.set(z.id, q = marbInk(z.id >= 90000 ? 1 : kindOf(E, z), latOf(z), hash(z.id * 5 + 1))); return q; };
+      const sizeOf = z => (20 + 56 * z.k) * sk * 1.25;
+      const circle = (x, y, r, r0) => { const n = clamp(Math.ceil(TAU * r / (st.Lmax * 0.8)), 18, 240), p = new Array(n * 2); for (let i = 0; i < n; i++) { const a = i / n * TAU; p[2 * i] = x + Math.cos(a) * r0; p[2 * i + 1] = y + Math.sin(a) * r0; } return p; };
+      const add = (x, y, r, rgb, dur) => {               // a drop lands: a speck of ink that spreads to radius r
+        st.drops.push({ p: circle(x, y, r, 0.5), c: `rgb(${rgb})`, rgb, a: 1, t0: T, till: T + dur + 0.2, bb: [x - r, y - r, x + r, y + r] });
+        st.grow.push({ x, y, r2: r * r, done: 0, t0: T, dur });
+        if (st.rings.length < 80) st.rings.push({ x, y, r, t: T });
       };
-      c.drawImage(st.body, cx - st.S / 2, cy - st.S / 2, st.S, st.S);
-      c.globalCompositeOperation = 'lighter';
-      // the breath and the storm light up the air around it; calm gives a soft, bright halo
-      const halo = Math.min(1, 0.55 * e + 0.3 * storm + 0.22 * calm);
-      if (halo > 0.01) { c.globalAlpha = halo; const g = glow('70,120,255', 256, 0.3), z = st.Rb * 3.4; c.drawImage(g, cx - z / 2, cy - z / 2, z, z); c.globalAlpha = 1; }
-      // dots: the far side faintly through the planet, the near side brighter toward the middle
-      const back = new Path2D(), fr = [new Path2D(), new Path2D(), new Path2D()], ocean = [new Path2D(), new Path2D()];
-      const d0 = lw * 0.85;
-      for (const v of st.land) {
-        proj(v, 1);
-        if (P[2] < lim) { if (P[2] < -0.3) back.rect(P[0] - 0.5, P[1] - 0.5, 1, 1); continue; }
-        const d = d0 * P[3] * (0.7 + 0.5 * P[2]);
-        fr[P[2] > 0.75 ? 2 : P[2] > 0.4 ? 1 : 0].rect(P[0] - d / 2, P[1] - d / 2, d, d);
-      }
-      for (const v of st.eq) {
-        proj(v, 1);
-        if (P[2] > lim) ocean[0].rect(P[0] - 0.6, P[1] - 0.6, 1.2, 1.2);
-      }
-      const pts = points(E), rain = [];
-      for (const q of pts) {
-        if (!q.v) q.v = unit(q.lat, q.lon);
-        if (q.rain) { rain.push(q); continue; }
-        proj(q.v, 1);
-        if (P[2] < lim) continue;
-        const d = lw * 1.1 * P[3];                                   // the other places checked: dry right now
-        ocean[1].rect(P[0] - d / 2, P[1] - d / 2, d, d);
-      }
-      c.fillStyle = 'rgba(120,160,255,0.09)'; c.fill(back);
-      ['0.3', '0.55', '0.85'].forEach((a, i) => { c.fillStyle = `rgba(150,200,255,${a})`; c.fill(fr[i]); });
-      c.fillStyle = 'rgba(120,150,255,0.28)'; c.fill(ocean[0]);
-      c.fillStyle = 'rgba(200,190,255,0.32)'; c.fill(ocean[1]);
-      // the rain: a glowing footprint on the surface and a column of light above it
-      const pres = 0.6 + 0.4 * E.pres, NB = PLANET_COL.length;
-      const lo = [], hi = [], glo = [], tops = [];
-      for (let b = 0; b < NB * 2; b++) { lo.push(new Path2D()); hi.push(new Path2D()); glo.push(new Path2D()); }
-      for (let i = 0; i < rain.length; i++) {
-        const q = rain[i], k = q.k;
-        const surge = 1 + e * 0.75 * (0.6 + 0.4 * Math.sin(T * 7 + i * 1.7)) + storm * 0.35 * (rnd() - 0.3);
-        const h = (0.025 + 0.16 * k * k + 0.035 * k) * pres * surge * (1 + 0.08 * Math.sin(T * (0.8 + k) + i));
-        const [bx, by, bz, bk] = proj(q.v, 1);
-        const [mx_, my_] = proj(q.v, 1 + h * 0.45);
-        const [tx, ty, tz, tk] = proj(q.v, 1 + h);
-        const far = tz < lim + 0.04 ? 1 : 0;                       // behind the limb: seen through the planet, dimmer
-        tops.push([tx, ty, tk, k, far, bx, by, bz, bk]);
-        if (storm > 0.05 && rnd() < storm * 0.3) continue;          // flicker
-        const b = Math.min(NB - 1, Math.floor((k - 0.12) / 0.88 * NB)) + far * NB;
-        lo[b].moveTo(bx, by); lo[b].lineTo(mx_, my_);
-        hi[b].moveTo(mx_, my_); hi[b].lineTo(tx, ty);
-        glo[b].moveTo(bx, by); glo[b].lineTo(tx, ty);
-      }
-      for (const [, , , k, , bx, by, bz, bk] of tops) {
-        if (bz < lim) continue;
-        const b = Math.min(NB - 1, Math.floor((k - 0.12) / 0.88 * NB)), z = (16 + 46 * k) * s * bk * (0.9 + 0.35 * e);
-        c.globalAlpha = (0.35 + 0.4 * k) * (0.4 + 0.6 * bz);
-        c.drawImage(glow(PLANET_COL[b].join(','), 64, 0.18), bx - z / 2, by - z / 2, z, z);
-      }
-      c.globalAlpha = 1;
-      c.lineCap = 'round';
-      for (let b = 0; b < NB * 2; b++) {
-        const far = b >= NB, kb = (b % NB + 0.5) / NB, col = PLANET_COL[b % NB].join(','), fa = far ? 0.22 : 1;
-        c.strokeStyle = `rgba(${col},${0.12 * fa})`; c.lineWidth = lw * (3.5 + 5 * kb); c.stroke(glo[b]);
-        c.strokeStyle = `rgba(${col},${0.5 * fa})`; c.lineWidth = lw * (0.8 + 1.2 * kb); c.stroke(lo[b]);
-        c.strokeStyle = `rgba(${col},${0.95 * fa})`; c.lineWidth = lw * (0.9 + 1.4 * kb); c.stroke(hi[b]);
-      }
-      for (const [tx, ty, tk, k, far] of tops) {
-        const b = Math.min(NB - 1, Math.floor((k - 0.12) / 0.88 * NB)), g = glow(PLANET_COL[b].join(','), 64, 0.25);
-        const z = (7 + 18 * k) * s * tk * (1 + 0.4 * e);
-        c.globalAlpha = far ? 0.22 : 0.9;
-        c.drawImage(g, tx - z / 2, ty - z / 2, z, z);
-        if (k > 0.75 && !far) { const w = glow('255,250,255', 32, 0.3); c.drawImage(w, tx - z / 5, ty - z / 5, z / 2.5, z / 2.5); }
-      }
-      c.globalAlpha = 1;
-      // storm: arcs leap between raining places near each other
-      if (storm > 0.08 && rain.length > 1) {
-        if (st.arcKey !== pts) {
-          st.arcKey = pts; st.pairs = [];
-          for (let i = 0; i < rain.length; i++) for (let j = i + 1; j < rain.length; j++) {
-            const a = rain[i].v, b = rain[j].v, dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-            if (dot > Math.cos(0.5)) st.pairs.push([rain[i], rain[j], Math.acos(Math.min(1, dot))]);
-          }
-          st.pairs = st.pairs.sort((p, q) => p[2] - q[2]).slice(0, 80);
-        }
-        const arcs = new Path2D();
-        for (const [A, B] of st.pairs) {
-          if (rnd() > storm * 0.45) continue;
-          const ha = 0.025 + 0.16 * A.k * A.k + 0.035 * A.k, hb = 0.025 + 0.16 * B.k * B.k + 0.035 * B.k;
-          let first = true;
-          for (let n = 0; n <= 12; n++) {
-            const t = n / 12, v = [lerp(A.v[0], B.v[0], t), lerp(A.v[1], B.v[1], t), lerp(A.v[2], B.v[2], t)], l = Math.hypot(v[0], v[1], v[2]);
-            const rad = (1 + lerp(ha, hb, t) * pres + Math.sin(Math.PI * t) * 0.07) / l;
-            proj(v, rad);
-            if (P[2] < lim) { first = true; continue; }
-            const j = n > 0 && n < 12 ? (rnd() - 0.5) * 10 * s * storm : 0;
-            if (first) { arcs.moveTo(P[0] + j, P[1] + j); first = false; } else arcs.lineTo(P[0] + j, P[1] - j);
-          }
-        }
-        c.strokeStyle = `rgba(170,120,255,${0.16 * storm})`; c.lineWidth = lw * 5; c.stroke(arcs);
-        c.strokeStyle = `rgba(240,225,255,${0.85 * storm})`; c.lineWidth = lw * 0.9; c.stroke(arcs);
-      }
-      c.globalCompositeOperation = 'source-over';
-    },
-  };
-
-  /* ============================================================== 3  Rain Garden
-     Each raining place is a flower growing from the ground: across by longitude, taller and fuller where
-     it rains harder, with as many petals as the kind of rain (drizzle 5, rain 6, showers 7,
-     thunderstorm 8) and coloured by latitude: warm coral and orange in the tropics, teal and green in the
-     middle latitudes, icy lavender near the poles. Paper in the light theme, dusk in the dark.
-     A breath bends the stems and the grass away from it; a storm tears the petals off and the wind carries
-     them away (they grow back once it is calm); in calm the flowers open fully and stand still. */
-  function latColor(lat) {
-    const a = Math.abs(lat);
-    const S = [[0, 12, 86, 63], [16, 22, 92, 61], [24, 40, 92, 58], [31, 96, 52, 50], [41, 166, 58, 45], [52, 190, 58, 52], [61, 250, 55, 72], [90, 268, 45, 84]];
-    for (let i = 1; i < S.length; i++) if (a <= S[i][0]) {
-      const p = S[i - 1], q = S[i], t = (a - p[0]) / (q[0] - p[0]);
-      return [lerp(p[1], q[1], t), lerp(p[2], q[2], t), lerp(p[3], q[3], t)];
-    }
-    return S[S.length - 1].slice(1);
-  }
-  const petalsOf = code => code == null ? 6 : code >= 95 ? 8 : code >= 80 ? 7 : code >= 61 ? 6 : code >= 51 ? 5 : 6;
-  function gardenSetup(st, W, H, dpr, light, s) {
-    st.W = W; st.H = H; st.light = light;
-    const bg = st.bg = canvas(W * dpr, H * dpr), g = bg.getContext('2d');
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    let gr = g.createLinearGradient(0, 0, 0, H);
-    if (light) { gr.addColorStop(0, '#f5f0e6'); gr.addColorStop(0.6, '#f1e9dc'); gr.addColorStop(1, '#e9dfcf'); }
-    else { gr.addColorStop(0, '#0f1230'); gr.addColorStop(0.38, '#272150'); gr.addColorStop(0.64, '#56315a'); gr.addColorStop(0.8, '#a2525a'); gr.addColorStop(0.9, '#d07a5c'); gr.addColorStop(1, '#2b1a2c'); }
-    g.fillStyle = gr; g.fillRect(0, 0, W, H);
-    // a low sun (paper) or the last glow of one (dusk)
-    gr = g.createRadialGradient(W * 0.72, H * 0.8, 0, W * 0.72, H * 0.8, W * 0.5);
-    gr.addColorStop(0, light ? 'rgba(255,214,170,0.35)' : 'rgba(255,170,120,0.35)'); gr.addColorStop(1, 'rgba(255,170,120,0)');
-    g.fillStyle = gr; g.fillRect(0, 0, W, H);
-    if (!light) for (let i = 0; i < 160; i++) {
-      const b = hash(i * 7 + 3);
-      g.fillStyle = `rgba(255,240,230,${(0.1 + 0.5 * b * b) * (1 - hash(i * 7 + 2))})`;
-      g.fillRect(hash(i * 7 + 1) * W, Math.pow(hash(i * 7 + 2), 1.6) * H * 0.55, b > 0.9 ? 1.6 : 1, b > 0.9 ? 1.6 : 1);
-    }
-    // two rows of far hills
-    [[0.74, 0.07, 0.0016, light ? 'rgba(160,178,150,0.28)' : 'rgba(46,30,66,0.85)'], [0.81, 0.05, 0.0026, light ? 'rgba(138,160,128,0.32)' : 'rgba(30,22,46,0.95)']].forEach(([y0, amp, f, col], n) => {
-      g.beginPath(); g.moveTo(0, H);
-      for (let x = 0; x <= W + 8; x += 8) g.lineTo(x, H * (y0 + amp * fbm(x * f + n * 9.1, 3.3 + n)));
-      g.lineTo(W, H); g.closePath(); g.fillStyle = col; g.fill();
-    });
-    if (light) {                                          // paper grain
-      for (let i = 0; i < 9000; i++) { g.fillStyle = `rgba(90,70,40,${0.02 + 0.05 * hash(i * 5 + 1)})`; g.fillRect(hash(i * 5 + 2) * W, hash(i * 5 + 3) * H, 1, 1); }
-      gr = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.4, W / 2, H / 2, Math.hypot(W, H) * 0.62);
-      gr.addColorStop(0, 'rgba(120,90,60,0)'); gr.addColorStop(1, 'rgba(120,90,60,0.16)');
-      g.fillStyle = gr; g.fillRect(0, 0, W, H);
-    }
-    // grass blades: a row behind the flowers and a row in front
-    st.grass = [[], []];
-    for (let L = 0; L < 2; L++) {
-      const n = Math.round(W / (L ? 7 : 6));
-      for (let i = 0; i < n; i++) {
-        const sd = i * 13 + L * 7001;
-        st.grass[L].push({ x: (i + hash(sd)) / n * W, h: H * (L ? 0.05 + 0.08 * hash(sd + 1) : 0.06 + 0.07 * hash(sd + 1)) * (0.6 + 0.6 * hash(sd + 5) * hash(sd + 5)),
-                           w: (1.4 + 1.6 * hash(sd + 2)) * s * 0.85, tone: Math.floor(hash(sd + 3) * 3), ph: hash(sd + 4) * TAU });
-      }
-    }
-  }
-  const garden = {
-    name: 'garden', title: 'Rain Garden', turn: 'dissolve',
-    draw(R, c, E) {
-      const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), light = E.light, wx = windX(E);
-      if (st.W !== W || st.H !== H || st.light !== light || !st.bg) gardenSetup(st, W, H, E.dpr, light, s);
-      c.globalCompositeOperation = 'source-over';
-      c.drawImage(st.bg, 0, 0, W, H);
-      const dir = Math.abs(wx) > 0.15 ? Math.sign(wx) : (st.dir || 1); st.dir = dir;
-      // the wind right now: the breath (direction from where the mist moves), storm gusts on top
-      const wave = x => 0.5 + 0.5 * Math.sin(x * 0.0045 - T * 2.6 * dir);
-      const windAt = x => wx * e * 1.15 * (0.65 + 0.35 * wave(x)) + dir * storm * (0.35 + 0.45 * wave(x));
-      const stillness = 1 - 0.85 * calm;
-      // a little rain falls through the garden
-      const nr = Math.round((20 + 90 * (1 - calm) + 260 * storm) * W / 1600), rain = new Path2D();
-      const slant = clamp(windAt(W / 2) * 0.9, -1.2, 1.2);
-      for (let i = 0; i < nr; i++) {
-        const v = (520 + 380 * hash(i * 3 + 1)) * s * (1 + 0.6 * storm), span = H + 160;
-        const y = ((hash(i * 3 + 2) * span + T * v) % span) - 80, len = (10 + 18 * hash(i * 3 + 4)) * s * (1 + storm);
-        const x = hash(i * 3 + 3) * (W + 400) - 200 + y * slant * 0.5;
-        rain.moveTo(x, y); rain.lineTo(x - slant * len * 0.5, y - len);
-      }
-      c.strokeStyle = light ? 'rgba(80,100,135,0.2)' : 'rgba(205,215,255,0.16)'; c.lineWidth = lw * 0.6; c.stroke(rain);
-      const grassTones = light ? ['118,146,104', '96,128,90', '140,162,118'] : ['20,30,34', '14,22,26', '30,40,44'];
-      const drawGrass = (row, alpha) => {
-        const P = [new Path2D(), new Path2D(), new Path2D()];
-        for (const b of row) {
-          const lean = windAt(b.x) * 0.75 + 0.07 * Math.sin(T * 1.2 + b.ph + b.x * 0.01) * stillness * (1 + 2 * e);
-          const by = H + 4, tx = b.x + Math.sin(lean) * b.h, ty = by - Math.cos(lean) * b.h;
-          const qx = b.x + Math.sin(lean * 0.45) * b.h * 0.55, qy = by - b.h * 0.55;
-          const p = P[b.tone];
-          p.moveTo(b.x - b.w, by); p.quadraticCurveTo(qx - b.w * 0.5, qy, tx, ty); p.quadraticCurveTo(qx + b.w * 0.5, qy, b.x + b.w, by); p.closePath();
-        }
-        P.forEach((p, i) => { c.fillStyle = `rgba(${grassTones[i]},${alpha})`; c.fill(p); });
+      const dropAt = (z, delay = 0) => {                 // one place drops: a little pattern by its kind of rain
+        const [x0, y0] = spot(z), k = z.k, kind = z.id >= 90000 ? 1 : kindOf(E, z), rgb = inkOf(z);
+        const r = sizeOf(z) * (1 + 0.35 * storm), j = r * 0.8, dur = (0.5 + 0.5 * k) * (1 + 0.9 * calm);
+        const x = x0 + (rnd() - 0.5) * j, y = y0 + (rnd() - 0.5) * j, t = T + delay, P = st.pend;
+        if (kind === 0) { for (let i = 0; i < 3; i++) P.push([t + i * 0.1, x + (rnd() - 0.5) * r * 2.4, y + (rnd() - 0.5) * r * 2.4, r * (0.4 + 0.15 * rnd()), rgb, dur * 0.6]); }
+        else if (kind === 2) { P.push([t, x, y, r, rgb, dur]); P.push([t + 0.4, x, y, r * 0.5, MARB_IVORY, dur * 0.7]); P.push([t + 0.65, x, y, r * 0.42, rgb, dur * 0.7]); }
+        else if (kind === 3) { P.push([t, x, y, r * 1.25, rgb, dur]); P.push([t + 0.45, x, y, r * 0.32, MARB_IVORY, dur * 0.6]); }
+        else { P.push([t, x, y, r, rgb, dur]); if (rnd() < 0.15) P.push([t + 0.5, x, y, r * 0.38, MARB_IVORY, dur * 0.6]); }
       };
-      drawGrass(st.grass[0], light ? 0.55 : 0.9);
-      // the flowers, far ones first
-      const fl = st.fl || (st.fl = new Map()), seen = new Set(), list = [];
-      for (const z of E.sites) {
-        seen.add(z.id);
-        let f = fl.get(z.id);
-        if (!f) {
-          const lat = 90 - z.v * 180, [h, sa, l] = latColor(lat);
-          f = { id: z.id, th: 0, om: 0, lost: 0, grow: E.fresh ? 0.6 : 0, d: hash(z.id * 7 + 1), h: h + (hash(z.id * 7 + 2) - 0.5) * 14, sa, l,
-                rot0: hash(z.id * 7 + 3) * TAU, h1: hash(z.id * 7 + 4), h2: hash(z.id * 7 + 5) };
-          fl.set(z.id, f);
+      // ---- the bath before the first look: the marbler has been at work a while
+      if (!st.seeded) {
+        st.seeded = true;
+        const tw = sites.reduce((a, z) => a + 0.2 + z.k * z.k, 0);
+        let area = 0;
+        for (let i = 0; area < W * H * 1.7 && i < 120; i++) {
+          let w = rnd() * tw, z = sites[0];
+          for (const o of sites) { w -= 0.2 + o.k * o.k; if (w <= 0) { z = o; break; } }
+          const [x0, y0] = spot(z), iv = i % 9 === 8, r = sizeOf(z) * (iv ? 0.4 : i < 40 ? 1.7 : 1.15), x = x0 + (rnd() - 0.5) * r * 0.8, y = y0 + (rnd() - 0.5) * r * 0.8;
+          const rgb = iv ? MARB_IVORY : inkOf(z);
+          marbMove(st, [x, y, r * r], null, null);
+          st.drops.push({ p: circle(x, y, r, r), c: `rgb(${rgb})`, rgb, a: 1, t0: T - 10, bb: [x - r, y - r, x + r, y + r] });
+          area += Math.PI * r * r;
+          if (i % 3 === 2) { marbTidy(st, W, H, T); st.drops = st.drops.filter(d => d.bb[2] > 0 && d.bb[0] < W && d.bb[3] > 0 && d.bb[1] < H); }
         }
-        f.k = z.k; f.n = petalsOf(codeOf(E, z));
-        f.grow = Math.min(1, f.grow + dt * 0.45);
-        const sc = 0.72 + 0.42 * f.d;
-        f.x = W * (0.04 + 0.92 * z.u) + (hash(z.id * 3) - 0.5) * W * 0.014;
-        f.y = H * (0.925 + (f.d - 0.5) * 0.06);
-        f.L = H * (0.13 + 0.46 * z.k) * sc * (0.82 + 0.3 * f.h2) * (0.25 + 0.75 * smoothstep(0, 1, f.grow));
-        f.rB = (8 + 22 * z.k) * s * sc * smoothstep(0.2, 1, f.grow);
-        list.push(f);
+        marbTidy(st, W, H, T); marbSeen(st, W, H, T); st.drops = st.drops.filter(d => d.fade == null);
       }
-      for (const id of [...fl.keys()]) if (!seen.has(id)) fl.delete(id);
-      list.sort((a, b) => a.d - b.d);
-      const fly = st.fly || (st.fly = []);
-      const stems = new Path2D(), leaves = new Path2D(), stam = new Path2D();
-      for (const f of list) {
-        // a springy stem: the wind pushes, it sways back
-        const sway = (0.012 + 0.2 * e + 0.22 * storm) * stillness * Math.sin(T * (1.1 + 0.9 * f.h1) + f.h2 * TAU);
-        const target = clamp(windAt(f.x) * (0.45 + 0.55 * f.k) + sway, -1.15, 1.15);
-        f.om += ((target - f.th) * 16 - f.om * 4.2) * dt; f.th += f.om * dt;
-        const th = f.th, L = f.L, bx = f.x, by = f.y;
-        f.tx = bx + Math.sin(th) * L * 0.97; f.ty = by - Math.cos(th) * L * 0.97;
-        const qx = bx + Math.sin(th * 0.35) * L * 0.55, qy = by - Math.cos(th * 0.35) * L * 0.55;
-        stems.moveTo(bx, by); stems.quadraticCurveTo(qx, qy, f.tx, f.ty);
-        for (const [t, side] of [[0.3, f.h1 < 0.5 ? 1 : -1], [0.52, f.h1 < 0.5 ? -1 : 1]]) {
-          if (f.k < 0.3 && t > 0.4) continue;
-          const u = 1 - t, px = u * u * bx + 2 * u * t * qx + t * t * f.tx, py = u * u * by + 2 * u * t * qy + t * t * f.ty;
-          const ang = Math.atan2(f.ty - by, f.tx - bx) + side * (0.95 - 0.25 * t) + windAt(f.x) * 0.4 + Math.sin(T * 3 + f.h2 * 9) * 0.12 * e;
-          const ll = Math.min(L * (0.11 + 0.04 * f.h2), 70 * s), lwd = ll * 0.3, ca = Math.cos(ang), sa = Math.sin(ang);
-          leaves.moveTo(px, py);
-          leaves.quadraticCurveTo(px + ca * ll * 0.5 - sa * lwd, py + sa * ll * 0.5 + ca * lwd, px + ca * ll, py + sa * ll);
-          leaves.quadraticCurveTo(px + ca * ll * 0.5 + sa * lwd, py + sa * ll * 0.5 - ca * lwd, px, py);
+      st.n++;
+      // ---- drops: every raining place at its own pace (more places and heavier rain = more ink)
+      const amt = (0.1 + 0.9 * (1 - calm)) * (1 + 1.4 * storm) * (1 + 0.3 * e);
+      let sum = 0; for (const z of sites) sum += 0.05 + 0.35 * z.k * z.k;
+      const sc = Math.min(1, 3.6 / Math.max(0.01, sum)) * amt;
+      for (const z of sites) {
+        const nx = st.next.get(z.id);
+        if (nx == null) { st.next.set(z.id, T + rnd() * 3); continue; }
+        if (T < nx) continue;
+        st.next.set(z.id, T + (0.5 + rnd()) / Math.max(0.02, (0.05 + 0.35 * z.k * z.k) * sc));
+        dropAt(z);
+      }
+      // ---- taps: gold where it lands; on a raining place a bull's-eye there (the wall's own soft notes: a small ivory drop)
+      for (const q of tapsOf(R, E).fresh) {
+        const z = q.site != null ? sites.find(o => o.id === q.site) : null;
+        if (z) { const [x, y] = spot(z), r = (34 + 30 * z.k) * sk * 1.3 * (q.echo ? 0.5 : 1), ink = inkOf(z);
+          [MARB_GOLD, ink, MARB_IVORY, ink, MARB_GOLD].forEach((col, i) => st.pend.push([T + i * (q.echo ? 0.3 : 0.16), x, y, r * (1 - 0.15 * i), col, 0.5])); }
+        else if (q.echo) st.pend.push([T, q.x, q.y, 14 * sk, MARB_IVORY, 0.5]);
+        else { st.pend.push([T, q.x, q.y, 50 * sk, MARB_GOLD, 0.45]); st.pend.push([T + 0.25, q.x, q.y, 22 * sk, MARB_IVORY, 0.4]); }
+      }
+      // ---- lightning: a jagged chain of white drops down its path, and the flash
+      for (const b of newBolts(R, st, T)) {
+        const sd = b.seed | 0; let x = (b.u == null ? 0.5 : b.u) * W, y = -10;
+        for (let i = 0; y < H + 20; i++) { x += (hash(sd + i * 3) - 0.5) * 130 * sk; y += (36 + 46 * hash(sd + i * 3 + 1)) * sk; st.pend.push([T + i * 0.03, x, y, (10 + 10 * hash(sd + i * 3 + 2)) * sk * (0.5 + (b.power || 0.7)), i % 3 ? [255, 255, 255] : MARB_IVORY, 0.25]); }
+      }
+      st.pend = st.pend.filter(p => { if (T < p[0]) return true; add(p[1], p[2], p[3], p[4], p[5]); return false; });
+      // ---- move the ink: the drops spreading, the comb (breath) and the whirlpools (storm)
+      const ev = [];
+      st.grow = st.grow.filter(gw => { const t = Math.min(1, (T - gw.t0) / gw.dur), f = 1 - Math.pow(1 - t, 3), d = gw.r2 * f - gw.done; if (d > 0) { ev.push(gw.x, gw.y, d); gw.done += d; } return t < 1; });
+      // the comb: a breath draws it one stroke through the bath (a fixed length), then it lifts; a longer breath draws
+      // the next stroke between the lines of the last one (as a marbler does), so the feathers get finer, not wilder
+      let comb = null;
+      const cs = st.cs || (st.cs = { d: 0, off: 0, rest: 0 }), D = 150 * sk;
+      const eb = smoothstep(0.12, 0.45, e);                             // a real breath, not the mist stirring on its own
+      if (eb > 0 && T > cs.rest) {
+        if (Math.abs(wx) > 0.1) st.dir = Math.sign(wx);
+        let mx = Math.abs(wx) > 0.1 || Math.abs(wy) < 0.15 ? (Math.abs(wx) > 0.1 ? wx : (st.dir || 1)) : 0, my = wy * 0.6; const l = Math.hypot(mx, my) || 1; mx /= l; my /= l;
+        const S = 46 * sk, cc = 9 * sk, m0 = 2 * cc / S * (1 - Math.exp(-S / (2 * cc))), v = Math.min(D - cs.d, (240 + 160 * e) * sk * eb * dt / st.sig);
+        if (cs.d === 0) { cs.bx = (0.5 + 0.4 * clamp(E.mx, -1, 1)) * W; cs.by = (0.5 + 0.4 * clamp(E.my, -1, 1)) * H; cs.mx = mx; cs.my = my; }
+        comb = { bx: cs.bx, by: cs.by, mx: cs.mx, my: cs.my, nx: -cs.my, ny: cs.mx, S, ic: 1 / cc, iB: 1 / Math.pow(0.26 * H, 2), m0, v: v / (1 - m0), o: cs.off };
+        cs.d += v;
+        if (cs.d >= D - 0.01) { cs.d = 0; cs.rest = T + 1.2; cs.off = (cs.off + 0.5) % 1; }
+      } else if (eb === 0 && cs.d > 0 && T > cs.rest) { cs.d = 0; cs.off = (cs.off + 0.5) % 1; }
+      let vort = null;
+      if (storm > 0.04) {
+        vort = [];
+        const sg = Math.min(W, H) * 0.28;
+        for (const v of st.vort) vort.push(W * (0.5 + 0.38 * vnoise(T * 0.05, v.sd)), H * (0.5 + 0.38 * vnoise(v.sd, T * 0.045)), v.sg * (1.2 + 1.8 * storm) * storm * Math.sin(T * 0.9 + v.sd) * dt / st.sig, 1 / (sg * sg));   // they twist and untwist
+      }
+      if (ev.length || comb || vort) marbMove(st, ev, comb, vort);
+      if (ev.length || comb || vort || st.n % 10 === 0) marbTidy(st, W, H, T);
+      // ---- what goes: drops pushed off screen, rings too thin to see, and the oldest past the budget (the bath takes its colour)
+      st.drops = st.drops.filter(d => d.bb[2] > 0 && d.bb[0] < W && d.bb[3] > 0 && d.bb[1] < H && !(d.fade != null && T - d.fade > 0.8));
+      st.sig = clamp(st.sig + (st.nv > NVB ? (st.nv / NVB - 1) * 3 : st.nv < NVB * 0.75 ? -0.25 : 0) * dt, 1, 2);
+      if (st.n - st.seenAt >= 30) marbSeen(st, W, H, T);
+      let live = 0; for (const d of st.drops) if (d.fade == null) live++;
+      while (live > MAXD) {                                              // too many: the drop that shows least fades away
+        let w = null; for (const d of st.drops) if (d.fade == null && d.vis != null && T - d.t0 > 3 && (!w || d.vis < w.vis)) w = d;
+        if (!w) break; w.fade = T; live--;
+      }
+      if (st.nv > NVB * 1.9 && !(st.cut > T)) {                         // far too many points: the costliest old drop goes
+        let w = null; for (const d of st.drops) if (d.fade == null && T - d.t0 > 3 && (!w || d.p.length > w.p.length)) w = d;
+        if (w) { w.fade = T; st.cut = T + 0.15; }
+      }
+      // ---- paint the ink (on a smaller canvas, drawn up); when that is slow (a combed bath), every other frame
+      const q = st.q, t0 = performance.now(), redo = !(st.rt > 5.5 && st.n % 2 && !E.fresh);
+      if (redo) {
+        g.setTransform(q, 0, 0, q, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+        g.fillStyle = `rgb(${st.bath})`; g.fillRect(0, 0, W, H);
+        for (const d of st.drops) {
+          const p = d.p;
+          g.globalAlpha = d.fade == null ? 1 : Math.max(0, 1 - (T - d.fade) / 0.8); g.fillStyle = d.c; g.beginPath(); g.moveTo(p[0], p[1]);
+          for (let i = 2; i < p.length; i += 2) g.lineTo(p[i], p[i + 1]);
+          g.fill();
         }
-        // a storm tears petals off; they fly with the wind
-        if (storm > 0.12 && f.lost < f.n - 1 && rnd() < storm * (0.25 + 2.2 * e) * (0.5 + 0.5 * f.k) * dt) {
-          const j = Math.floor(f.lost), a = f.rot0 + j * TAU / f.n;
-          f.lost += 1;
-          if (fly.length < 260) fly.push({ x: f.tx + Math.cos(a) * f.rB * 0.6, y: f.ty + Math.sin(a) * f.rB * 0.5, vx: dir * (60 + 160 * rnd()) * s, vy: -(20 + 60 * rnd()) * s,
-            a, va: (rnd() - 0.5) * 9, fp: rnd() * TAU, fv: 3 + 6 * rnd(), L: f.rB * 0.9, w: f.rB * 1.6 / f.n + f.rB * 0.12, col: `hsl(${f.h},${f.sa}%,${f.l}%)`, age: 0, sd: rnd() * 100 });
-        }
-        if (storm < 0.1) f.lost = Math.max(0, f.lost - dt * 0.35);
-      }
-      c.lineCap = 'round';
-      c.strokeStyle = light ? 'rgba(78,106,76,0.85)' : 'rgba(16,30,30,0.95)'; c.lineWidth = lw * 1.25; c.stroke(stems);
-      c.fillStyle = light ? 'rgba(104,138,92,0.8)' : 'rgba(18,36,34,0.95)'; c.fill(leaves);
-      // heads: two rings of petals, a centre and its stamens
-      const open = (1 - 0.25 * storm) * (1 - 0.08 * e);
-      for (const f of list) {
-        if (f.rB < 1) continue;
-        const n = f.n, rB = f.rB * open, th = f.th, hx = f.tx, hy = f.ty;
-        const rot = f.rot0 + T * 0.02 * (f.h1 - 0.5) + th * 0.6 + Math.sin(T * 6 + f.h2 * 20) * 0.12 * (e + storm);
-        const sq = 0.8, ct = Math.cos(th), stt = Math.sin(th);
-        const put = (path, px, py, a, move) => {                    // petal space -> screen (head tilted with the stem)
-          const ca = Math.cos(a), sa = Math.sin(a);
-          const ux = px * ca - py * sa, uy = (px * sa + py * ca) * sq;
-          const X = hx + ux * ct - uy * stt, Y = hy + ux * stt + uy * ct;
-          if (move) path.moveTo(X, Y); else return [X, Y];
-        };
-        const ring = (len, wid, off, skip) => {
-          const p = new Path2D();
-          for (let j = 0; j < n; j++) {
-            if (j < skip) continue;
-            const a = rot + (j + off) * TAU / n;
-            put(p, 0, 0, a, true);
-            const [x1, y1] = put(null, len * 0.3, -wid, a), [x2, y2] = put(null, len * 0.92, -wid * 0.7, a), [x3, y3] = put(null, len, 0, a);
-            const [x4, y4] = put(null, len * 0.92, wid * 0.7, a), [x5, y5] = put(null, len * 0.3, wid, a), [x6, y6] = put(null, 0, 0, a);
-            p.bezierCurveTo(x1, y1, x2, y2, x3, y3); p.bezierCurveTo(x4, y4, x5, y5, x6, y6);
-          }
-          return p;
-        };
-        const skip = Math.floor(f.lost);
-        if (!light) {
-          c.globalCompositeOperation = 'lighter'; c.globalAlpha = 0.28 * f.grow;
-          const g = glow(hsl2rgb(Math.round(f.h / 10) * 10, f.sa, 60), 64, 0.2), z = rB * 4.2;
-          c.drawImage(g, hx - z / 2, hy - z / 2, z, z);
-          c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
-        }
-        const wid = rB * 1.75 / n + rB * 0.1, dl = light ? -4 : 2;
-        const p1 = ring(rB, wid, 0, skip), p2 = ring(rB * 0.68, wid * 0.82, 0.5, skip);
-        c.fillStyle = `hsl(${f.h + 6},${f.sa}%,${f.l - 12 + dl}%)`; c.fill(p1);
-        if (light) { c.strokeStyle = `hsla(${f.h},${f.sa * 0.7}%,${f.l - 34}%,0.55)`; c.lineWidth = lw * 0.6; c.stroke(p1); }
-        c.fillStyle = `hsl(${f.h - 4},${f.sa - 6}%,${Math.min(92, f.l + 8 + dl)}%)`; c.fill(p2);
-        if (light) c.stroke(p2);
-        const cr = rB * 0.2;
-        c.fillStyle = f.h < 70 ? 'hsl(330,45%,26%)' : f.h < 230 ? 'hsl(44,85%,55%)' : 'hsl(50,70%,78%)';
-        c.beginPath(); c.ellipse(hx, hy, cr, cr * sq, th, 0, TAU); c.fill();
-        for (let q = 0; q < 9; q++) {
-          const a = q * TAU / 9 + rot, d = cr * 1.35;
-          stam.rect(hx + Math.cos(a) * d - lw * 0.6, hy + Math.sin(a) * d * sq - lw * 0.6, lw * 1.2, lw * 1.2);
-        }
-      }
-      c.fillStyle = light ? 'rgba(120,70,40,0.7)' : 'rgba(255,230,170,0.85)'; c.fill(stam);
-      // torn petals tumbling on the wind
-      let keep = 0;
-      const dpr = E.dpr;
-      for (let i = 0; i < fly.length; i++) {
-        const p = fly[i];
-        p.age += dt;
-        const wv = (wx * e * 300 + dir * storm * 340) * s * (0.7 + 0.3 * Math.sin(T * 2 + p.sd));
-        p.vx += (wv - p.vx) * dt * 1.2; p.vy += (34 * s - p.vy * 0.45) * dt + Math.sin(T * 4 + p.sd) * 60 * s * dt;
-        p.x += p.vx * dt; p.y += p.vy * dt; p.a += p.va * dt; p.fp += p.fv * dt;
-        if (p.age > 7 || p.x < -60 || p.x > W + 60 || p.y > H + 30) continue;
-        fly[keep++] = p;
-        const ca = Math.cos(p.a), sa = Math.sin(p.a), w = p.w * (0.2 + 0.8 * Math.abs(Math.cos(p.fp))), L = p.L;
-        c.setTransform(ca * dpr, sa * dpr, -sa * dpr, ca * dpr, p.x * dpr, p.y * dpr);
-        c.globalAlpha = Math.min(1, (7 - p.age) * 0.8);
-        c.fillStyle = p.col;
-        c.beginPath(); c.moveTo(-L / 2, 0);
-        c.bezierCurveTo(-L * 0.2, -w, L * 0.42, -w * 0.7, L / 2, 0); c.bezierCurveTo(L * 0.42, w * 0.7, -L * 0.2, w, -L / 2, 0);
-        c.fill();
-      }
-      fly.length = keep;
-      c.setTransform(dpr, 0, 0, dpr, 0, 0); c.globalAlpha = 1;
-      drawGrass(st.grass[1], light ? 0.85 : 1);
-      // seeds (paper) or fireflies (dusk) drifting on the air: they show the breath too
-      const motes = st.motes || (st.motes = Array.from({ length: 70 }, (_, i) => ({ x: hash(i * 3 + 1) * W, y: H * (0.3 + 0.6 * hash(i * 3 + 2)), sd: i })));
-      const mp = new Path2D();
-      for (const m of motes) {
-        m.x += ((wx * e * 420 + dir * storm * 300) * s + 10 * s * Math.sin(T * 0.3 + m.sd)) * dt;
-        m.y += (-6 * s + 14 * s * Math.sin(T * 0.7 + m.sd * 1.7) + (e + storm) * 30 * s * Math.sin(T * 5 + m.sd)) * dt;
-        if (m.x < -20) m.x += W + 40; if (m.x > W + 20) m.x -= W + 40;
-        if (m.y < H * 0.2) m.y = H * 0.95; if (m.y > H) m.y = H * 0.3;
-        const d = lw * (light ? 1.2 : 1.6);
-        mp.rect(m.x - d / 2, m.y - d / 2, d, d);
-      }
-      if (light) { c.fillStyle = 'rgba(110,90,60,0.5)'; c.fill(mp); }
-      else {
-        c.globalCompositeOperation = 'lighter';
-        const tw = 0.5 + 0.5 * Math.sin(T * 1.7);
-        c.fillStyle = `rgba(255,226,150,${0.55 + 0.3 * tw})`; c.fill(mp);
-        const g = glow('255,200,120', 32, 0.25);
-        for (let i = 0; i < motes.length; i += 3) { const m = motes[i], z = 14 * s * (0.6 + 0.4 * Math.sin(T * 2 + i)); c.globalAlpha = 0.5; c.drawImage(g, m.x - z / 2, m.y - z / 2, z, z); }
-        c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
-      }
-    },
-  };
-
-  /* ============================================================== 4  Radar
-     A sonar / radar scope over the whole Earth, seen from above the North Pole (the edge is 60°S, the
-     bearing is the longitude). A rotating beam leaves a phosphor-green afterglow; every place where it is
-     raining shows up as an echo when the beam passes, then fades. A breath speeds the sweep up and fills
-     the screen with static and jitter, thickest where the mist moved; a storm tears the picture into
-     bands and sends interference across the whole screen; lightning shows as strikes on the scope. */
-  const G = '96,255,150';
-  const polar = (Rr, lat) => Rr * (90 - lat) / 150;
-  function radarSetup(st, W, H, dpr, pts) {
-    st.W = W; st.H = H; st.ptsRef = pts;
-    const cx = W / 2, cy = H / 2, Rr = Math.min(W, H) * 0.44;
-    Object.assign(st, { cx, cy, Rr });
-    const sc = st.scope = canvas(W * dpr, H * dpr), g = sc.getContext('2d');
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = '#010402'; g.fillRect(0, 0, W, H);
-    let gr = g.createRadialGradient(cx, cy, 0, cx, cy, Rr * 1.08);
-    gr.addColorStop(0, '#06200f'); gr.addColorStop(0.7, '#031309'); gr.addColorStop(0.97, '#020a05'); gr.addColorStop(1, '#000');
-    g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, Rr * 1.08, 0, TAU); g.fill();
-    // the land, faint, like ground clutter
-    g.fillStyle = `rgba(${G},0.09)`;
-    if (typeof LAND_MASK !== 'undefined') for (let r = 0; r < 90; r++) for (let q = 0; q < 180; q++) {
-      if (!LAND_MASK[r * 180 + q]) continue;
-      const lat = 89 - r * 2, lon = -179 + q * 2;
-      if (lat < -60) continue;
-      const rr = polar(Rr, lat), a = lon * Math.PI / 180 - Math.PI / 2, d = 0.9 + rr / Rr * 1.2;
-      g.fillRect(cx + Math.cos(a) * rr - d / 2, cy + Math.sin(a) * rr - d / 2, d, d);
-    }
-    // every point checked for rain, as a faint grid
-    g.fillStyle = `rgba(${G},0.22)`;
-    for (const p of pts) { if (p[0] < -60) continue; const rr = polar(Rr, p[0]), a = p[1] * Math.PI / 180 - Math.PI / 2; g.fillRect(cx + Math.cos(a) * rr - 0.7, cy + Math.sin(a) * rr - 0.7, 1.4, 1.4); }
-    // range rings: 60N, 30N, the equator, 30S, and the edge at 60S
-    g.lineWidth = 1;
-    for (const lat of [60, 30, 0, -30]) {
-      g.strokeStyle = `rgba(${G},${lat === 0 ? 0.3 : 0.15})`; g.setLineDash(lat === 0 ? [] : [2, 4]);
-      g.beginPath(); g.arc(cx, cy, polar(Rr, lat), 0, TAU); g.stroke();
-    }
-    g.setLineDash([]);
-    g.strokeStyle = `rgba(${G},0.55)`; g.lineWidth = 1.5; g.beginPath(); g.arc(cx, cy, Rr, 0, TAU); g.stroke();
-    // spokes and bearing ticks
-    g.strokeStyle = `rgba(${G},0.1)`; g.lineWidth = 1; g.beginPath();
-    for (let d = 0; d < 360; d += 30) { const a = d * Math.PI / 180 - Math.PI / 2; g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * Rr, cy + Math.sin(a) * Rr); }
-    g.stroke();
-    g.strokeStyle = `rgba(${G},0.5)`; g.beginPath();
-    for (let d = 0; d < 360; d += 2) {
-      const a = d * Math.PI / 180 - Math.PI / 2, l = d % 30 === 0 ? 14 : d % 10 === 0 ? 8 : 4;
-      g.moveTo(cx + Math.cos(a) * Rr, cy + Math.sin(a) * Rr); g.lineTo(cx + Math.cos(a) * (Rr + l), cy + Math.sin(a) * (Rr + l));
-    }
-    g.stroke();
-    const fs = Math.max(10, Math.round(Rr * 0.03));
-    g.font = `400 ${fs}px "IBM Plex Mono", ui-monospace, Menlo, monospace`; g.fillStyle = `rgba(${G},0.6)`; g.textAlign = 'center'; g.textBaseline = 'middle';
-    for (let d = -180; d < 180; d += 30) {
-      const a = d * Math.PI / 180 - Math.PI / 2, t = d === 0 ? '0°' : d === -180 ? '180°' : Math.abs(d) + (d > 0 ? 'E' : 'W');
-      g.fillText(t, cx + Math.cos(a) * (Rr + 30), cy + Math.sin(a) * (Rr + 30));
-    }
-    g.fillStyle = `rgba(${G},0.38)`; g.textAlign = 'left';
-    for (const [lat, t] of [[60, '60N'], [30, '30N'], [0, 'EQ'], [-30, '30S']]) g.fillText(t, cx + 4, cy - polar(Rr, lat) - fs * 0.7);
-    // the glass: scanlines, a vignette, a faint reflection
-    const crt = st.crt = canvas(W * dpr, H * dpr), k = crt.getContext('2d');
-    k.setTransform(dpr, 0, 0, dpr, 0, 0);
-    k.fillStyle = 'rgba(0,0,0,0.2)';
-    for (let y = 0; y < H; y += 3) k.fillRect(0, y, W, 1);
-    gr = k.createRadialGradient(cx, cy, Math.min(W, H) * 0.35, cx, cy, Math.hypot(W, H) * 0.58);
-    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.85)');
-    k.fillStyle = gr; k.fillRect(0, 0, W, H);
-    gr = k.createLinearGradient(0, 0, W * 0.6, H);
-    gr.addColorStop(0, 'rgba(200,255,220,0.035)'); gr.addColorStop(0.45, 'rgba(200,255,220,0)'); gr.addColorStop(1, 'rgba(200,255,220,0)');
-    k.fillStyle = gr; k.fillRect(0, 0, W, H);
-    st.buf = canvas(W * dpr, H * dpr); st.bctx = st.buf.getContext('2d');
-  }
-  const radar = {
-    name: 'radar', title: 'Radar', dark: true, bolts: false,
-    draw(R, c, E) {
-      const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), dpr = E.dpr;
-      if (st.W !== W || st.H !== H || st.ptsRef !== E.pts || !st.scope) radarSetup(st, W, H, dpr, E.pts);
-      const tear = storm > 0.12;
-      const g = tear ? st.bctx : c;
-      g.setTransform(dpr, 0, 0, dpr, 0, 0); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1;
-      // a breath shakes the picture
-      const jit = (e * 4 + storm * 3) * s, jx = (rnd() - 0.5) * jit, jy = (rnd() - 0.5) * jit * 0.6;
-      g.drawImage(st.scope, jx, jy, W, H);
-      const cx = st.cx + jx, cy = st.cy + jy, Rr = st.Rr;
-      // the sweep: ~6 rpm in calm, much faster while someone blows
-      const spdT = 0.55 * (1 - 0.3 * calm) + 4.2 * e + 1.4 * storm;
-      st.spd = st.spd == null ? spdT : st.spd + (spdT - st.spd) * (1 - Math.exp(-dt * (spdT > st.spd ? 6 : 1.2)));
-      const a0 = st.sw == null ? (T * 0.6) % TAU : st.sw, a1 = a0 + st.spd * dt;
-      st.sw = a1 % TAU;
-      const span = a1 - a0;
-      g.globalCompositeOperation = 'lighter';
-      if (calm > 0.02) { g.fillStyle = `rgba(${G},${0.035 * calm})`; g.beginPath(); g.arc(cx, cy, Rr, 0, TAU); g.fill(); }
-      // the afterglow behind the beam: its length follows the speed (the phosphor fades in time, not angle)
-      const Ltr = clamp(0.5 + st.spd * 0.9, 0.6, 3.8), tA = 0.2 * (1 - 0.3 * calm);
-      if (g.createConicGradient) {                                 // one smooth sweep of light
-        const cg = g.createConicGradient(a1 - Ltr, cx, cy), f = Ltr / TAU;
-        cg.addColorStop(0, `rgba(${G},0)`);
-        for (let j = 1; j <= 8; j++) { const t = j / 8; cg.addColorStop(f * t, `rgba(${G},${tA * Math.exp(-3.4 * (1 - t))})`); }
-        cg.addColorStop(Math.min(1, f + 0.0005), `rgba(${G},0)`); cg.addColorStop(1, `rgba(${G},0)`);
-        g.fillStyle = cg; g.beginPath(); g.arc(cx, cy, Rr, 0, TAU); g.fill();
-      } else {                                                    // older browsers: thin slices
-        const NS = 30;
-        for (let j = 0; j < NS; j++) {
-          const t0 = j / NS, t1 = (j + 1) / NS;
-          g.fillStyle = `rgba(${G},${tA * Math.exp(-3.4 * t0)})`;
-          g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, Rr, a1 - Ltr * t1, a1 - Ltr * t0); g.closePath(); g.fill();
-        }
-      }
-      const bxe = cx + Math.cos(a1) * Rr, bye = cy + Math.sin(a1) * Rr;
-      g.lineCap = 'round';
-      g.strokeStyle = `rgba(${G},0.18)`; g.lineWidth = lw * 7; g.beginPath(); g.moveTo(cx, cy); g.lineTo(bxe, bye); g.stroke();
-      g.strokeStyle = 'rgba(200,255,215,0.9)'; g.lineWidth = lw * 1.3; g.beginPath(); g.moveTo(cx, cy); g.lineTo(bxe, bye); g.stroke();
-      // echoes: a raining place lights up as the beam passes, then fades over about a turn
-      const pts = points(E), hit = st.hit || (st.hit = new Map());
-      const decay = clamp(TAU / Math.max(0.3, st.spd) * 0.55, 0.8, 5);
-      const NB = 5, arcs = [], cores = new Path2D(), glows = [];
-      for (let b = 0; b < NB; b++) arcs.push(new Path2D());
-      let echoes = 0, maxmm = 0;
-      for (const q of pts) {
-        if (!q.rain) continue;
-        echoes++; if (q.mm > maxmm) maxmm = q.mm;
-        if (q.lat < -60) continue;
-        if (q.ang == null) { q.ang = (((q.lon * Math.PI / 180 - Math.PI / 2) % TAU) + TAU) % TAU; q.rr = polar(1, q.lat); }
-        const d = (((q.ang - a0) % TAU) + TAU) % TAU;
-        if (d <= span || span >= TAU) hit.set(q.id, T - (span - d) / Math.max(0.05, st.spd));
-        const t0 = hit.get(q.id);
-        if (t0 == null) continue;
-        const age = T - t0, br = Math.exp(-age / decay);
-        if (br < 0.03) continue;
-        const k = q.k, r = q.rr * Rr, ji = e * 3 * s;
-        const x = cx + Math.cos(q.ang) * r + (rnd() - 0.5) * ji, y = cy + Math.sin(q.ang) * r + (rnd() - 0.5) * ji;
-        const ext = Math.min(0.5, (3 + 9 * k) * s / Math.max(8, r));
-        const b = Math.min(NB - 1, Math.floor(br * NB));
-        arcs[b].moveTo(cx + Math.cos(q.ang - ext) * r, cy + Math.sin(q.ang - ext) * r); arcs[b].arc(cx, cy, r, q.ang - ext, q.ang + ext);
-        if (age < 0.25) { const d2 = (2 + 3 * k) * lw; cores.rect(x - d2 / 2, y - d2 / 2, d2, d2); }
-        glows.push([x, y, br, k]);
-      }
-      for (let b = 0; b < NB; b++) {
-        const al = (b + 0.5) / NB;
-        g.strokeStyle = `rgba(${G},${0.12 * al})`; g.lineWidth = lw * 9; g.stroke(arcs[b]);
-        g.strokeStyle = `rgba(150,255,185,${0.85 * al})`; g.lineWidth = lw * 2.6; g.stroke(arcs[b]);
-      }
-      const sp = glow(G, 64, 0.2);
-      for (const [x, y, br, k] of glows) { const z = (16 + 40 * k) * s * (0.6 + 0.4 * br); g.globalAlpha = 0.55 * br; g.drawImage(sp, x - z / 2, y - z / 2, z, z); }
-      g.globalAlpha = 1;
-      g.fillStyle = 'rgba(235,255,240,0.95)'; g.fill(cores);
-      // lightning: a strike flares on the scope (at its longitude) and the whole screen flashes
-      let strike = 0;
-      for (const b of R.bolts) {
-        const age = T - b.t; if (age < 0) continue;
-        const fl = age < 0.07 ? 1 : age < 0.12 ? 0.3 : age < 0.2 ? 0.9 : Math.max(0, 1 - (age - 0.2) / 0.9);
-        strike = Math.max(strike, fl * (b.power || 0.6));
-        const a = (b.u || 0.5) * TAU - Math.PI, rr = Rr * (0.25 + 0.6 * hash((b.seed | 0) + 9));
-        const x = cx + Math.cos(a - Math.PI / 2) * rr, y = cy + Math.sin(a - Math.PI / 2) * rr, z = (40 + 90 * fl) * s;
-        g.globalAlpha = fl; g.drawImage(glow('210,255,225', 64, 0.3), x - z / 2, y - z / 2, z, z);
-        g.strokeStyle = `rgba(220,255,230,${fl})`; g.lineWidth = lw * 1.4; g.beginPath();
-        g.moveTo(x - z * 0.3, y); g.lineTo(x + z * 0.3, y); g.moveTo(x, y - z * 0.3); g.lineTo(x, y + z * 0.3); g.stroke();
         g.globalAlpha = 1;
       }
-      if (strike > 0.35 && !(st.flash > T - 0.4)) st.flash = T;
-      // static: the breath fills the scope with noise, thickest where the mist moved
-      const nz = Math.round((0.03 + 0.95 * e + 0.6 * storm) * 1500 * (W * H) / (1600 * 900));
-      if (nz > 0) {
-        const p1 = new Path2D(), p2 = new Path2D();
-        const fx = cx + clamp(E.mx, -1, 1) * Rr * 0.75, fy = cy + clamp(E.my, -1, 1) * Rr * 0.75;
-        for (let i = 0; i < nz; i++) {
-          let x, y;
-          if (i & 1) { const a = rnd() * TAU, r = Rr * 0.32 * Math.sqrt(-2 * Math.log(rnd() + 1e-6)) * 0.6; x = fx + Math.cos(a) * r; y = fy + Math.sin(a) * r; }
-          else { const a = rnd() * TAU, r = Rr * Math.sqrt(rnd()); x = cx + Math.cos(a) * r; y = cy + Math.sin(a) * r; }
-          const d = (rnd() < 0.2 ? 2.2 : 1.2) * lw * 0.8;
-          (rnd() < 0.3 ? p2 : p1).rect(x, y, d, d * 0.8);
-        }
-        g.fillStyle = `rgba(${G},0.35)`; g.fill(p1);
-        g.fillStyle = 'rgba(210,255,225,0.6)'; g.fill(p2);
-        const streaks = Math.round(e * 10 + storm * 8), sl = new Path2D();
-        for (let i = 0; i < streaks; i++) { const y = rnd() * H, x = rnd() * W; sl.rect(x, y, (40 + rnd() * 260) * s, lw * 0.8); }
-        g.fillStyle = `rgba(${G},0.16)`; g.fill(sl);
-      }
-      // interference: the storm (and lightning) rolls a bright band and a flash over the whole screen
-      if (storm > 0.15 && rnd() < storm * 0.7 * dt) st.flash = T;
-      if (st.flash != null && T - st.flash < 0.5) {
-        const fa = 1 - (T - st.flash) / 0.5;
-        g.fillStyle = `rgba(${G},${0.16 * fa})`; g.fillRect(0, 0, W, H);
-        const yb = ((T - st.flash) / 0.5) * H * 1.3 - H * 0.15;
-        g.fillStyle = `rgba(190,255,210,${0.2 * fa})`; g.fillRect(0, yb, W, 26 * s);
-      }
-      // the readout
-      g.globalCompositeOperation = 'source-over';
-      const fsz = Math.round(10.5 * s), x0 = Math.max(24 * s, W * 0.045), y0 = H * 0.11;
-      g.textAlign = 'left'; g.textBaseline = 'alphabetic';
-      g.fillStyle = `rgba(${G},0.62)`; g.font = `400 ${fsz}px "IBM Plex Mono", ui-monospace, Menlo, monospace`;
-      g.fillText('PRECIP · WORLD SCAN', x0, y0);
-      g.fillStyle = 'rgba(170,255,200,0.95)'; g.font = `300 ${Math.round(fsz * 4)}px "IBM Plex Mono", ui-monospace, Menlo, monospace`;
-      g.fillText(String(echoes), x0 - fsz * 0.2, y0 + fsz * 4.4);
-      g.font = `400 ${fsz}px "IBM Plex Mono", ui-monospace, Menlo, monospace`; g.fillStyle = `rgba(${G},0.8)`;
-      const n = pts.length || 1, pct = (echoes / n * 100).toFixed(1);
-      const lines = [`${echoes === 1 ? 'ECHO' : 'ECHOES'}`, '', E.pts.length ? `${pct}% OF ${n} PTS` : 'AWAITING SNAPSHOT', `MAX ${maxmm ? maxmm.toFixed(1) : '—'} MM/H`, `SWEEP ${(st.spd / TAU * 60).toFixed(1)} RPM`,
-        `NOISE [${'#'.repeat(Math.round(e * 8))}${'·'.repeat(8 - Math.round(e * 8))}]`,
-        `WX ${storm > 0.25 ? 'STORM' : calm > 0.5 ? 'CALM' : e > 0.3 ? 'GUSTS' : 'RAIN'}`];
-      lines.forEach((t, i) => g.fillText(t, x0, y0 + fsz * (5.9 + i * 1.6)));
-      if (storm > 0.25 && (T * 2) % 1 < 0.6) { g.fillStyle = 'rgba(200,255,215,0.95)'; g.fillText('▲ STORM CELLS', x0, y0 + fsz * (6 + lines.length * 1.6 + 0.6)); }
-      const d = new Date();
-      g.fillStyle = `rgba(${G},0.55)`;
-      const yb = H * 0.8;
-      g.fillText(`UTC ${d.toISOString().slice(11, 19)}`, x0, yb);
-      g.fillText(`BRG ${String(Math.round(((st.sw + Math.PI / 2) / TAU * 360 + 360) % 360)).padStart(3, '0')}°`, x0, yb + fsz * 1.6);
-      g.fillText('POLAR · 90N–60S', x0, yb + fsz * 3.2);
-      // storm: the picture tears into shifted bands
-      if (tear) {
-        c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over';
-        c.drawImage(st.buf, 0, 0);
-        if (!st.bands || rnd() < 0.3) {
-          st.bands = [];
-          const nb = 1 + Math.floor(storm * 6 + e * 3);
-          for (let i = 0; i < nb; i++) st.bands.push([rnd() * H, (4 + rnd() * 46) * s, (rnd() - 0.5) * 2 * (10 + 70 * storm) * s]);
-        }
-        for (const [y, h, dx] of st.bands) {
-          const Y = Math.round(y * dpr), Hh = Math.max(1, Math.round(h * dpr)), DX = Math.round(dx * dpr);
-          c.fillStyle = '#000'; c.fillRect(0, Y, st.buf.width, Hh);
-          c.drawImage(st.buf, 0, Y, st.buf.width, Hh, DX, Y, st.buf.width, Hh);
-        }
-        c.setTransform(dpr, 0, 0, dpr, 0, 0);
-      }
-      c.globalCompositeOperation = 'source-over';
-      c.drawImage(st.crt, 0, 0, W, H);
+      c.globalCompositeOperation = 'source-over'; c.imageSmoothingEnabled = true;
+      c.drawImage(st.cv, 0, 0, W, H);
+      if (redo) st.rt = st.rt == null ? 3 : st.rt * 0.8 + (performance.now() - t0) * 0.2;
+      // ---- the surface: a ring of water runs out from each new drop, catching the light
+      const rc = day > 0.5 ? '255,255,255' : '255,240,220', RB = [new Path2D(), new Path2D()];
+      st.rings = st.rings.filter(o => T - o.t < 0.9);
+      for (const o of st.rings) { const a = (T - o.t) / 0.9, r = o.r * (0.4 + 1.6 * Math.sqrt(a)), P = RB[a < 0.4 ? 1 : 0]; P.moveTo(o.x + r, o.y); P.arc(o.x, o.y, r, 0, TAU); }
+      c.lineWidth = Math.max(1, 1.4 * sk); c.strokeStyle = `rgba(${rc},0.16)`; c.stroke(RB[0]); c.strokeStyle = `rgba(${rc},0.32)`; c.stroke(RB[1]);
+      c.drawImage(fade2(st, 'fl', st.lN, st.lD, day), 0, 0, W, H);
+      const [fl] = flicker(R, T);
+      if (fl > 0.02) { c.fillStyle = `rgba(255,255,255,${0.32 * fl})`; c.fillRect(0, 0, W, H); }
     },
   };
+
+  /* ============================================================== 3  Cymatics
+     A Chladni plate in a dark studio: a round black plate dusted with fine white sand, set out in the rain
+     under a spotlight, and the rain plays it. The raining places take turns (east to west): a drop from
+     that place strikes the plate and it rings with that place's own note, and the sand dances off the
+     parts that shake and gathers on the still lines, drawing the note's figure. The figure comes from the
+     place: drizzle rings fine lace, rain a square figure, showers a rosette, a thunderstorm a dense star;
+     heavier rain = a deeper note (bigger, bolder figure) that rings longer; the light under the plate takes
+     the colour of the kind of rain. More raining places = more drops striking the plate and more sand. A
+     breath blows the sand across and off the plate, away from the side it came from (fresh sand is sifted
+     back on after); a storm sets the plate ringing wildly, note over note, the sand leaping; lightning
+     makes every grain jump and the plate boom. Calm, one pure figure holds and the sand settles into it,
+     sharp. A tap strikes the plate where it lands (on a raining place: its note rings). */
+  const CYM_COL = [[90, 224, 236], [92, 140, 255], [255, 170, 64], [200, 110, 255]];   // the light of a note: drizzle, rain, showers, thunderstorm
+  function cymSpec(z, kind) {                     // a place's note: which figure the plate rings in
+    const h1 = hash(z.id * 3 + 11), h2 = hash(z.id * 3 + 12), h3 = hash(z.id * 3 + 13), lo = Math.round(2 * (1 - z.k));   // heavier rain: a lower note
+    const M = (m, n, w, ph) => ({ m, n, w, ph });
+    let modes;
+    if (kind === 0) modes = [M(6 + Math.floor(h1 * 5), 2 + lo + Math.floor(h2 * 2), 1, 0), M(3 + Math.floor(h3 * 3), 4 + lo, 0.45, h2 * TAU)];             // drizzle: fine lace
+    else if (kind === 2) { const m = 3 + Math.floor(h1 * 4); modes = [M(m, 1 + lo, 1, 0), M(m * 2, 1 + lo + Math.floor(h2 * 2), 0.7, h3 * TAU)]; }      // showers: a rosette
+    else if (kind === 3) modes = [M(5 + Math.floor(h1 * 4), 3 + lo, 1, 0), M(2 + Math.floor(h2 * 3), 4 + lo, 0.8, h3 * 3), M(9 + Math.floor(h3 * 4), 2, 0.5, h1 * 5)];   // thunderstorms: a dense star
+    else modes = [M(2 + Math.floor(h1 * 4), 1 + lo + Math.floor(h2 * 2), 1, 0), M(Math.floor(h3 * 3), 2 + lo, 0.35 * h2, 0)];                           // rain: rings and spokes
+    return { modes, rot: h1 * TAU + z.u * TAU, kind };
+  }
+  /* Bessel J_m(x) on a table (the shape of a ring of a round plate) */
+  function besselJ(m, x) {
+    let s = 0, t = Math.pow(x / 2, m); for (let k = 1; k <= m; k++) t /= k;
+    for (let k = 0; k < 60; k++) { s += t; t *= -(x * x / 4) / ((k + 1) * (k + 1 + m)); if (Math.abs(t) < 1e-9 && k > x) break; }
+    return s;
+  }
+  function cymField(sp, G) {                      // the plate's shape of vibration on a G x G grid over [-1, 1]^2, scaled to |max| = 1
+    const f = new Float32Array(G * G), tabs = sp.modes.map(o => { const a = (o.n + o.m / 2 + 0.75) * Math.PI, tb = new Float32Array(257); for (let i = 0; i <= 256; i++) tb[i] = besselJ(o.m, a * i / 256); return tb; });
+    let mx = 1e-6;
+    for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) {
+      const X = i / (G - 1) * 2 - 1, Z = j / (G - 1) * 2 - 1, r = Math.min(1, Math.hypot(X, Z)), th = Math.atan2(Z, X) + sp.rot;
+      let v = 0;
+      sp.modes.forEach((o, k) => { v += o.w * Math.cos(o.m * th + o.ph) * tabs[k][Math.round(r * 256)]; });
+      f[j * G + i] = v; if (Math.abs(v) > mx && Math.hypot(X, Z) <= 1) mx = Math.abs(v);
+    }
+    for (let i = 0; i < f.length; i++) f[i] /= mx;
+    return f;
+  }
+  function cymScene(st, W, H, dpr, day) {         // the studio, and the plate, drawn once (night: black plate under a spot; day: brass in daylight)
+    const bg = canvas(W * dpr, H * dpr), g = bg.getContext('2d'), P = st.P, p = [0, 0, 0];
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    let gr = g.createLinearGradient(0, 0, 0, H);
+    if (day) { gr.addColorStop(0, '#f2f1ed'); gr.addColorStop(0.6, '#e6e4de'); gr.addColorStop(1, '#d2cfc7'); }
+    else { gr.addColorStop(0, '#040406'); gr.addColorStop(0.6, '#07070a'); gr.addColorStop(1, '#0b0a0d'); }
+    g.fillStyle = gr; g.fillRect(0, 0, W, H);
+    P(0, 0, 0, p); const cx = p[0], cy = p[1], rx = st.Rp;
+    if (!day) {                                   // the spotlight: a soft cone of light from above, a little dust in it
+      g.save(); g.globalCompositeOperation = 'lighter';
+      for (let k = 0; k < 14; k++) {
+        const f = 1 - k / 14, wT = W * 0.03 * f, wB = rx * 1.15 * f;
+        gr = g.createLinearGradient(0, -H * 0.05, 0, cy + rx * 0.2);
+        gr.addColorStop(0, 'rgba(255,238,212,0.022)'); gr.addColorStop(1, 'rgba(255,238,212,0.006)');
+        g.fillStyle = gr; g.beginPath(); g.moveTo(cx - wT, -H * 0.05); g.lineTo(cx + wT, -H * 0.05); g.lineTo(cx + wB, cy + rx * 0.2); g.lineTo(cx - wB, cy + rx * 0.2); g.fill();
+      }
+      for (let i = 0; i < 260; i++) {
+        const t = hash(i * 3 + 1), y = -H * 0.05 + t * (cy + rx * 0.2 + H * 0.05), w = W * 0.03 + (rx * 1.15 - W * 0.03) * t, x = cx + (hash(i * 3 + 2) - 0.5) * 2 * w * 0.8;
+        g.fillStyle = `rgba(255,240,220,${0.05 + 0.12 * hash(i * 3 + 3)})`; g.fillRect(x, y, 1.2, 1.2);
+      }
+      g.restore();
+    }
+    // the plate's shadow on the floor, the stand and its driver
+    g.save(); g.translate(cx, H * 0.975); g.scale(1, 0.1);
+    gr = g.createRadialGradient(0, 0, 0, 0, 0, rx * 1.15); gr.addColorStop(0, day ? 'rgba(60,50,40,0.3)' : 'rgba(255,236,210,0.05)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(-rx * 1.2, -rx * 1.2, rx * 2.4, rx * 2.4); g.restore();
+    const sw = rx * 0.03;
+    gr = g.createLinearGradient(cx - sw, 0, cx + sw, 0);
+    gr.addColorStop(0, day ? '#5a5048' : '#09090b'); gr.addColorStop(0.4, day ? '#a39684' : '#2a2a31'); gr.addColorStop(1, day ? '#4a4038' : '#060608');
+    g.fillStyle = gr; g.fillRect(cx - sw, cy, sw * 2, H - cy);
+    gr = g.createLinearGradient(cx - sw * 5, 0, cx + sw * 5, 0);
+    gr.addColorStop(0, day ? '#3a322c' : '#060607'); gr.addColorStop(0.35, day ? '#6a5e52' : '#1c1c22'); gr.addColorStop(1, day ? '#2e2722' : '#040405');
+    g.fillStyle = gr; g.fillRect(cx - sw * 5, H * 0.9, sw * 10, H * 0.12);
+    // the plate: its edge (the thickness, at the front), its top, brushed rings, the light on it
+    const pl = canvas(W * dpr, H * dpr), q = pl.getContext('2d');
+    q.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const N = 180, rim = [], th = rx * 0.022;
+    for (let i = 0; i <= N; i++) { const a = i / N * TAU; P(Math.cos(a), 0, Math.sin(a), p); rim.push([p[0], p[1]]); }
+    q.beginPath(); rim.forEach(([x, y], i) => i ? q.lineTo(x, y) : q.moveTo(x, y));
+    for (let i = N; i >= 0; i--) { const [x, y] = rim[i]; q.lineTo(x, y + th); }
+    gr = q.createLinearGradient(cx - rx, 0, cx + rx, 0);
+    if (day) { gr.addColorStop(0, '#5a4424'); gr.addColorStop(0.4, '#8a6a38'); gr.addColorStop(1, '#4a3820'); }
+    else { gr.addColorStop(0, '#0c0c10'); gr.addColorStop(0.4, '#2a2a33'); gr.addColorStop(1, '#09090c'); }
+    q.fillStyle = gr; q.fill();
+    const top = new Path2D(); rim.forEach(([x, y], i) => i ? top.lineTo(x, y) : top.moveTo(x, y));
+    gr = q.createLinearGradient(0, rim[N * 3 / 4][1], 0, rim[N / 4][1]);
+    if (day) { gr.addColorStop(0, '#b0915a'); gr.addColorStop(0.5, '#cfb077'); gr.addColorStop(1, '#bb985c'); }
+    else { gr.addColorStop(0, '#0b0b0e'); gr.addColorStop(0.55, '#16161b'); gr.addColorStop(1, '#0e0e12'); }
+    q.fillStyle = gr; q.fill(top);
+    q.save(); q.clip(top);
+    for (let i = 0; i < 110; i++) {
+      const r = 0.04 + 0.96 * hash(i * 7 + 1), pp = [];
+      for (let k = 0; k <= 72; k++) { const a = k / 72 * TAU; P(Math.cos(a) * r, 0, Math.sin(a) * r, p); pp.push([p[0], p[1]]); }
+      q.strokeStyle = day ? `rgba(255,240,200,${0.05 + 0.08 * hash(i * 7 + 2)})` : `rgba(160,170,190,${0.018 + 0.03 * hash(i * 7 + 2)})`; q.lineWidth = 0.8;
+      q.beginPath(); pp.forEach(([x, y], k) => k ? q.lineTo(x, y) : q.moveTo(x, y)); q.stroke();
+    }
+    P(-0.1, 0, -0.3, p);
+    q.translate(p[0], p[1]); q.scale(1, 0.5);
+    gr = q.createRadialGradient(0, 0, 0, 0, 0, rx * 0.95);
+    gr.addColorStop(0, day ? 'rgba(255,250,230,0.38)' : 'rgba(220,222,240,0.12)'); gr.addColorStop(0.5, day ? 'rgba(255,250,230,0.1)' : 'rgba(220,222,240,0.04)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    q.fillStyle = gr; q.fillRect(-rx, -rx, rx * 2, rx * 2);
+    q.restore();
+    q.strokeStyle = day ? 'rgba(255,236,190,0.75)' : 'rgba(200,205,225,0.3)'; q.lineWidth = 1.2;
+    q.beginPath(); rim.slice(0, N / 2 + 1).forEach(([x, y], i) => i ? q.lineTo(x, y) : q.moveTo(x, y)); q.stroke();
+    return [bg, pl];
+  }
+  const cymatics = {
+    name: 'cymatics', title: 'Cymatics', dark: true, bolts: false,
+    draw(R, c, E) {
+      const { T, W, H, st, storm, e } = E, dt = Math.min(E.dt, 1 / 30), calm = calmOf(E), wx = windX(E), wy = windY(E), sk = W / 1600, G = 64;
+      if (st.W !== W || st.H !== H || !st.P) {
+        st.W = W; st.H = H;
+        const Rp = Math.min(W * 0.33, H * 0.7), cx = W / 2, cy = H * 0.56, tz = 0.5, q = 0.16;
+        st.Rp = Rp; st.cx = cx; st.cy = cy; st.tz = tz; st.q = q;
+        st.P = (X, Y, Z, out) => { const k = 1 / (1 - q * Z); out[0] = cx + Rp * X * k; out[1] = cy + Rp * (tz * Z - 0.9 * Y) * k; out[2] = k; return out; };
+        st.inv = (sx, sy) => { const v = (sy - cy) / (Rp * tz), Z = v / (1 + q * v); return [(sx - cx) * (1 - q * Z) / Rp, Z]; };
+        [st.bN, st.pN] = cymScene(st, W, H, E.dpr, false); [st.bD, st.pD] = cymScene(st, W, H, E.dpr, true);
+        st.f = new Float32Array(G * G); st.notes = []; st.drops = []; st.spl = []; st.waves = []; st.idx = 0; st.next = 0;
+        st.gr = null; st.cache = new Map();
+      }
+      const day = dayOf(st, E), P = st.P, p = [0, 0, 0];
+      let sites = E.sites;
+      if (!sites.length) sites = st.idle || (st.idle = Array.from({ length: 6 }, (_, i) => ({ id: 90000 + i, u: (i + 0.5) / 6, v: 0.5, k: 0.3 + 0.4 * hash(i * 5 + 1) })));
+      const kindAt = z => z.id >= 90000 ? (z.id % 4) : kindOf(E, z);
+      const specOf = z => { let s = st.cache.get(z.id); if (!s) { s = cymSpec(z, kindAt(z)); s.f = cymField(s, G); st.cache.set(z.id, s); } return s; };
+      const spotOf = z => { const a = hash(z.id * 5 + 2) * TAU, r = 0.25 + 0.6 * Math.sqrt(hash(z.id * 5 + 3)); return [Math.cos(a) * r, Math.sin(a) * r]; };
+      // ---- the sand: more of it when more places are raining
+      const NG = Math.round(clamp(3200 + 110 * E.sites.length, 3200, 9000) * Math.min(1.3, W * H / (1280 * 720)));
+      if (!st.gr || st.gr.n !== NG) {
+        const o = st.gr, gx = new Float32Array(NG), gz = new Float32Array(NG), gy = new Float32Array(NG), gv = new Float32Array(NG), gu = new Float32Array(NG), gw = new Float32Array(NG), ph = new Float32Array(NG), off = new Float32Array(NG);
+        for (let i = 0; i < NG; i++) {
+          if (o && i < o.n) { gx[i] = o.x[i]; gz[i] = o.z[i]; gy[i] = o.y[i]; gv[i] = o.vy[i]; gu[i] = o.vx[i]; gw[i] = o.vz[i]; off[i] = o.off[i]; }
+          else { const a = rnd() * TAU, r = Math.sqrt(rnd()) * 0.97; gx[i] = Math.cos(a) * r; gz[i] = Math.sin(a) * r; gy[i] = o ? 0.4 + rnd() * 0.3 : 0; }
+          ph[i] = rnd() * TAU;
+        }
+        st.gr = { n: NG, x: gx, z: gz, y: gy, vy: gv, vx: gu, vz: gw, ph, off };
+      }
+      // ---- the notes: the raining places take turns (east to west); calm holds one; a storm piles them up
+      const order = [...sites].sort((a, b) => a.u - b.u);
+      const play = (z, amp, now) => {               // a place's drop strikes the plate: its note begins
+        const sp = specOf(z), [X, Z] = spotOf(z);
+        st.notes.push({ sp, t: T, w: 0, amp, kind: sp.kind, k: z.k });
+        if (st.notes.length > 4) st.notes.shift();
+        st.waves.push({ X, Z, t: T, a: amp });
+        st.lastKind = sp.kind; st.hit = T;
+        if (!now) st.drops.push({ X, Z, t: T - 0.3, land: T, k: z.k, big: true });
+      };
+      const dur = (z => (1.8 + 2.6 * z.k) * (1 + 3 * smoothstep(0.3, 0.9, calm)) / (1 + 5 * storm));
+      if (T >= st.next && order.length) {
+        const z = order[st.idx % order.length]; st.idx++;
+        if (calm > 0.75 && st.notes.length) st.next = T + 1;                  // calm: the figure holds
+        else {
+          // the drop is seen falling first; it strikes (and the note begins) as it lands
+          const [X, Z] = spotOf(z); st.drops.push({ X, Z, t: T, land: T + 0.32, k: z.k, big: true, z });
+          st.next = T + dur(z) * (0.85 + 0.3 * rnd());
+        }
+        if (storm > 0.3 && rnd() < storm) { const z2 = order[Math.floor(rnd() * order.length)]; play(z2, 0.7 + storm, true); }   // the storm: note over note
+      }
+      // fade the notes in and out (the newest rings, the older die away)
+      let drive = 0;
+      for (let i = 0; i < st.notes.length; i++) {
+        const n = st.notes[i], newest = i === st.notes.length - 1;
+        n.w += ((newest ? 1 : 0) - n.w) * (1 - Math.exp(-dt * (newest ? 7 : 3 + 6 * storm)));
+      }
+      st.notes = st.notes.filter((n, i) => n.w > 0.01 || i === st.notes.length - 1);
+      const f = st.f; f.fill(0);
+      for (const n of st.notes) { const w = n.w * (storm > 0.2 ? 0.7 + 0.3 * Math.sin(T * 17 + n.t * 7) : 1), F = n.sp.f; for (let i = 0; i < f.length; i++) f[i] += F[i] * w; }
+      const cur = st.notes.length ? st.notes[st.notes.length - 1] : null;
+      // how hard it shakes: a strike rings loud and settles; calm settles low; a storm stays loud
+      const ring = st.hit != null ? Math.exp(-(T - st.hit) * (0.9 + 0.6 * calm)) : 0;
+      drive = (0.22 + 0.5 * ring) * (cur ? 0.6 + 0.6 * cur.k : 0.6) * (1 - 0.55 * calm) + 1.1 * storm;
+      // ---- the rain: drops falling into the light and striking the plate (each raining place now and then; more places = more drops)
+      const rate = (0.6 + 0.09 * sites.length) * (0.15 + 0.85 * (1 - calm)) * (1 + 3 * storm);
+      let m = rate * dt;
+      while (m > 0) { if (m < 1 && rnd() > m) break; m -= 1; const z = sites[Math.floor(rnd() * sites.length)], a = rnd() * TAU, r = Math.sqrt(rnd()) * 0.98;
+        st.drops.push({ X: Math.cos(a) * r, Z: Math.sin(a) * r, t: T, land: T + 0.3 + 0.1 * rnd(), k: z.k * 0.6 }); }
+      // ---- taps: a strike where it lands (on a raining place: its note)
+      for (const t of tapsOf(R, E).fresh) {
+        let [X, Z] = st.inv(t.x, t.y); const r = Math.hypot(X, Z); if (r > 0.95) { X *= 0.95 / r; Z *= 0.95 / r; }
+        const z = t.site != null ? sites.find(o => o.id === t.site) : null;
+        if (z) { play(z, t.echo ? 0.6 : 1.6, true); const [sx, sz] = spotOf(z); X = sx; Z = sz; st.next = T + dur(z); }
+        st.waves.push({ X, Z, t: T, a: t.echo ? 0.5 : 1.6, tap: !t.echo }); if (!z && !t.echo) st.hit = T;
+      }
+      // ---- lightning: the plate booms, every grain jumps
+      for (const b of newBolts(R, st, T)) { st.boom = T; st.hit = T; const G2 = st.gr; for (let i = 0; i < G2.n; i++) if (G2.y[i] === 0) G2.vy[i] = (0.4 + 0.8 * rnd()) * (b.power || 0.7); }
+      const boom = st.boom != null ? Math.exp(-(T - st.boom) * 2.5) : 0;
+      drive += 1.2 * boom;
+      // drops land: a splash, a ring running out through the sand
+      st.drops = st.drops.filter(d => { if (T < d.land) return true; if (d.z) play(d.z, 1); else st.waves.push({ X: d.X, Z: d.Z, t: T, a: 0.35 + d.k });
+        for (let i = 0; i < 7; i++) { const a = rnd() * TAU, v = 0.08 + 0.15 * rnd(); st.spl.push({ X: d.X, Z: d.Z, vx: Math.cos(a) * v, vz: Math.sin(a) * v, vy: 0.25 + 0.4 * rnd(), y: 0, t: T }); }
+        return false; });
+      st.waves = st.waves.filter(w => T - w.t < 1.2);
+      // ---- move the sand: shaken where the plate moves (the still lines keep it), kicked by the rings, blown by the breath
+      const gs = st.gr, gx = gs.x, gz = gs.z, gy = gs.y, gvy = gs.vy, gvx = gs.vx, gvz = gs.vz, h = 2 / (G - 1);
+      const step = 0.16 * drive * Math.sqrt(dt), pull = 0.05 * (0.6 + drive) * dt;
+      const gust = e * (0.85 + 0.15 * Math.sin(T * 7)), bX = clamp(E.mx, -1, 1) * 0.8, bZ = clamp(E.my, -1, 1) * 0.8;
+      const dir = Math.abs(wx) > 0.1 ? Math.sign(wx) : (st.dir || 1); st.dir = dir;
+      const wvx = (Math.abs(wx) > 0.1 ? wx : 0.4 * dir) * gust * 1.6, wvz = wy * gust * 0.9;
+      const wv = st.waves;
+      for (let i = 0; i < gs.n; i++) {
+        let x = gx[i], z = gz[i];
+        if (gs.off[i] > 0) {                          // blown off: back on after a while, sifted in from above
+          if (T > gs.off[i] && (e < 0.3 || T > gs.off[i] + 2.5)) { const a = rnd() * TAU, r = Math.sqrt(rnd()) * 0.95; gx[i] = Math.cos(a) * r; gz[i] = Math.sin(a) * r; gy[i] = 0.5 + 0.5 * rnd(); gvy[i] = 0; gvx[i] = 0; gvz[i] = 0; gs.off[i] = 0; }
+          continue;
+        }
+        // the plate's motion here (bilinear), and its slope
+        let fx = (x + 1) / h, fz = (z + 1) / h; if (fx < 0) fx = 0; else if (fx > G - 1.001) fx = G - 1.001; if (fz < 0) fz = 0; else if (fz > G - 1.001) fz = G - 1.001;
+        const ix = fx | 0, iz = fz | 0, ux = fx - ix, uz = fz - iz, o = iz * G + ix;
+        const a00 = f[o], a10 = f[o + 1], a01 = f[o + G], a11 = f[o + G + 1];
+        const v = (a00 * (1 - ux) + a10 * ux) * (1 - uz) + (a01 * (1 - ux) + a11 * ux) * uz;
+        const dfx = ((a10 - a00) * (1 - uz) + (a11 - a01) * uz) / h, dfz = ((a01 - a00) * (1 - ux) + (a11 - a10) * ux) / h;
+        const av = v < 0 ? -v : v;
+        if (gy[i] <= 0) {                             // on the plate: jiggled, and drawn toward the still lines
+          const s2 = step * av;
+          x += (rnd() + rnd() - 1) * s2 - pull * v * dfx; z += (rnd() + rnd() - 1) * s2 - pull * v * dfz;
+          if (av * drive > 0.55 && rnd() < av * drive * dt * 6) gvy[i] = 0.06 * av * drive * (0.5 + rnd());   // hops where it shakes hard
+        }
+        for (let k = 0; k < wv.length; k++) {         // a ring passing by kicks the grain up and out
+          const W2 = wv[k], age = T - W2.t, dx = x - W2.X, dz = z - W2.Z, d = Math.sqrt(dx * dx + dz * dz) + 1e-4, front = age * 0.9;
+          if (Math.abs(d - front) < 0.035 && gy[i] <= 0) { const kick = W2.a * (1 - age / 1.2); gvy[i] = Math.max(gvy[i], 0.12 * kick); gvx[i] += dx / d * 0.22 * kick; gvz[i] += dz / d * 0.22 * kick; }
+        }
+        if (gust > 0.02) {                            // the breath: strongest on the side it comes from, it lifts the sand and carries it off
+          const ax = 0.35 + 0.65 * Math.exp(-((x - bX) * (x - bX) + (z - bZ) * (z - bZ)) * 1.2);
+          gvx[i] += (wvx * ax - gvx[i]) * dt * 3; gvz[i] += (wvz * ax - gvz[i]) * dt * 3;
+          if (gy[i] <= 0 && rnd() < gust * ax * dt * 4) gvy[i] = 0.05 + 0.1 * rnd() * gust;
+        }
+        if (gy[i] > 0 || gvy[i] > 0) {               // in the air
+          gy[i] += gvy[i] * dt * 4; gvy[i] -= 1.6 * dt;
+          x += gvx[i] * dt; z += gvz[i] * dt;
+          if (gy[i] <= 0) { gy[i] = 0; gvy[i] = 0; gvx[i] *= 0.3; gvz[i] *= 0.3; }
+        } else { x += gvx[i] * dt * 0.4; z += gvz[i] * dt * 0.4; gvx[i] *= 0.9; gvz[i] *= 0.9; }
+        if (x * x + z * z > 1) { gs.off[i] = T + 1.5 + 2 * rnd(); gy[i] = 0; }   // off the edge
+        gx[i] = x; gz[i] = z;
+      }
+      // ---- paint: the studio and the plate, the note's light, the sand, the rain
+      c.globalCompositeOperation = 'source-over';
+      const jit = (storm * 1.6 + boom * 3) * sk * 1.5, jx = (rnd() - 0.5) * jit, jy = (rnd() - 0.5) * jit;
+      if (jit > 0.05) c.translate(jx, jy);
+      c.drawImage(fade2(st, 'fb', st.bN, st.bD, day), 0, 0, W, H);
+      // the note's light: from under the plate, round its rim, brightest as the drop strikes
+      const nk = cur ? cur.kind : 1, col = CYM_COL[nk].join(','), lit = (0.4 + 0.6 * ring + 0.5 * storm + 0.6 * boom) * (1 - 0.5 * day);
+      P(0, 0, 0, p);
+      const ex = p[0], ey = p[1], rx = st.Rp;
+      c.save(); c.translate(ex, ey + rx * 0.12); c.scale(1, 0.5);
+      c.globalCompositeOperation = day > 0.5 ? 'source-over' : 'lighter'; c.globalAlpha = Math.min(1, lit * 0.7);
+      c.drawImage(glow(col, 128, 0.35), -rx * 1.5, -rx * 1.5, rx * 3, rx * 3);
+      c.restore(); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+      c.drawImage(fade2(st, 'fp', st.pN, st.pD, day), 0, 0, W, H);
+      // the coloured light catching the front of the rim
+      const rl = new Path2D(); for (let k = 0; k <= 48; k++) { const a = k / 48 * Math.PI; P(Math.cos(a), 0, Math.sin(a), p); k ? rl.lineTo(p[0], p[1] + rx * 0.011) : rl.moveTo(p[0], p[1] + rx * 0.011); }
+      c.strokeStyle = `rgba(${col},${Math.min(1, 0.25 + 0.6 * lit) * (1 - 0.4 * day)})`; c.lineWidth = Math.max(1.5, rx * 0.012); c.stroke(rl);
+      // the sand (grains in the air cast a small shadow)
+      const shade = [new Path2D(), new Path2D(), new Path2D()], shad = new Path2D(), air = new Path2D(), gsz = Math.max(1, 1.5 * sk + 0.35);
+      for (let i = 0; i < gs.n; i++) {
+        if (gs.off[i] > 0) continue;
+        const x = gx[i], z = gz[i], y = gy[i];
+        P(x, y, z, p);
+        const d = gsz * p[2];
+        if (y > 0.004) { const sx = p[0], sy = p[1]; P(x, 0, z, p); shad.rect(p[0] - d * 0.5, p[1] - d * 0.3, d, d * 0.6); air.rect(sx - d / 2, sy - d / 2, d, d); continue; }
+        const L = (x + 0.15) * (x + 0.15) + (z + 0.35) * (z + 0.35);   // brighter under the spot
+        shade[L < 0.35 ? 2 : L < 0.9 ? 1 : 0].rect(p[0] - d / 2, p[1] - d * 0.4, d, d * 0.8);
+      }
+      const sand = day > 0.5 ? ['44,38,32', '36,31,26', '28,24,20'] : ['176,170,158', '216,210,196', '246,240,226'];
+      c.fillStyle = day > 0.5 ? 'rgba(80,60,30,0.3)' : 'rgba(0,0,0,0.55)'; c.fill(shad);
+      shade.forEach((pp, i) => { c.fillStyle = `rgb(${sand[i]})`; c.fill(pp); });
+      c.fillStyle = `rgba(${sand[2]},0.9)`; c.fill(air);
+      // rings running out over the plate
+      const rp = new Path2D();
+      for (const w of st.waves) {
+        const age = T - w.t, r = age * 0.9; if (r < 0.01) continue;
+        let pen = false;
+        for (let k = 0; k <= 40; k++) { const a = k / 40 * TAU, X = w.X + Math.cos(a) * r, Z = w.Z + Math.sin(a) * r; if (X * X + Z * Z > 1) { pen = false; continue; } P(X, 0, Z, p); if (pen) rp.lineTo(p[0], p[1]); else { rp.moveTo(p[0], p[1]); pen = true; } }
+      }
+      c.strokeStyle = day > 0.5 ? 'rgba(60,40,10,0.18)' : `rgba(${col},0.22)`; c.lineWidth = Math.max(1, 1.2 * sk); c.stroke(rp);
+      // the rain: streaks falling through the light to where they strike; splashes
+      const rs = new Path2D(), lean = (Math.abs(wx) > 0.1 ? wx : 0) * (0.3 * e + 0.25 * storm);
+      for (const d of st.drops) {
+        const a = clamp((T - d.t) / (d.land - d.t), 0, 1), Y = 2.6 * (1 - a * a), Y2 = Math.max(0, Y + 0.35 + 0.2 * d.k);
+        P(d.X - lean * Y, Y, d.Z, p); const x1 = p[0], y1 = p[1]; P(d.X - lean * Y2, Y2, d.Z, p);
+        rs.moveTo(p[0], p[1]); rs.lineTo(x1, y1);
+      }
+      // and the rain falling past the plate, all over the light
+      const nr = Math.round((14 + 3 * sites.length) * (0.2 + 0.8 * (1 - calm)) * (1 + 2.5 * storm));
+      for (let i = 0; i < nr; i++) {
+        const hs = hash(i * 7 + 3), sp = 1.4 + 0.6 * hash(i * 7 + 4), ph = (T * sp * 0.55 + hash(i * 7 + 5)) % 1;
+        const x = W * (0.5 + (hs - 0.5) * (0.5 + 0.7 * ph)) + lean * 120 * sk * ph, y = -40 + (H + 80) * ph, l = (20 + 30 * hash(i * 7 + 6)) * sk * (1 + storm);
+        rs.moveTo(x, y); rs.lineTo(x - lean * l * 0.6, y - l);
+      }
+      c.strokeStyle = day > 0.5 ? 'rgba(70,80,100,0.35)' : 'rgba(225,232,255,0.42)'; c.lineWidth = Math.max(1, 1.1 * sk); c.lineCap = 'round'; c.stroke(rs);
+      st.spl = st.spl.filter(s => s.y >= 0 && T - s.t < 1);
+      const sp2 = new Path2D();
+      for (const s of st.spl) { s.vy -= 2.2 * dt; s.y += s.vy * dt; s.X += s.vx * dt; s.Z += s.vz * dt; P(s.X, Math.max(0, s.y), s.Z, p); const d = Math.max(1, 1.8 * sk * p[2]); sp2.rect(p[0] - d / 2, p[1] - d / 2, d, d); }
+      c.fillStyle = day > 0.5 ? 'rgba(90,100,120,0.7)' : 'rgba(235,240,255,0.85)'; c.fill(sp2);
+      // lightning: the bolt in the dark above, the flash
+      for (const b of R.bolts) { const age = T - b.t; if (age >= 0 && age < 1.2) R._bolt(c, b, age, E.lw); }
+      c.globalCompositeOperation = 'source-over';
+      if (jit > 0.05) c.translate(-jx, -jy);
+    },
+  };
+
+  const seaglow = { name: 'seaglow', title: 'Sea Glow', dark: true, draw(R, c, E) { c.fillStyle = '#000'; c.fillRect(0, 0, E.W, E.H); } };
 
   /* ============================================================== 5  Glass
      Looking out through a rainy window at night: a blur of coloured city lights behind the glass, and on
@@ -3305,5 +3235,5 @@ const ART_MODES = (() => {
     },
   };
 
-  return [currents, planet, garden, radar, glass, mobile, op, strings, maze, murm, puddle, umbrellas, sumie, score, splash];
+  return [currents, marbling, cymatics, seaglow, glass, mobile, op, strings, maze, murm, puddle, umbrellas, sumie, score, splash];
 })();
