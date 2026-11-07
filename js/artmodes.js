@@ -203,18 +203,23 @@ const ART_MODES = (() => {
       // the hawk (the breath) and, in a storm, two falcons
       const hawks = [];
       if (e > 0.02) hawks.push([lerp(Cx, 0.44 * clamp(E.mx, -1, 1) * W, 0.4), lerp(Cy, 0.4 * clamp(E.my, -1, 1) * H, 0.4), Cz * 0.5, (0.13 + 0.12 * e) * W, e * 3600 * sc]);
-      // falcons: they don't blink on and off with the storm level; they fly in from beyond the edge of the
-      // screen over ~2 s, hunt, and when the storm passes fly out again the same way
-      st.fon = st.fon == null ? 0 : st.fon;
+      // falcons: they don't blink on and off with the storm level; each storm they fly in from a new place
+      // beyond the edge of the screen (any side or corner, the two from different directions) over ~2 s, hunt,
+      // and when the storm passes they leave by another way
+      const fon0 = st.fon || 0;
       if (storm > 0.2) st.fon = 1; else if (storm < 0.05) st.fon = 0;               // hysteresis
-      st.fal = (st.fal || 0) + (st.fon - (st.fal || 0)) * (1 - Math.exp(-dt / (st.fon ? 1.1 : 1.6)));
-      if (st.fal < 0.003) { st.fal = 0; st.fside = null; }
-      if (st.fal > 0) {
-        if (!st.fside) st.fside = [Math.random() < 0.5 ? -1 : 1, Math.random() < 0.5 ? -1 : 1];
-        const ea = smoothstep(0, 1, st.fal);
+      if (st.fon && !fon0) {                                                          // a storm begins
+        if ((st.fal || 0) > 0.04 && st.fout) st.fin = st.fout.slice();                // (they were still in sight, leaving: turn back from there)
+        else { const a = Math.random() * TAU; st.fin = [a, a + 1.6 + Math.random() * 2.2]; }
+      }
+      if (!st.fon && fon0 && st.fin) st.fout = st.fin.map(a => a + Math.PI + (Math.random() - 0.5) * 2.2);   // leave another way
+      st.fal = (st.fal || 0) + ((st.fon || 0) - (st.fal || 0)) * (1 - Math.exp(-dt / (st.fon ? 1.1 : 1.6)));
+      if (!st.fon && st.fal < 0.04) st.fal = 0;                                      // out of sight: gone
+      if (st.fal > 0 && st.fin) {
+        const ea = smoothstep(0, 1, st.fal), ang = st.fon ? st.fin : (st.fout || st.fin);
         for (let h = 0; h < 2; h++) {
           const hx = Cx + 0.36 * W * vnoise(T * 0.35, h * 9 + 1), hy = Cy + 0.26 * H * vnoise(T * 0.4, h * 9 + 4), hz = Cz + 0.2 * W * vnoise(T * 0.3, h * 9 + 7);
-          const side = st.fside[h] * (h ? -1 : 1), ox = side * 0.8 * W, oy = -0.55 * H + 0.2 * H * h;   // out beyond the edge, a little above
+          const ox = Math.cos(ang[h]) * 0.85 * W, oy = Math.sin(ang[h]) * 0.8 * H;    // out beyond the edge in that direction
           hawks.push([lerp(ox, hx, ea), lerp(oy, hy, ea), lerp(0, hz, ea), 0.11 * W, Math.max(storm, 0.2) * 3200 * sc * ea, h, ea]);
         }
       }
