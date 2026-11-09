@@ -28,15 +28,30 @@ const RCLab = (() => {
   .umb-ring{position:fixed;z-index:8;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;pointer-events:none;
     border:1.5px solid rgb(var(--me,255,255,255));opacity:0}
   .umb-ring.go{animation:umbring 1.1s ease-out infinite}
-  @keyframes umbring{0%{transform:scale(1);opacity:.8}100%{transform:scale(9);opacity:0}}`;
+  @keyframes umbring{0%{transform:scale(1);opacity:.8}100%{transform:scale(9);opacity:0}}
+  .umb-helpbtn{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:22px}
+  .umb-help{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;justify-content:center;padding:calc(env(safe-area-inset-top) + 24px) 26px 24px;overflow:auto;
+    background:rgba(var(--bgrgb,232,235,234),.95);color:rgb(var(--rgb,92,100,102));font:italic 15px/1.45 'Cormorant Garamond','Times New Roman',serif;
+    opacity:0;pointer-events:none;transition:opacity .6s ease}
+  .umb-help.on{opacity:1;pointer-events:auto}
+  .umb-help p{margin:0 0 14px}
+  .umb-help b{font-weight:400;display:block;margin-bottom:1px;opacity:.6;font-size:13px}
+  .umb-help .umb-help-lede{font-size:18px;margin-bottom:20px}
+  .umb-help .umb-dim{opacity:.45}
+  .umb-help .umb-help-foot{opacity:.5;font-size:14px;margin-top:10px}`;
 
   function build() {
     const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st);
     const h = document.createElement('p'); h.className = 'umb-hint'; h.id = 'umb-hint';
-    h.innerHTML = '<i>the wall is a plaza in the rain</i>drag · carry your umbrella<br>hold still · bring the rain<br>flick · a gust';
+    h.innerHTML = '<i>the wall is a plaza in the rain</i>one finger · carry your umbrella<br>hold still · bring the rain<br>two fingers · a gust';
     document.body.appendChild(h);
     const d = document.createElement('i'); d.className = 'umb-me'; d.id = 'umb-me'; document.body.appendChild(d);
     const r = document.createElement('i'); r.className = 'umb-ring'; r.id = 'umb-ring'; document.body.appendChild(r);
+    const hb = document.createElement('button'); hb.className = 'icon-btn umb-helpbtn'; hb.id = 'umb-helpbtn'; hb.textContent = '?'; hb.setAttribute('aria-label', 'what is this');
+    const btns = document.querySelector('.hud-btns'); if (btns) btns.prepend(hb); else document.body.appendChild(hb);
+    const sheet = document.createElement('div'); sheet.className = 'umb-help'; sheet.id = 'umb-help'; document.body.appendChild(sheet);
+    hb.onclick = () => toggleHelp(!sheet.classList.contains('on'));
+    sheet.onclick = () => toggleHelp(false);
   }
   function send(k, data, force) {
     if (!net) return;
@@ -49,41 +64,72 @@ const RCLab = (() => {
   const walkMsg = () => ({ u: r3(pos.u), v: r3(pos.v), on: 1, keep: 1 });
   const hint = show => { $('#umb-hint').classList.toggle('on', show); };
 
-  /* ---------------- pointer events, handed over by phone.js. Returns true when the gesture is ours. */
+  /* ---------------- pointer events, handed over by phone.js. Returns true when the gesture is ours.
+     one finger: drag = carry your umbrella; hold still = rain there (while you hold; it fades when you lift)
+     two fingers moving together = a gust across the plaza in that direction */
+  const fingers = new Map();
   function down(e) {
     if (!on) return false;
     const t = performance.now();
-    g = { x0: e.clientX, y0: e.clientY, t0: t, x: e.clientX, y: e.clientY, t, moved: 0, hold: false, pk: 0, pos0: pos };
+    fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (fingers.size === 1) g = { x0: e.clientX, y0: e.clientY, t0: t, x: e.clientX, y: e.clientY, t, moved: 0, hold: false, pos0: pos, two: null };
+    else if (g && fingers.size === 2) {                             // the second finger: this is a gust, not a walk
+      if (g.hold) { send('shower', { on: 0 }, true); $('#umb-ring').classList.remove('go'); g.hold = false; }
+      const [a, b] = [...fingers.values()]; g.two = { cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, t0: t, sent: false };
+      pos = g.pos0; placeDot(); if (pos) send('walk', walkMsg(), true);   // the walk so far is undone: two fingers never carry
+    }
     return true;
   }
   function move(e) {
     if (!on || !g) return false;
-    const t = performance.now(), dx = e.clientX - g.x, dy = e.clientY - g.y, d = Math.hypot(dx, dy);
-    g.moved += d; g.pk = Math.max(g.pk, d / Math.max(1, t - g.t) * 1000 / innerWidth);   // peak speed, screens per second
-    g.x = e.clientX; g.y = e.clientY; g.t = t;
-    if (g.hold) {                                            // raining where the finger is: it can be dragged about
+    const f = fingers.get(e.pointerId); if (f) { f.x = e.clientX; f.y = e.clientY; }
+    const t = performance.now();
+    if (g.two) {                                                    // two fingers: follow the centroid
+      const pts = [...fingers.values()], cx = pts.reduce((a, p) => a + p.x, 0) / pts.length, cy = pts.reduce((a, p) => a + p.y, 0) / pts.length;
+      g.two.x = cx; g.two.y = cy; return true;
+    }
+    const dx = e.clientX - g.x, dy = e.clientY - g.y, d = Math.hypot(dx, dy);
+    g.moved += d; g.x = e.clientX; g.y = e.clientY; g.t = t;
+    if (g.hold) {                                                   // raining where the finger is: it can be dragged about
       send('shower', { u: r3(g.x / innerWidth), v: r3(g.y / innerHeight), on: 1 });
       const r = $('#umb-ring'); r.style.left = g.x + 'px'; r.style.top = g.y + 'px';
-    } else if (g.moved > 8) {                                // a drag: your umbrella follows the finger, right away
+    } else if (g.moved > 8) {                                       // a drag: your umbrella follows the finger, right away
       pos = { u: g.x / innerWidth, v: g.y / innerHeight }; placeDot(); send('walk', walkMsg());
     }
     return true;
   }
   function up(e) {
-    if (!on || !g) return false;
-    const dur = performance.now() - g.t0, dx = e.clientX - g.x0, dy = e.clientY - g.y0, L = Math.hypot(dx, dy) / innerWidth, mine = g; g = null;
-    if (mine.hold) { send('shower', { on: 0 }, true); $('#umb-ring').classList.remove('go'); return true; }
-    if (mine.moved < 12 && dur < 350) return false;          // a tap: phone.js plays it as usual
-    if (L > 0.22 && dur < 420 && mine.pk > 2.2) {            // a flick: a gust across the plaza from where it started
-      const s = Math.min(1.4, Math.max(0.5, L / (dur / 1000) / 2.2));
-      send('gust', { u: r3(mine.x0 / innerWidth), v: r3(mine.y0 / innerHeight), du: r3(dx / (L * innerWidth)), dv: r3(dy / (L * innerWidth)), s: r3(s), once: 1 }, true);
-      pos = mine.pos0; placeDot(); if (pos) send('walk', walkMsg(), true);   // a flick is wind, not a walk: the umbrella goes back where it was
-      if (navigator.vibrate) navigator.vibrate(20);
-      return true;
+    if (!on || !g) { fingers.delete(e.pointerId); return false; }
+    fingers.delete(e.pointerId);
+    if (g.two) {
+      if (!g.two.sent) {                                            // the first finger lifted ends the gust
+        g.two.sent = true;
+        const dx = g.two.x - g.two.cx, dy = g.two.y - g.two.cy, L = Math.hypot(dx, dy) / innerWidth, dur = (performance.now() - g.two.t0) / 1000;
+        if (L > 0.05) {
+          const s = Math.min(1.4, Math.max(0.5, L / Math.max(0.15, dur) / 1.6));
+          send('gust', { u: r3(g.two.cx / innerWidth), v: r3(g.two.cy / innerHeight), du: r3(dx / (L * innerWidth)), dv: r3(dy / (L * innerWidth)), s: r3(s), once: 1 }, true);
+          if (navigator.vibrate) navigator.vibrate(20);
+        }
+      }
+      if (fingers.size) return 'more';                              // the other finger is still down
+      g = null; return true;
     }
-    if (pos) send('walk', walkMsg(), true);                  // the drag ended: the umbrella stays here
+    const dur = performance.now() - g.t0, mine = g; g = null;
+    if (mine.hold) { send('shower', { on: 0 }, true); $('#umb-ring').classList.remove('go'); return true; }
+    if (mine.moved < 12 && dur < 350) return false;                 // a tap: phone.js plays it as usual
+    if (pos) send('walk', walkMsg(), true);                         // the drag ended: the umbrella stays here
     return true;
   }
+  /* ---------------- the help sheet: what this is, and what the fingers do */
+  function helpHtml() {
+    const umb = modeName === 'umbrellas';
+    return `<p class="umb-help-lede">Right now it is raining in many places on Earth. The wall shows them live, and your phone is one more drop in that rain.</p>
+      <p><b>on the first screen</b><br>swipe the map to look around · tap a light to see where it is raining; the wall points there too</p>
+      <p><b>in the rain</b><br>tap · a ripple and your note<br>drag · the rain bends around your finger<br>two phones edge to edge, one finger across both · one rain</p>
+      <p class="${umb ? '' : 'umb-dim'}"><b>when the wall shows the plaza of umbrellas</b><br>one finger, drag · carry your umbrella (it stays where you leave it)<br>one finger, hold still · rain falls there while you hold<br>two fingers, move together · a gust across the plaza<br>someone whose umbrella the wind takes runs under yours</p>
+      <p class="umb-help-foot">tap anywhere to close</p>`;
+  }
+  function toggleHelp(show) { const h = $('#umb-help'); if (show) h.innerHTML = helpHtml(); h.classList.toggle('on', show); }
   function tick() {
     const world = document.getElementById('world'), entered = !world || world.classList.contains('hidden');
     const want = entered && modeName === 'umbrellas' && (forced || Date.now() - artSeen < 20000);
@@ -95,12 +141,12 @@ const RCLab = (() => {
     if (!on) return;
     const now = performance.now();
     if (hintT && now - hintT > 9000) { hint(false); hintT = 0; }
-    if (g && !g.hold && g.moved < 12 && now - g.t0 > 420) {       // held still: rain here
+    if (g && !g.two && !g.hold && g.moved < 12 && now - g.t0 > 420) {   // held still (one finger): rain here
       g.hold = true; send('shower', { u: r3(g.x / innerWidth), v: r3(g.y / innerHeight), on: 1 }, true);
       const r = $('#umb-ring'); r.style.left = g.x + 'px'; r.style.top = g.y + 'px'; r.classList.add('go');
       if (navigator.vibrate) navigator.vibrate(12);
     }
-    if (g && g.hold && now - keepT > 250) { keepT = now; send('shower', { u: r3(g.x / innerWidth), v: r3(g.y / innerHeight), on: 1 }, true); }
+    if (g && g.hold && !g.two && now - keepT > 250) { keepT = now; send('shower', { u: r3(g.x / innerWidth), v: r3(g.y / innerHeight), on: 1 }, true); }
     else if (pos && !g && now - keepT > 1000) { keepT = now; send('walk', walkMsg(), true); }   // the wall forgets a silent umbrella after a few seconds
   }
   return {

@@ -264,7 +264,8 @@
   }
   rainCv.addEventListener('pointerdown', e => {
     if (!entered) return;
-    rainCv.setPointerCapture(e.pointerId);
+    try { rainCv.setPointerCapture(e.pointerId); } catch (err) {}
+    if (drag && drag.lab) { RCLab.down(e); return; }            // a second finger joins the plaza gesture
     drag = { x0: e.clientX, y0: e.clientY, t0: performance.now(), pts: [[e.clientX, e.clientY, performance.now()]], moved: 0 };
     const side = edgeOf(e.clientX, e.clientY);
     if (side) net.pub('hub/in', { type: 'enter', id: ME, side, pos: side === 'left' || side === 'right' ? e.clientY : e.clientX });
@@ -291,7 +292,7 @@
   });
   function end(e) {
     if (!drag) return;
-    if (drag.lab && RCLab.up(e)) { drag = null; return; }   // (a plain tap falls through: a ripple and a note, as always)
+    if (drag.lab) { const r = RCLab.up(e); if (r === 'more') return; if (r) { drag = null; return; } }   // (a plain tap falls through: a ripple and a note, as always)
     const dur = performance.now() - drag.t0;
     const x = e.clientX, y = e.clientY;
     if (drag.moved < 10 && dur < 350) {

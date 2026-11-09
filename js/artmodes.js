@@ -174,7 +174,7 @@ const ART_MODES = (() => {
         }
       }
       for (const id of [...mine.keys()]) if (!live.has(id)) mine.delete(id);
-      for (const [id, o] of shw) { const on = T - o.on < 0.4; o.a += ((on ? 1 : 0) - o.a) * (1 - Math.exp(-dt * (on ? 1.8 : 0.35))); if (!on && o.a < 0.02) shw.delete(id); }
+      for (const [id, o] of shw) { const on = T - o.on < 0.4; o.a += ((on ? 1 : 0) - o.a) * (1 - Math.exp(-dt * (on ? 1.8 : 1.1))); if (!on && o.a < 0.02) shw.delete(id); }
       const gus = st.gus || (st.gus = []);
       for (const ev of ix.fresh) if (ev.k === 'gust') {
         const u = clamp(ev.u, 0, 1) * W, v = clamp(ev.v, 0, 1) * H, [x0, y0] = st.G(u, v), [x1, y1] = st.G(u + (ev.du || 0) * 40, v + (ev.dv || 0) * 40), dl = Math.hypot(x1 - x0, y1 - y0) || 1;
@@ -351,7 +351,7 @@ const ART_MODES = (() => {
           P(q.x, q.y, 2, p); const depth = 0.45 + 0.55 * smoothstep(0, H, p[1]);           // far ones fainter: air between them
           const { A, tp } = canopy(q, gq, C ? C.fib : lev(fib, al * (0.3 + 0.7 * q.k) * depth * hush), C ? C.body : null);
           if (C) C.glow.push([A[0], A[1], 0.42 * al, 1.5 * A[2] * q.R]); else sparks.push([A[0], A[1], al * (0.14 + 0.4 * q.k), 0.34 * A[2] * q.R]);
-          P(q.x, q.y, 0, q2); refl.push([q2[0], q2[1], q2[2] * q.R, al * (C ? 0.16 : (0.05 + 0.08 * q.k) * depth * hush), C ? C : null]);
+          P(q.x, q.y, 0, q2); refl.push([q2[0], q2[1], q2[2] * q.R, al * (C ? 0.1 : (0.05 + 0.08 * q.k) * depth * hush), null]);
           const aw = Math.max(aw0, (q.lw || 0) * 1.3);          // rain landing on it: a few bright drops
           if (aw > 0.02 && al > 0.5) for (let n = 0, mm = aw * (2 + 2 * q.k), m = Math.floor(mm) + (rnd() < mm - Math.floor(mm) ? 1 : 0); n < m; n++) {   // every umbrella gets its share of drops, lighter rain fewer
             const i = Math.floor(rnd() * 8), f = rnd() * 0.85, dx = A[0] + (tp[i][0] - A[0]) * f, dy = A[1] + (tp[i][1] - A[1]) * f; dts[3].moveTo(dx + lw * 1.4, dy); dts[3].ellipse(dx, dy, lw * 1.4, lw, 0, 0, TAU);
@@ -396,7 +396,7 @@ const ART_MODES = (() => {
       // reflections first, under everything: the spark sprite stretched tall, fading downward
       for (const [x, y, k, a, Cc] of refl) {
         const w = 0.9 * k, h = (2.6 + 0.6 * Math.sin(T * 0.7 + x)) * k;
-        c.globalAlpha = a * (INK && !Cc ? 1.8 : 1); c.drawImage(Cc ? glow(Cc.key, 64, 0.3) : lit, x - w / 2, y - h * 0.25, w, h);
+        c.globalAlpha = a * (INK ? 1.8 : 1); c.drawImage(lit, x - w / 2, y - h * 0.25, w, h);
       }
       c.globalAlpha = 1;
       const flow = -T * (16 + 40 * storm) * ds, br = 0.9 + 0.1 * Math.sin(T * 6.283 / 26);   // the rain's slow breath

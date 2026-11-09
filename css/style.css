@@ -82,7 +82,7 @@ body.wall { cursor: none; }
   font-family: var(--serif); font-weight: 300; font-style: italic; font-size: 2.4vw; letter-spacing: .01em; color: var(--dim);
 }
 .wall-title small { display: block; font-family: var(--serif); font-style: italic; font-size: 1.1vw; color: var(--faint); margin-top: .6vh; }
-.wall-stats { position: fixed; left: 4vw; bottom: 10vh; z-index: 4; }
+.wall-stats { position: fixed; left: 4vw; bottom: 12vh; z-index: 4; }
 .wall-stats .big { font-family: var(--serif); font-size: 3.6vw; line-height: .9; font-weight: 300; font-style: italic; color: var(--dim); }
 .wall-stats .big span { font-size: .45em; color: var(--dim); }
 .wall-stats .lede { font-size: 1.5vw; color: var(--dim); }
@@ -168,7 +168,7 @@ body.art .wall-btns { opacity: .45; }
 body.art .wall-btns:hover { opacity: 1; }
 
 /* the art mode's one line of words, and its quiet captions */
-.art-line { position: fixed; left: 4vw; bottom: 11vh; z-index: 4; margin: 0; font-family: var(--serif); font-style: italic; font-size: 1.5vw;
+.art-line { position: fixed; left: 4vw; bottom: 13vh; z-index: 4; margin: 0; font-family: var(--serif); font-style: italic; font-size: 1.5vw;
   color: var(--dim); opacity: 0; transition: opacity 2.5s ease; pointer-events: none; }
 .art-line b { font-weight: 400; color: var(--ink); }
 .art-line i { display: block; font-size: 1.05vw; color: var(--faint); margin-top: .4vh; }
