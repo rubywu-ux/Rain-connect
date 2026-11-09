@@ -195,7 +195,26 @@
   }, 5000);
 
   /* ---------------- enter / map toggle */
+  /* the phone's tilt: the plumes lean toward the low side, slowly, like a lava lamp. iOS asks once (on the tap). */
+  let tiltOn = false, tiltNb = null;
+  function startTilt() {
+    if (tiltOn) return; tiltOn = true;
+    const listen = () => addEventListener('deviceorientation', e => {
+      if (e.gamma == null || e.beta == null) return;
+      let g = e.gamma, b = e.beta;
+      const o = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+      if (o === 90) { const t = g; g = b; b = -t; } else if (o === -90 || o === 270) { const t = g; g = -b; b = t; }
+      if (tiltNb == null) tiltNb = b; else tiltNb += (b - tiltNb) * 0.0015;      // the resting pose is "level"; it re-settles over ~15 s
+      R.tiltX = clamp(g / 30, -1, 1); R.tiltY = clamp((b - tiltNb) / 30, -1, 1);
+    });
+    try {
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission().then(r => { if (r === 'granted') listen(); }).catch(() => {});
+      } else listen();
+    } catch (e) {}
+  }
   $('enter').onclick = () => {
+    startTilt();
     S.start();
     if (snap) S.setRain(clamp(snap.pct / 30, 0, 1));
     $('world').classList.add('hidden');

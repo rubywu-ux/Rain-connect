@@ -125,7 +125,7 @@ const RCLab = (() => {
     const umb = modeName === 'umbrellas';
     return `<p class="umb-help-lede">Right now it is raining in many places on Earth. The wall shows them live, and your phone is one more drop in that rain.</p>
       <p><b>on the first screen</b><br>swipe the map to look around · tap a light to see where it is raining; the wall points there too</p>
-      <p><b>in the rain</b><br>tap · a ripple and your note<br>drag · the rain bends around your finger<br>two phones edge to edge, one finger across both · one rain</p>
+      <p><b>in the rain</b><br>tap · a ripple and your note<br>drag · the rain bends around your finger<br>tilt the phone · the rain leans that way, slowly<br>two phones edge to edge, one finger across both · one rain</p>
       <p class="${umb ? '' : 'umb-dim'}"><b>when the wall shows the plaza of umbrellas</b><br>one finger, drag · carry your umbrella (it stays where you leave it)<br>one finger, hold still · rain falls there while you hold<br>two fingers, move together · a gust across the plaza<br>someone whose umbrella the wind takes runs under yours</p>
       <p class="umb-help-foot">tap anywhere to close</p>`;
   }

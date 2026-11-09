@@ -145,6 +145,8 @@ class RainRenderer {
     this.memory = null;                    // stain layer: where it has rained
     this.view = { x: 0, y: 0 };            // world coords of the screen's top-left
     this.floor = null;                     // world y where drops land (null = none)
+    this.tiltX = 0; this.tiltY = 0;        // the phone's tilt (-1..1), set by the page; the plumes lean into it slowly, like a lava lamp
+    this._tx = 0; this._ty = 0; this._tiltT = null;
     this.density = 1;
     this.impulses = [];                    // drag / push fields (shared events)
     this.ripples = [];                     // taps -> ink blooms
@@ -224,6 +226,9 @@ class RainRenderer {
     if (this.haze) { c.globalCompositeOperation = PAL.comp; const hz = c.createLinearGradient(0, 0, 0, this.h * 0.55); hz.addColorStop(0, `rgba(${PAL.ink},${this.haze})`); hz.addColorStop(1, `rgba(${PAL.ink},0)`); c.fillStyle = hz; c.fillRect(0, 0, this.w, this.h * 0.55); c.globalCompositeOperation = 'source-over'; }
     this.impulses = this.impulses.filter(m => T - m.t < 3);
     this.bright = Math.max(0, this.bright - 0.01);
+    { const dtt = this._tiltT == null ? 0.016 : clamp(T - this._tiltT, 0, 0.1), kk = 1 - Math.exp(-dtt * 1.1);   // viscous: it takes a second or two to settle
+      this._tiltT = T; this._tx += (this.tiltX - this._tx) * kk; this._ty += (this.tiltY - this._ty) * kk; }
+    const tx = this._tx, ty = this._ty;
     const boost = (1 + this.bright * 0.6) * (this.breathe ? 0.9 + 0.1 * Math.sin(T * 6.283 / 26) : 1);   // the rain's slow breath
 
     c.globalCompositeOperation = PAL.comp;
@@ -322,7 +327,7 @@ class RainRenderer {
           const tip = this._fiber(pl, lb, q, lb.seed, tr, this._tmp2 || (this._tmp2 = [])), [x0, y0] = tip[tip.length - 1];
           const g = 320 + 120 * hash(ds + 3);
           let y = y0 + 24 * dt + 0.5 * g * dt * dt;
-          const x = x0 + (hash(ds + 4) - 0.5) * 14 * dt + storm * 90 * dt * dt;
+          const x = x0 + (hash(ds + 4) - 0.5) * 14 * dt + (storm * 90 + tx * 140) * dt * dt;   // drops drift to the low side of a tilted phone
           if (y > yLand) {                                            // landed: a small splash on the floor
             const hit = (y - yLand) / (24 + g * dt);
             if (hit < 1.2) floorHits.push([x, yLand, hit, ds, 0.7]);
@@ -345,7 +350,7 @@ class RainRenderer {
       for (let k = Math.floor((T - ph) / P); k * P + ph > T - span; k--) {
         const age = T - (k * P + ph), y = -200 + v * age;
         if (y > yLand || y < vy - 40) continue;
-        const x = i * DRIZZLE_LANE + hash(i * 31 + k) * DRIZZLE_LANE + storm * 0.12 * (y - vy);
+        const x = i * DRIZZLE_LANE + hash(i * 31 + k) * DRIZZLE_LANE + (storm * 0.12 + tx * 0.2) * (y - vy);
         streaks.push([(x - vx) * s, (y - vy) * s, (14 + 16 * hash(i + k * 7)) * s, 0.16 + 0.12 * hash(k * 5 + i)]);
       }
     }
@@ -578,11 +583,12 @@ class RainRenderer {
      A lobe is a sheet of filaments laid along one flowing S-shaped spine: tight at the root,
      flaring like a ginkgo leaf, with the outer filaments rolling back at the rim. */
   _fiber(pl, lb, q, fs, Tq, out) {
-    const a = Tq - pl.tb, g = smoothstep(0, 5, a), st = this.storm;
+    const a = Tq - pl.tb, g = smoothstep(0, 5, a), st = this.storm, tx = this._tx || 0, ty = this._ty || 0;
     const rx = pl.rx, ry = pl.ry0 + pl.drift * a;
-    const th = lb.th0 + 0.14 * Math.sin(Tq * lb.w1 + lb.p1) + st * 0.5 * (0.75 + 0.25 * Math.sin(Tq * 1.3 + lb.p2));
-    const bend = lb.bend * (0.75 + 0.35 * Math.sin(Tq * lb.w2 + lb.p2)) + st * 0.25;
-    const L = lb.L0 * (0.15 + 0.85 * g) * (1 + 0.05 * Math.sin(Tq * 0.27 + lb.p1));
+    // a tilted phone: the plumes lean toward its low side and stretch toward the person, slowly (see draw)
+    const th = lb.th0 + 0.14 * Math.sin(Tq * lb.w1 + lb.p1) + st * 0.5 * (0.75 + 0.25 * Math.sin(Tq * 1.3 + lb.p2)) + tx * 0.6;
+    const bend = lb.bend * (0.75 + 0.35 * Math.sin(Tq * lb.w2 + lb.p2)) + st * 0.25 + tx * 0.25;
+    const L = lb.L0 * (0.15 + 0.85 * g) * (1 + 0.05 * Math.sin(Tq * 0.27 + lb.p1)) * (1 + 0.22 * ty);
     const Wd = L * lb.S0 * (0.35 + 0.65 * g) * (1 + 0.18 * Math.sin(Tq * lb.w2 * 1.3 + lb.p1));
     const ns = (lb.seed & 1023) * 0.37, tw = Tq * (0.18 + st * 0.7);
     const sn = Math.sin(th), cs = Math.cos(th);
