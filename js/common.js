@@ -1247,17 +1247,17 @@ class WorldMap {
   /* the map is `zoom` screens wide (and tall enough to keep its shape); ox/oy = the corner shown, in map px */
   _size(w, h) { const mw = w * this.zoom, mh = mw * 0.62; return [mw, mh]; }      // a little taller than true, like the wall
   _xy(lat, lon, w, h) { const [mw, mh] = this._size(w, h); return [mw * (0.03 + 0.94 * (lon + 180) / 360) - this.ox, mh * (0.08 + 0.84 * clamp((80 - lat) / 140, 0, 1)) - this.oy]; }
-  _clamp(w, h) {                                                             // both ways: a map shorter than the screen still slides from top to bottom
+  _clamp(w, h) {                                                             // the map slides side to side within its edges
     const [mw, mh] = this._size(w, h);
     if (this.centre) { this.centre = false; this.ox = (mw - w) / 2; this.oy = mh <= h ? -(h - mh) / 2 : (mh - h) / 2; }
-    this.ox = clamp(this.ox, 0, Math.max(0, mw - w)); this.oy = mh <= h ? clamp(this.oy, -(h - mh), 0) : clamp(this.oy, 0, mh - h);
+    this.ox = clamp(this.ox, 0, Math.max(0, mw - w)); this.oy = mh <= h ? -(h - mh) / 2 : (mh - h) / 2;   // side to side only; the map stays centred vertically
   }
   _pan(cv) {                                                                // drag to look around; a flick keeps going a little
     let d = null;
     cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); d = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 }; this.vx = this.vy = 0; });
     cv.addEventListener('pointermove', e => {
       if (!d) return; const dx = e.clientX - d.x, dy = e.clientY - d.y, now = performance.now(), dt = Math.max(1, now - d.t);
-      this.ox -= dx; this.oy -= dy; this.vx = -dx / dt * 1000; this.vy = -dy / dt * 1000; d.moved += Math.hypot(dx, dy); d.x = e.clientX; d.y = e.clientY; d.t = now;
+      this.ox -= dx; this.vx = -dx / dt * 1000; this.vy = 0; d.moved += Math.hypot(dx, dy); d.x = e.clientX; d.y = e.clientY; d.t = now;
       this._clamp(cv.clientWidth, cv.clientHeight);
     });
     const up = e => { if (!d) return; if (d.moved < 8 && this.onTap) this.onTap(e.clientX, e.clientY); if (performance.now() - d.t > 80) this.vx = this.vy = 0; d = null; };
