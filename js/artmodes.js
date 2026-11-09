@@ -113,7 +113,7 @@ const ART_MODES = (() => {
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-in'; g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = `rgb(${PAL.ink})`; g.fillRect(0, 0, cv.width, cv.height);
     return cv;
   }
-  const NPPL = 28;                                  // the heaviest raining places walk the plaza (sites come sorted by k)
+  const NPPL = 16;                                  // the heaviest raining places walk the plaza (sites come sorted by k)
   function umbPeople(st, E, W, H) {
     st.ref = E.sites;
     const old = new Map((st.ppl || []).map(q => [q.id, q])), out = [];
@@ -182,7 +182,7 @@ const ART_MODES = (() => {
       }
       while (gus.length && T - gus[0].t0 > 5) gus.shift();
       const quiet = R.quiet || 0, hush = 1 - 0.3 * quiet;                       // nobody here for a while: the plaza settles
-      const shown = ppl.length - Math.round(10 * quiet);
+      const shown = ppl.length - Math.round(5 * quiet);
       ppl.forEach((q, i) => { q.hide = (q.hide == null ? (i < shown ? 0 : 1) : q.hide) + (((i < shown) ? 0 : 1) - (q.hide || 0)) * (1 - Math.exp(-dt * 0.5)); });
       const all = mine.size ? ppl.concat([...mine.values()]) : ppl;
       for (const q of all) {
