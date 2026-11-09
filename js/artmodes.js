@@ -447,7 +447,8 @@ const ART_MODES = (() => {
       const dir = Math.abs(wx) > 0.12 ? Math.sign(wx) : (st.dir || 1); st.dir = dir;
       const bxs = (0.5 + 0.45 * clamp(E.mx, -1, 1)) * W, wdx = Math.abs(wx) > 0.12 ? wx : dir * 0.8, wdy = -wy * 0.8;
       const amt = (1 - calm) * (1 + 1.5 * storm);
-      const openT = 1 - smoothstep(0.45, 0.9, calm);
+      const wet = 1 - smoothstep(0.35, 0.65, calm);             // the rain stops first, then people fold their umbrellas
+      const openT = 1 - smoothstep(0.55, 0.9, calm);
       // startled by a strike: everybody jumps away from it; taps twirl umbrellas
       const strikes = newBolts(R, st, T);
       const tp = tapsOf(R, E);
@@ -496,7 +497,7 @@ const ART_MODES = (() => {
       c.globalCompositeOperation = 'source-over';
       c.drawImage(fade2(st, 'fb', st.bgN, st.bgD, day), 0, 0, W, H);
       // splashes on the stone
-      const spl = new Path2D(), nsp = Math.round((14 + 120 * amt) * W / 1600);
+      const spl = new Path2D(), nsp = Math.round((14 + 120 * amt) * wet * W / 1600);
       for (let i = 0; i < nsp; i++) {
         const ph = T / 0.4 + hash(i * 7 + 3), cyc = Math.floor(ph), f = ph - cyc, sd = i * 131 + cyc * 7919;
         P((hash(sd) - 0.5) * 26, -6 + hash(sd + 1) * 16, 0, p); if (p[0] < -10 || p[0] > W + 10 || p[1] < -10 || p[1] > H + 10) continue;
@@ -583,7 +584,7 @@ const ART_MODES = (() => {
         c.fillStyle = day > 0.5 ? 'rgba(250,246,238,0.95)' : 'rgba(220,214,206,0.9)'; c.beginPath(); c.arc(A[0], A[1], Math.max(1.6, 0.05 * A[2]), 0, TAU); c.fill();
         c.globalAlpha = 1;
         // rain landing on it
-        if (amt > 0.02 && alpha > 0.5) for (let n = 0, m = Math.round(amt * (1.5 + 2 * q.k)); n < m; n++) {
+        if (amt * wet > 0.02 && alpha > 0.5) for (let n = 0, m = Math.round(amt * wet * (1.5 + 2 * q.k)); n < m; n++) {
           const i = Math.floor(rnd() * 8), f = rnd() * 0.85; const x = A[0] + (tips[i][0] - A[0]) * f, y = A[1] + (tips[i][1] - A[1]) * f, d = 1.2 + 1.4 * rnd();
           drops.rect(x - d / 2, y - d / 2, d, d);
         }
@@ -613,7 +614,7 @@ const ART_MODES = (() => {
         P(f.x, f.y, f.z, p); return p[0] > -200 && p[0] < W + 200 && p[1] > -200 && p[1] < H + 200 && T - f.t < 12;
       });
       // ---- the rain itself, falling past the window
-      const rain = new Path2D(), nr = Math.round((40 + 700 * amt) * W / 1600 * (0.4 + 0.6 * (E.pts.length ? 1 : 0.6)));
+      const rain = new Path2D(), nr = Math.round((40 + 700 * amt) * wet * W / 1600 * (0.4 + 0.6 * (E.pts.length ? 1 : 0.6)));
       const slx = wdx * (0.25 + 1.2 * e + 0.8 * storm), sly = wdy * (0.25 + 1.2 * e + 0.8 * storm);
       for (let i = 0; i < nr; i++) {
         const z = 9 - ((T * 9 + hash(i * 3 + 3) * 9) % 9), X = (hash(i * 3 + 1) - 0.5) * 30 + slx * (9 - z) * 0.3, Y = -6 + hash(i * 3 + 2) * 18 + sly * (9 - z) * 0.3;
