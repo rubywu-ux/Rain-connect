@@ -21,11 +21,13 @@
   let members = [{ id: ME, ox: 0, oy: 0, w: innerWidth, h: innerHeight, num: 1 }];
   let entered = false;
   let stormTarget = 0, stormN = 0, pillDots = '';
+  let wallMode = 'map';                 // which view the wall is showing (js/lab.js listens to the wall and tells us)
   function updatePill() {
     const n = members.length;
-    const txt = stormN >= 2 ? `≋ ${stormN} blowing · storm` : n > 1 ? `${n} phones · one rain` : 'you are in the rain';
+    const txt = stormN >= 2 ? `≋ ${stormN} blowing · storm` : wallMode === 'umbrellas' ? 'you carry an umbrella' : n > 1 ? `${n} phones · one rain` : 'you are in the rain';
     $('pill').innerHTML = pillDots + txt;
   }
+  addEventListener('wallmode', e => { wallMode = e.detail; updatePill(); $('enter').textContent = wallMode === 'umbrellas' ? 'carry an umbrella' : 'catch the rain'; });
   let myColor = Math.floor(hash(parseInt(ME, 36) | 0) * 8);   // until the wall assigns one
   /* everyone's notes: their own instrument, the shared chord, on the shared pulse; softer in bigger groups */
   function play(ci, u, tEvent, level) {

@@ -8,7 +8,7 @@
  * Try it without the wall: index.html?lab=umbrellas */
 const RCLab = (() => {
   const qs = new URLSearchParams(location.search), forced = /umbrella/i.test(qs.get('lab') || '');
-  let net = null, ME = '', on = false, artSeen = forced ? Infinity : 0, modeName = forced ? 'umbrellas' : 'map';
+  let net = null, ME = '', on = false, lastShown = null, artSeen = forced ? Infinity : 0, modeName = forced ? 'umbrellas' : 'map';
   let pos = null;                       // where your umbrella stands, 0..1 of the screen (null = not placed yet)
   let g = null;                         // the gesture in progress
   let lastSend = 0, keepT = 0, hintT = 0;
@@ -153,8 +153,9 @@ const RCLab = (() => {
     init(o) { net = o.net; ME = o.ME; build(); setInterval(tick, 100); addEventListener('pagehide', () => { if (pos) send('walk', { on: 0 }, true); }); },
     onArt(m) {
       if (!m || forced) return;
-      if (m.at && Math.abs(Date.now() - m.at) > 60000) return;     // an old retained message: the wall isn't running
+      if (m.at && Math.abs(Date.now() - m.at) > 5 * 60000) return;   // an old retained message: the wall isn't running (5 min: a phone's clock may be off)
       artSeen = Date.now(); modeName = m.name || 'map';
+      if (modeName !== lastShown) { lastShown = modeName; dispatchEvent(new CustomEvent('wallmode', { detail: modeName })); }
     },
     down, move, up,
     get active() { return on; },
