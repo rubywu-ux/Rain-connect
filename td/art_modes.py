@@ -28,4 +28,14 @@ def onKey(dat, key, character, *a, **k):
 """
 P = CR.op('projector')
 if P is not None and hasattr(P.par, 'closeescape'): P.par.closeescape = False   # Esc turns art off; it must not close the wall
+# The wall window shows a plain panel, not the TOP itself: a TOP in a window is shown in a viewer, and a
+# viewer's own A key shows the alpha channel (a white screen) every time A is pressed to switch art modes.
+WP = CR.op('wall_panel') or CR.create(containerCOMP, 'wall_panel')
+WP.par.w = 1280; WP.par.h = 720; WP.par.hmode = 'fixed'; WP.par.vmode = 'fixed'
+WP.par.top = CR.op('out').path; WP.par.topfill = 'fill'
+if P is not None: P.par.winop = WP.path
+# open the wall window by itself when the project starts
+EX = CR.op('wall_autostart') or CR.create(executeDAT, 'wall_autostart')
+EX.text = "def onStart():\n\top('/project1/connect_rain/projector').par.winopen.pulse()\n\treturn\n"
+EX.par.start = True; EX.par.active = True
 print('A / Z = switch art mode, 1-2 = pick, X = art off, W = mist (in the projector window)')
