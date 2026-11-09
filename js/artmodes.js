@@ -276,11 +276,11 @@ const ART_MODES = (() => {
       // flowing dots and fine lines, with a soft trail as things move. Colour only for what the phones do.
       const ink = PAL.ink, spr = sparkSprite(), ds = E.s || 1;
       c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.lineCap = 'round'; c.lineJoin = 'round'; c.setLineDash([]);
-      c.fillStyle = `rgba(${PAL.bg},${E.fresh ? 1 : PAL.fade})`; c.fillRect(0, 0, W, H);
+      c.fillStyle = `rgba(${PAL.bg},${E.fresh ? 1 : 0.62})`; c.fillRect(0, 0, W, H);     // a short, soft trail (the map's long one is too much here)
       c.globalCompositeOperation = PAL.comp;
       const gk = W + ':' + H + ':' + INK;
       if (st.gndKey !== gk) { st.gnd = umbGround(st, W, H, dpr); st.gndKey = gk; }
-      c.globalAlpha = E.fresh ? 0.3 : 0.07; c.drawImage(st.gnd, 0, 0, W, H); c.globalAlpha = 1;
+      c.globalAlpha = E.fresh ? 0.3 : 0.17; c.drawImage(st.gnd, 0, 0, W, H); c.globalAlpha = 1;
       if (fl > 0.02) { c.fillStyle = `rgba(${ink},${(0.1 * fl).toFixed(3)})`; c.fillRect(0, 0, W, H); }
       const fib = [0, 1, 2, 3].map(() => new Path2D()), dts = [0, 1, 2, 3].map(() => new Path2D()), silk = new Path2D(), sparks = [];
       const lev = (arr, al) => arr[Math.min(3, Math.max(0, Math.floor(al * 4)))];
@@ -308,7 +308,7 @@ const ART_MODES = (() => {
       for (const pd of st.puddles) {
         const sh = new Path2D();
         for (let i = 0; i <= 28; i++) { const a = i / 28 * TAU, rr = pd.rr(a); P(pd.cx + Math.cos(a) * rr * 1.5, pd.cy + Math.sin(a) * rr, 0, p); i ? sh.lineTo(p[0], p[1]) : sh.moveTo(p[0], p[1]); }
-        sh.closePath(); c.fillStyle = `rgba(${ink},0.009)`; c.fill(sh);
+        sh.closePath(); c.fillStyle = `rgba(${ink},0.022)`; c.fill(sh);
         const nr = Math.round((3 + 9 * amt) * pd.r);
         for (let i = 0; i < nr; i++) {
           const ph = T / 1.6 + hash(pd.n * 53 + i * 7), cyc = Math.floor(ph), f = ph - cyc, sd = pd.n * 7919 + i * 131 + cyc * 977;
@@ -319,7 +319,7 @@ const ART_MODES = (() => {
         }
       }
       // the lamps glow at night
-      if (day < 0.98) for (const [x, y] of st.lamps) { P(x, y, 5.2, p); sparks.push([p[0], p[1], 0.3 * (1 - day), 0.7 * p[2]]); }
+      if (day < 0.98) for (const [x, y] of st.lamps) { P(x, y, 5.2, p); sparks.push([p[0], p[1], 0.5 * (1 - day), 0.7 * p[2]]); }
       // ---- each person: the canopy's points in space (tilted with the wind, inside out if it blew)
       const geo = (q, x, y, zh, ox) => {                        // -> {apex, tips, mids} as [X, Y, Z]
         const o = ox == null ? q.o : ox, io = q.io, R = q.R * (0.14 + 0.86 * o) * (1 + 0.22 * io) * (1 + 0.22 * (q.sh || 0)), zr = 2.05 - (1 - o) * 0.75 * q.R + 0.03 * Math.sin(q.ph * 2);
@@ -371,7 +371,7 @@ const ART_MODES = (() => {
         if (q.o > 0.02) {
           const al = smoothstep(0.02, 0.4, q.o), gq = geo(q, q.x, q.y, 1.1);
           const { A, tp } = canopy(q, gq, C ? C.fib : lev(fib, al * (0.3 + 0.7 * q.k)), C ? C.body : null);
-          if (C) C.glow.push([A[0], A[1], 0.6 * al, 1.6 * A[2] * q.R]); else sparks.push([A[0], A[1], al * (0.08 + 0.3 * q.k), 0.34 * A[2] * q.R]);
+          if (C) C.glow.push([A[0], A[1], 0.6 * al, 1.6 * A[2] * q.R]); else sparks.push([A[0], A[1], al * (0.14 + 0.4 * q.k), 0.34 * A[2] * q.R]);
           const aw = Math.max(aw0, (q.lw || 0) * 1.3);          // rain landing on it: a few bright drops
           if (aw > 0.02 && al > 0.5) for (let n = 0, m = Math.round(aw * (1.5 + 2 * q.k)); n < m; n++) {
             const i = Math.floor(rnd() * 8), f = rnd() * 0.85; dot(dts[3], A[0] + (tp[i][0] - A[0]) * f, A[1] + (tp[i][1] - A[1]) * f, lw * 1.3);
@@ -414,12 +414,12 @@ const ART_MODES = (() => {
       // ---- now lay it all down: faint silk under the rims, the dotted filaments (the dots flow, as in the plumes),
       // sparks and drops, the falling streaks; then the phones' own, in colour
       const flow = -T * (16 + 40 * storm) * ds;
-      c.strokeStyle = `rgba(${ink},0.07)`; c.lineWidth = lw * 0.6; c.stroke(silk);
+      c.strokeStyle = `rgba(${ink},0.12)`; c.lineWidth = lw * 0.6; c.stroke(silk);
       c.setLineDash([0.01, 3 * ds]); c.lineDashOffset = flow; c.lineWidth = lw * 1.05;
-      fib.forEach((pp, i) => { c.strokeStyle = `rgba(${ink},${(0.14 + 0.2 * i).toFixed(2)})`; c.stroke(pp); });
+      fib.forEach((pp, i) => { c.strokeStyle = `rgba(${ink},${(0.26 + 0.24 * i).toFixed(2)})`; c.stroke(pp); });
       c.setLineDash([]); c.lineDashOffset = 0;
-      dts.forEach((pp, i) => { c.fillStyle = `rgba(${ink},${(0.16 + 0.2 * i).toFixed(2)})`; c.fill(pp); });
-      c.strokeStyle = `rgba(${ink},${(0.1 + 0.08 * storm).toFixed(3)})`; c.lineWidth = lw * 0.7; c.stroke(rain);
+      dts.forEach((pp, i) => { c.fillStyle = `rgba(${ink},${(0.28 + 0.24 * i).toFixed(2)})`; c.fill(pp); });
+      c.strokeStyle = `rgba(${ink},${(0.18 + 0.1 * storm).toFixed(3)})`; c.lineWidth = lw * 0.7; c.stroke(rain);
       for (const [x, y, al, z] of sparks) { c.globalAlpha = Math.min(1, al); c.drawImage(spr, x - z / 2, y - z / 2, z, z); }
       c.globalAlpha = 1;
       for (const [k, o] of cp) {
