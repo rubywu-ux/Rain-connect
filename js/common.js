@@ -203,7 +203,7 @@ class RainRenderer {
     const und = this._under();            // the faint world + the stains where it has rained, in one layer
     if (und) {
       c.save();
-      c.globalAlpha = 0.11;               // with the frame fade this settles at about 0.4 x the layer
+      c.globalAlpha = 0.16;               // with the frame fade this settles at about 0.6 x the layer
       c.globalCompositeOperation = INK ? 'source-over' : 'lighter';
       c.drawImage(und, 0, 0, this.w, this.h);
       c.restore();
@@ -526,7 +526,7 @@ class RainRenderer {
     u.width = src.width; u.height = src.height;
     const g = u.getContext('2d');
     g.clearRect(0, 0, u.width, u.height);
-    if (this.ghost) { g.globalAlpha = INK ? 0.32 : 0.45; g.drawImage(this.ghost, 0, 0, u.width, u.height); g.globalAlpha = 1; }
+    if (this.ghost) { g.globalAlpha = INK ? 0.4 : 0.6; g.drawImage(this.ghost, 0, 0, u.width, u.height); g.globalAlpha = 1; }
     if (this.memory) g.drawImage(this.memory, 0, 0, u.width, u.height);
     g.globalCompositeOperation = 'source-in'; g.fillStyle = `rgb(${PAL.ink})`; g.fillRect(0, 0, u.width, u.height);
     g.globalCompositeOperation = 'source-over';
@@ -1240,23 +1240,46 @@ class WorldMap {
   constructor(canvas) {
     this.cv = canvas; this.ctx = canvas.getContext('2d');
     this.snap = null; this.land = null; this.key = '';
+    this.zoom = 1; this.ox = 0; this.oy = 0; this.vx = 0; this.vy = 0;     // the view: how much wider than the screen, and where it looks
+    this._pan(canvas);
   }
   setSnapshot(s) { this.snap = s; }
-  _xy(lat, lon, w, h) { return [w * (0.04 + 0.92 * (lon + 180) / 360), h * (0.06 + 0.88 * clamp((80 - lat) / 140, 0, 1))]; }
-  _ground(w, h, dpr) {                         // the land, drawn once per size and theme
-    const key = w + 'x' + h + ':' + dpr + ':' + INK;
+  /* the map is `zoom` screens wide (and tall enough to keep its shape); ox/oy = the corner shown, in map px */
+  _size(w, h) { const mw = w * this.zoom, mh = Math.max(h, mw * 0.5); return [mw, mh]; }
+  _xy(lat, lon, w, h) { const [mw, mh] = this._size(w, h); return [mw * (0.03 + 0.94 * (lon + 180) / 360) - this.ox, mh * (0.08 + 0.84 * clamp((80 - lat) / 140, 0, 1)) - this.oy]; }
+  _clamp(w, h) { const [mw, mh] = this._size(w, h); this.ox = clamp(this.ox, 0, Math.max(0, mw - w)); this.oy = clamp(this.oy, 0, Math.max(0, mh - h)); }
+  _pan(cv) {                                                                // drag to look around; a flick keeps going a little
+    let d = null;
+    cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); d = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 }; this.vx = this.vy = 0; });
+    cv.addEventListener('pointermove', e => {
+      if (!d) return; const dx = e.clientX - d.x, dy = e.clientY - d.y, now = performance.now(), dt = Math.max(1, now - d.t);
+      this.ox -= dx; this.oy -= dy; this.vx = -dx / dt * 1000; this.vy = -dy / dt * 1000; d.moved += Math.hypot(dx, dy); d.x = e.clientX; d.y = e.clientY; d.t = now;
+      this._clamp(cv.clientWidth, cv.clientHeight);
+    });
+    const up = e => { if (!d) return; if (d.moved < 8 && this.onTap) this.onTap(e.clientX, e.clientY); if (performance.now() - d.t > 80) this.vx = this.vy = 0; d = null; };
+    cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  }
+  /* the raining place nearest a screen point, within reach (for a tap) */
+  nearest(sx, sy, w, h) {
+    if (!this.snap) return null; let best = null, bd = 28 * 28;
+    this.snap.pts.forEach((p, idx) => { if (!isRaining(p[2], p[3])) return; const [x, y] = this._xy(p[0], p[1], w, h), dd = (x - sx) ** 2 + (y - sy) ** 2; if (dd < bd) { bd = dd; best = { idx, lat: p[0], lon: p[1], mm: p[2], code: p[3], x, y }; } });
+    return best;
+  }
+  _ground(w, h, dpr) {                         // the whole land, drawn once per size and theme (then panned)
+    const [mw, mh] = this._size(w, h), key = mw + 'x' + mh + ':' + dpr + ':' + INK;
     if (key === this.key && this.land) return this.land;
     this.key = key;
-    const cv = this.land || document.createElement('canvas'); cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
-    const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
-    g.fillStyle = `rgba(${PAL.ink},0.42)`;
-    const d = Math.max(0.8, w / 420);
+    const cv = this.land || document.createElement('canvas'); cv.width = Math.round(mw * dpr); cv.height = Math.round(mh * dpr);
+    const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, mw, mh);
+    g.fillStyle = `rgba(${PAL.ink},0.5)`;
+    const d = Math.max(0.9, mw / 520), ox = this.ox, oy = this.oy; this.ox = this.oy = 0;
     if (typeof LAND_MASK !== 'undefined') for (let r = 0; r < 90; r++) for (let c = 0; c < 180; c++) {
       if (!LAND_MASK[r * 180 + c]) continue;
       const lat = 89 - r * 2, lon = -179 + c * 2;
       if (lat < -60 || lat > 80) continue;
       const [x, y] = this._xy(lat, lon, w, h); g.fillRect(x - d / 2, y - d / 2, d, d);
     }
+    this.ox = ox; this.oy = oy;
     return (this.land = cv);
   }
   draw(T, w, h, dpr) {
@@ -1264,13 +1287,17 @@ class WorldMap {
     if (this.cv.width !== Math.round(w * dpr) || this.cv.height !== Math.round(h * dpr)) { this.cv.width = Math.round(w * dpr); this.cv.height = Math.round(h * dpr); }
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.clearRect(0, 0, w, h);
-    c.drawImage(this._ground(w, h, dpr), 0, 0, w, h);
+    if (this.vx || this.vy) { this.ox += this.vx / 60; this.oy += this.vy / 60; this.vx *= 0.93; this.vy *= 0.93; if (Math.abs(this.vx) + Math.abs(this.vy) < 4) this.vx = this.vy = 0; }
+    this._clamp(w, h);
+    const [mw, mh] = this._size(w, h), gnd = this._ground(w, h, dpr);
+    c.drawImage(gnd, this.ox * dpr, this.oy * dpr, w * dpr, h * dpr, 0, 0, w, h);
     if (!this.snap) return;
     c.globalCompositeOperation = PAL.comp;
     const spr = sparkSprite(), scl = Math.max(0.7, w / 420), dry = new Path2D(), fall = [new Path2D(), new Path2D(), new Path2D()];
     for (const [lat, lon, mm, code] of this.snap.pts) {
       if (mm == null && code == null) continue;
       const [x, y] = this._xy(lat, lon, w, h);
+      if (x < -40 || x > w + 40 || y < -40 || y > h + 40) continue;
       if (!isRaining(mm, code)) { dry.rect(x - 0.7, y - 0.7, 1.4, 1.4); continue; }
       const k = rainStrength(mm, code), seed = Math.round((lat + 90) * 1000 + lon * 7);
       const z = (7 + 11 * k) * scl;                                     // the spark

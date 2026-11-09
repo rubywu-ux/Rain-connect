@@ -5,6 +5,12 @@
   const rainCv = $('rain'), mapCv = $('map');
   const R = new RainRenderer(rainCv, { scale: 1 });
   const M = new WorldMap(mapCv);
+  M.zoom = 2.3;                                               // the world is wider than the phone: swipe to look around
+  M.ox = (innerWidth * M.zoom - innerWidth) * 0.5; M.oy = 0;   // start on the middle of the map
+  M.onTap = (sx, sy) => {                                      // a tap on a raining place says where it is
+    const r = M.nearest(sx, sy, mapCv.clientWidth, mapCv.clientHeight); if (!r) return;
+    showDrop(r, sx, sy, myColor, false, 'it is raining here right now');
+  };
   const S = new RainSound();
 
   /* ---------------- state */
@@ -145,13 +151,13 @@
     return best;
   }
   let dropEl = null;
-  function showDrop(r, sx, sy, col, mine) {
+  function showDrop(r, sx, sy, col, mine, sub) {
     if (!r) return;
     if (dropEl) dropEl.remove();
     const el = dropEl = document.createElement('div');
     el.className = 'drop-tag';
     if (col != null) el.style.color = `rgb(${colorOf(col)})`;
-    el.innerHTML = `<b>${rainWords(r.mm, r.code)} ${placeName(r.lat, r.lon).where}</b><small>${mine ? 'your drop is falling there now' : 'someone is holding this rain'}</small>`;
+    el.innerHTML = `<b>${rainWords(r.mm, r.code)} ${placeName(r.lat, r.lon).where}</b><small>${sub || (mine ? 'your drop is falling there now' : 'someone is holding this rain')}</small>`;
     el.style.left = clamp(sx - 115, 10, innerWidth - 240) + 'px';
     el.style.top = clamp(sy - 110, 60, innerHeight - 140) + 'px';
     document.body.appendChild(el);

@@ -64,7 +64,7 @@
 
   /* ---------------- the rain remembers: stains where it has rained, kept across reloads, fading over a day */
   R.enableMemory();
-  R.bottomFade = 0.08;             // a little less haze where the plumes pile up at the bottom
+  R.bottomFade = 0.55;             // the plumes thin out toward the bottom: the numbers and the QR sit on quieter ground
   try {
     const m = JSON.parse(localStorage.getItem('rc_memory2') || 'null');
     if (m && Date.now() - m.t < 24 * 3600e3) {
@@ -541,5 +541,5 @@
   window.__wall = { setArt, cycleArt, setMist, get art() { return art; }, get mist() { return mistOn; } };   // TouchDesigner flips these
   try { const a = +(localStorage.getItem('rc_art') || 0); if (a > 0) setArt(a); } catch (e) {}       // old '1' / '0' still work
   setMist(mistOn);
-  if (RC.debug) window.__hub = { clients, exits, net, R, S, setMist, tagSite, nameOf, get w() { return w; }, get light() { return light; }, get joins() { return joins; } };
+  if (RC.debug) window.__hub = { clients, exits, net, R, S, setMist, setSnap, tagSite, nameOf, get w() { return w; }, get light() { return light; }, get joins() { return joins; } };
 })();

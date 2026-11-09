@@ -22,13 +22,19 @@ canvas#rain { position: fixed; inset: 0; touch-action: none; display: block; }
 /* ---------- world (map) view */
 .world {
   position: fixed; inset: 0; z-index: 5;
-  background: radial-gradient(120% 80% at 50% 45%, rgba(var(--rgb), .06) 0%, var(--bg) 70%);
+  background: radial-gradient(120% 80% at 50% 45%, rgba(var(--rgb), .05) 0%, rgba(var(--bgrgb, 4,4,5), 0) 70%), var(--bg);
   display: flex; flex-direction: column; justify-content: space-between;
   padding: calc(env(safe-area-inset-top) + 28px) 24px calc(env(safe-area-inset-bottom) + 28px);
   transition: opacity .9s ease;
 }
-.world canvas#map { position: absolute; left: 0; right: 0; top: 30%; width: 100%; height: 42%; }
-.world-text { position: relative; }
+.world canvas#map { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.world-text, .world-foot { position: relative; z-index: 1; isolation: isolate; pointer-events: none; }
+.world-foot .btn { pointer-events: auto; }
+.world-text::before { content: ''; position: absolute; inset: -40px -24px -30px; z-index: -1;
+  background: linear-gradient(to bottom, var(--bg) 55%, rgba(var(--bgrgb, 4,4,5), 0)); }
+.world-foot::before { content: ''; position: absolute; inset: -60px -24px -40px; z-index: -1;
+  background: linear-gradient(to top, var(--bg) 45%, rgba(var(--bgrgb, 4,4,5), 0)); }
+.world-swipe { font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: var(--faint); }
 .eyebrow { font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: var(--dim); }
 .world h1 {
   font-family: var(--serif); font-weight: 300; font-size: clamp(84px, 30vw, 150px);
@@ -84,7 +90,7 @@ body.wall { cursor: none; }
 .wall-stats .big { font-family: var(--serif); font-size: 7vw; line-height: .9; font-weight: 300; text-shadow: 0 0 36px rgba(var(--rgb), .35); }
 .wall-stats .big span { font-size: .45em; color: var(--dim); }
 .wall-stats .lede { font-size: 1.9vw; }
-.wall-stats .meta { font-size: .9vw; }
+.wall-stats .meta { font-size: .8vw; opacity: .7; }
 .wall-qr {
   position: fixed; right: 4vw; bottom: 5vh; z-index: 4; text-align: center;
   padding: 1.2vw; border: 1px solid rgba(var(--rgb), .25); border-radius: 1vw; background: rgba(var(--bgrgb), .55);
@@ -103,7 +109,8 @@ body.wall { cursor: none; }
 .netdot { position: fixed; right: 1.2vw; top: 1.2vw; width: 8px; height: 8px; border-radius: 50%; background: #c55; z-index: 6; opacity: .7; }
 .netdot.ok { background: #5c8; }
 /* mist weather switch: wall only */
-.wall-btns { position: fixed; left: 2.4vw; bottom: 1.6vw; z-index: 6; display: flex; gap: .6vw; }
+.wall-btns { position: fixed; left: 2.4vw; bottom: 1.6vw; z-index: 6; display: flex; gap: .6vw; opacity: .3; transition: opacity .4s ease; }
+.wall-btns:hover { opacity: 1; }
 .mist { position: relative; font: 300 .75vw var(--mono); letter-spacing: .2em; text-transform: uppercase;
   color: var(--faint); background: none; border: 1px solid rgba(var(--rgb), .18); border-radius: 999px; padding: .5vw 1vw; cursor: pointer; }
 .mist.on { color: var(--ink); border-color: rgba(var(--rgb), .5); }
