@@ -109,11 +109,7 @@
     const me = mine();
     R.view.x = me.ox; R.view.y = me.oy;
     R.floor = Math.max(...members.map(p => p.oy + p.h));
-    // joined phones share one horizontal river through the middle of the group
-    R.river = members.length > 1 ? {
-      cy: members.reduce((a, p) => a + p.oy + p.h / 2, 0) / members.length,
-      since: m.since ? (m.since - EPOCH) / 1000 : T(), speed: 150,
-    } : null;
+    R.river = null;                 // joined phones keep their own rain: no shared horizontal stream any more
     const n = members.length;
     myColor = me.color != null ? me.color : myColor;
     document.documentElement.style.setProperty('--me', colorOf(myColor));
