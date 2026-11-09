@@ -502,9 +502,21 @@ const ART_MODES = (() => {
       for (let i = 0; i < 8; i++) q.cols.push(kind === 0 ? hsl2rgb(h, sat - 15, Math.min(76, lit + 12)).split(',').map(Number) : kind === 1 ? (i & 1 ? [242, 236, 222] : base)
                                                 : kind === 2 ? hsl2rgb(h + i * 45, 70, 58).split(',').map(Number) : [40, 40, 50]);
       q.rim = kind === 3 ? base : null;
+      q.cols = q.cols.map(greyOf); if (q.rim) q.rim = greyOf(q.rim);                 // the crowd in greys
+      q.coat = greyOf(q.coat).join(','); q.hair = greyOf(q.hair).join(',');
       out.push(q);
     }
     st.ppl = out;
+  }
+  // Umbrellas is black and white: everything but the umbrellas of the phones that join in
+  const greyOf = c => { const [r, g, b] = typeof c === 'string' ? c.split(',').map(Number) : c, l = Math.round(0.3 * r + 0.59 * g + 0.11 * b); return [l, l, l]; };
+  function toGrey(cv) {
+    try {
+      const g = cv.getContext('2d'), im = g.getImageData(0, 0, cv.width, cv.height), d = im.data;
+      for (let i = 0; i < d.length; i += 4) { const l = 0.3 * d[i] + 0.59 * d[i + 1] + 0.11 * d[i + 2]; d[i] = d[i + 1] = d[i + 2] = l; }
+      g.putImageData(im, 0, 0);
+    } catch (e) {}
+    return cv;
   }
   const umbrellas = {
     name: 'umbrellas', title: 'Umbrellas', dark: true, bolts: false,
@@ -513,9 +525,9 @@ const ART_MODES = (() => {
       if (st.W !== W || st.H !== H || !st.bgN) {
         st.W = W; st.H = H; umbCam(st, W, H);
         st.lamps = [[-7.5, 5.5], [0.5, 5.5], [8, 5.5], [-6, -2.6], [6.5, -2.6]];
-        st.bgN = umbBg(st, W, H, dpr, false); st.bgD = umbBg(st, W, H, dpr, true);
+        st.bgN = toGrey(umbBg(st, W, H, dpr, false)); st.bgD = toGrey(umbBg(st, W, H, dpr, true));
         const rt = Math.min(W, H) * 0.26;
-        st.trees = [[-0.02 * W, 0.18 * H, rt, 11], [1.03 * W, 0.62 * H, rt * 1.15, 47], [0.12 * W, 1.04 * H, rt * 0.9, 83]].map(([x, y, r, sd]) => ({ x, y, r, n: umbTree(st, r, false, sd), d: umbTree(st, r, true, sd) }));
+        st.trees = [[-0.02 * W, 0.18 * H, rt, 11], [1.03 * W, 0.62 * H, rt * 1.15, 47], [0.12 * W, 1.04 * H, rt * 0.9, 83]].map(([x, y, r, sd]) => ({ x, y, r, n: toGrey(umbTree(st, r, false, sd)), d: toGrey(umbTree(st, r, true, sd)) }));
         st.ref = null; st.fly = []; st.ppl = null;
       }
       if (st.ref !== E.sites) umbPeople(st, E, W, H);
@@ -542,7 +554,7 @@ const ART_MODES = (() => {
                   gt: 1e9, gx, gy, hx: gx, hy: gy, coat: col.join(','), hair: '24,20,18', R: 0.75, kind: 1, k: 0.6, cols: [0, 1, 2, 3, 4, 5, 6, 7].map(i => i & 1 ? [245, 242, 235] : col), rim: null, col };
             mine.set(ev.id, q);
           }
-          q.gx = gx; q.gy = gy; q.open = !!ev.open; live.add(ev.id);
+          q.gx = gx; q.gy = gy; q.open = !!ev.open; q.key = ev.id; live.add(ev.id);
         } else if (ev.k === 'shower') {
           let o = shw.get(ev.id); if (!o) shw.set(ev.id, o = { x: gx, y: gy, a: 0 });
           o.x += (gx - o.x) * 0.3; o.y += (gy - o.y) * 0.3; o.on = T;
@@ -590,6 +602,9 @@ const ART_MODES = (() => {
         if (storm > 0.3 && q.io > 0.9 && q.lost < T && st.fly.length < 3 && rnd() < dt * storm * 0.05) {
           q.lost = T + 7 + 6 * rnd(); q.o = 0;
           st.fly.push({ x: q.x, y: q.y, z: 2.2, vx: wdx * 5, vy: wdy * 5, vz: 2.5, cols: q.cols, rim: q.rim, R: q.R, spin: q.spin, om: 9 * (rnd() < 0.5 ? -1 : 1), tx: wdx * 0.6, ty: 0.5, t: T });
+        } else if (!q.ctrl && gg > 0.5 && q.io > 0.8 && q.lost < T && st.fly.length < 10 && rnd() < dt * gg * 1.2) {   // ... and so does a strong gust
+          q.lost = T + 12 + 6 * rnd(); q.o = 0;
+          st.fly.push({ x: q.x, y: q.y, z: 2.2, vx: qwx * 6, vy: qwy * 6, vz: 2.5, wx: qwx, wy: qwy, cols: q.cols, rim: q.rim, R: q.R, spin: q.spin, om: 9 * (rnd() < 0.5 ? -1 : 1), tx: qwx * 0.6, ty: 0.5, t: T });
         }
         const ot = q.ctrl ? (q.open ? 1 : 0) : q.lost > T ? 0 : Math.max(openT, smoothstep(0.15, 0.5, lwq));
         q.o += (ot - q.o) * (1 - Math.exp(-dt * (ot > q.o ? 2.6 : 1.5)));           // calm: fold, then fade away; rain: fade in folded, then unfold
@@ -600,21 +615,25 @@ const ART_MODES = (() => {
         }
         q.om *= Math.exp(-dt * 0.7); q.om += (rnd() - 0.5) * storm * 30 * dt; q.spin += q.om * dt;
       }
-      // A: sharing. A walker's open umbrella brought up to someone without one takes them in (they walk along
-      // beside it); a walker with a closed umbrella who stops by an open one is taken in there (that person waits)
-      for (const me of mine.values()) {
-        me.under = null; let best = null, bd = 1.6;
-        for (const q of all) { if (q === me) continue; const d = Math.hypot(q.x - me.x, q.y - me.y); if (d < bd) { bd = d; best = q; } }
-        if (!best) continue;
-        if (me.o > 0.6 && best.o < 0.35 && !best.ctrl) {
-          const sd = Math.atan2(best.y - me.y, best.x - me.x);
-          best.guestOf = me; best.guestT = T; me.shT = T; best.gx = me.x + Math.cos(sd) * 0.5; best.gy = me.y + Math.sin(sd) * 0.5; best.gt = T + 3;
-        } else if (me.o < 0.35 && best.o > 0.6) {
-          me.under = best; best.shT = T; if (!best.ctrl) { best.guestOf = me; best.guestT = T; best.gx = best.x; best.gy = best.y; best.gt = T + 3; }
-        }
+      // A: sharing. Only someone whose umbrella the wind took (a storm, or a gust) comes in under a phone's
+      // open umbrella: they run to the nearest one in reach (up to 4 under each) and walk along with it while it rains
+      for (const m of mine.values()) m.ng = 0;
+      const hostOk = m => mine.get(m.key) === m && m.o > 0.5 && calm < 0.8;
+      for (const q of ppl) {
+        if (q.host && !hostOk(q.host)) { q.host = null; q.lost = Math.min(q.lost, T + 1.5); }   // that umbrella closed or left
+        if (q.host) q.host.ng++;
       }
-      if (mine.size || st.anySh) { st.anySh = 0; for (const q of all) { q.sh = (q.sh || 0) + ((T - (q.shT || -9) < 0.4 ? 1 : 0) - (q.sh || 0)) * (1 - Math.exp(-dt * 3)); if (q.sh > 0.01) st.anySh = 1; } }
-      const close = (A, B) => (A.under === B || B.under === A || (T - (A.guestT || -9) < 0.6 && A.guestOf === B) || (T - (B.guestT || -9) < 0.6 && B.guestOf === A));
+      for (const q of ppl) if (!q.host && q.lost > T) {
+        let best = null, bd = 8;
+        for (const m of mine.values()) { const d = Math.hypot(m.x - q.x, m.y - q.y); if (hostOk(m) && m.ng < 4 && d < bd) { bd = d; best = m; } }
+        if (best) { q.host = best; best.ng++; best.sl = (best.sl || 0) + 1; q.slot = best.sl; }
+      }
+      for (const q of ppl) if (q.host) {
+        const m = q.host, a = q.slot * 2.4 + 0.7, r = 0.42 + 0.06 * (q.slot % 2);
+        q.gx = m.x + Math.cos(a) * r; q.gy = m.y + Math.sin(a) * r * 0.8; q.gt = T + 3; q.guestT = T; q.lost = Math.max(q.lost, T + 2);
+      }
+      for (const m of mine.values()) m.sh = (m.sh || 0) + (Math.min(3, m.ng) - (m.sh || 0)) * (1 - Math.exp(-dt * 3));   // the umbrella opens wider for them
+      const close = (A, B) => (A.host && (A.host === B || A.host === B.host)) || (B.host && B.host === A);
       // keep a little room between people
       for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
         const A = all[i], B = all[j]; if (close(A, B)) continue;
@@ -636,16 +655,16 @@ const ART_MODES = (() => {
         const ph = T / 0.35 + hash(i * 5 + 1), cyc = Math.floor(ph), f = ph - cyc, sd = i * 977 + cyc * 7919, a = hash(sd) * TAU, r = 2.6 * Math.sqrt(hash(sd + 1));
         P(o.x + Math.cos(a) * r, o.y + Math.sin(a) * r * 0.8, 0, p); const rr = (0.04 + 0.2 * f) * p[2]; spl.moveTo(p[0] + rr, p[1]); spl.ellipse(p[0], p[1], rr, rr * 0.82, 0, 0, TAU);
       }
-      c.strokeStyle = `rgba(${day > 0.5 ? '255,255,255' : '200,210,235'},${0.16 + 0.1 * storm})`; c.lineWidth = lw * 0.6; c.stroke(spl);
+      c.strokeStyle = `rgba(${day > 0.5 ? '255,255,255' : '212,212,212'},${0.16 + 0.1 * storm})`; c.lineWidth = lw * 0.6; c.stroke(spl);
       for (const o of shw.values()) {                            // ... and the cloud's shade over that spot
         P(o.x, o.y, 0, p); const r = 3 * p[2], gr = c.createRadialGradient(p[0], p[1], 0, p[0], p[1], r);
-        gr.addColorStop(0, `rgba(20,24,34,${(0.3 * o.a).toFixed(3)})`); gr.addColorStop(1, 'rgba(20,24,34,0)'); c.fillStyle = gr; c.beginPath(); c.ellipse(p[0], p[1], r, r * 0.8, 0, 0, TAU); c.fill();
+        gr.addColorStop(0, `rgba(24,24,24,${(0.3 * o.a).toFixed(3)})`); gr.addColorStop(1, 'rgba(24,24,24,0)'); c.fillStyle = gr; c.beginPath(); c.ellipse(p[0], p[1], r, r * 0.8, 0, 0, TAU); c.fill();
       }
       // ---- each person: the canopy's points in space (tilted with the wind, inside out if it blew), then shadows and paint
       const L = day > 0.5 ? [-0.3, 0.22, 0.93] : [0.3, 0.22, 0.93];   // by day the sun is up and to the left
       const lb = fb ? [((fb.u == null ? 0.5 : fb.u) - 0.5) * -1.6, -0.5, 0.75] : null;
       const geo = (q, x, y, zh, ox) => {                        // -> {apex, tips, mids} as [X, Y, Z]
-        const o = ox == null ? q.o : ox, io = q.io, R = q.R * (0.14 + 0.86 * o) * (1 + 0.22 * io) * (1 + 0.3 * (q.sh || 0)), zr = 2.05 - (1 - o) * 0.75 * q.R + 0.03 * Math.sin(q.ph * 2);
+        const o = ox == null ? q.o : ox, io = q.io, R = q.R * (0.14 + 0.86 * o) * (1 + 0.22 * io) * (1 + 0.22 * (q.sh || 0)), zr = 2.05 - (1 - o) * 0.75 * q.R + 0.03 * Math.sin(q.ph * 2);
         const za = zr + q.R * 0.42 * o * (1 - 2 * io), tw = (pt) => { const dz = pt[2] - zh; pt[0] += q.tx * dz; pt[1] += q.ty * dz; pt[2] -= 0.5 * (q.tx * q.tx + q.ty * q.ty) * dz; return pt; };
         const apex = tw([x, y, za]), tips = [], mids = [];
         for (let i = 0; i < 8; i++) {
@@ -655,7 +674,7 @@ const ART_MODES = (() => {
         }
         return { apex, tips, mids };
       };
-      const list = all.map(q => { P(q.x, q.y, 2, p); return [p[1], q]; }).sort((a, b) => a[0] - b[0]).map(a => a[1]);
+      const list = all.map(q => { const r = q.host || q; P(r.x, r.y, 2, p); return [p[1] - (r !== q ? 0.5 : 0), q]; }).sort((a, b) => a[0] - b[0]).map(a => a[1]);
       // shadows. The camera looks down at a slant, so a shadow cast straight down lands well below the canopy on
       // screen and reads as a separate grey shape. Instead each shadow starts on the ground right behind what is
       // drawn (G = the ground point under a screen point) and slides a little away from the light: it peeks out
@@ -671,7 +690,7 @@ const ART_MODES = (() => {
       if (!st.shc || st.shc.width !== Math.ceil(W / SH) || st.shc.height !== Math.ceil(H / SH)) st.shc = canvas(Math.ceil(W / SH), Math.ceil(H / SH));
       const hard = (Lv, a, len) => {
         const g = st.shc.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, st.shc.width, st.shc.height); g.setTransform(1 / SH, 0, 0, 1 / SH, 0, 0);
-        g.fillStyle = 'rgb(30,24,18)';
+        g.fillStyle = 'rgb(24,24,24)';
         const dx = -Lv[0] / Lv[2] * len, dy = -Lv[1] / Lv[2] * len, dl = Math.hypot(dx, dy) || 1, nx = -dy / dl, ny = dx / dl;
         for (const q of list) {
           const ca = q.o > 0.02 ? smoothstep(0.02, 0.4, q.o) : 0, pa = 1 - smoothstep(0.15, 0.6, q.o);
@@ -693,7 +712,7 @@ const ART_MODES = (() => {
       if (day > 0.02) hard(L, 0.3 * day * (1 - 0.5 * (1 - calm)), 0.7);   // softer under rain clouds
       if (fl > 0.05 && lb) hard(lb, 0.45 * fl, 0.5);
       for (const q of mine.values()) {                          // A: your walker, ringed in your colour
-        P(q.x, q.y, 1.45, p); const g0 = st.G(p[0], p[1]); P(g0[0], g0[1], 0, p); const rr = 1.1 * p[2] * (1 + 0.3 * (q.sh || 0));
+        P(q.x, q.y, 1.45, p); const g0 = st.G(p[0], p[1]); P(g0[0], g0[1], 0, p); const rr = 1.1 * p[2] * (1 + 0.22 * (q.sh || 0));
         c.strokeStyle = `rgba(${q.col.join(',')},0.95)`; c.lineWidth = lw * 2; c.setLineDash([5 * lw, 4 * lw]);
         c.beginPath(); c.ellipse(p[0], p[1], rr, rr * 0.8, 0, 0, TAU); c.stroke(); c.setLineDash([]);
       }
@@ -722,7 +741,7 @@ const ART_MODES = (() => {
           for (let i = 0; i <= 8; i++) { const t = tips[i % 8]; if (!i) c.moveTo(t[0], t[1]); else c.quadraticCurveTo(mids[i - 1][0], mids[i - 1][1], t[0], t[1]); }
           c.stroke();
         }
-        c.fillStyle = day > 0.5 ? 'rgba(250,246,238,0.95)' : 'rgba(220,214,206,0.9)'; c.beginPath(); c.arc(A[0], A[1], Math.max(1.6, 0.05 * A[2]), 0, TAU); c.fill();
+        c.fillStyle = day > 0.5 ? 'rgba(248,248,248,0.95)' : 'rgba(216,216,216,0.9)'; c.beginPath(); c.arc(A[0], A[1], Math.max(1.6, 0.05 * A[2]), 0, TAU); c.fill();
         c.globalAlpha = 1;
         // rain landing on it
         const aw = Math.max(amt * wet, (q.lw || 0) * 1.3);
@@ -744,12 +763,12 @@ const ART_MODES = (() => {
         if (q.o > 0.02) paint(q, geo(q, q.x, q.y, 1.1), smoothstep(0.02, 0.4, q.o));  // folds, and fades as it finishes folding
       }
       c.lineWidth = lw * 0.45; c.strokeStyle = 'rgba(0,0,0,0.22)'; c.stroke(seams);
-      c.strokeStyle = 'rgba(232,232,240,0.9)'; c.lineWidth = lw * 1.1; c.stroke(ribs);
-      c.fillStyle = 'rgba(240,236,230,0.7)'; c.fill(caps);
-      c.fillStyle = `rgba(235,242,255,${0.55 + 0.2 * storm})`; c.fill(drops);
+      c.strokeStyle = 'rgba(234,234,234,0.9)'; c.lineWidth = lw * 1.1; c.stroke(ribs);
+      c.fillStyle = 'rgba(238,238,238,0.7)'; c.fill(caps);
+      c.fillStyle = `rgba(242,242,242,${0.55 + 0.2 * storm})`; c.fill(drops);
       // umbrellas the storm tore away, tumbling off downwind
       st.fly = st.fly.filter(f => {
-        f.vx += (wdx * 7 - f.vx) * dt * 0.8; f.vy += (wdy * 7 - f.vy) * dt * 0.8; f.vz += (-1.2 + 2 * Math.sin(T * 3 + f.t)) * dt;
+        f.vx += ((f.wx == null ? wdx : f.wx) * 7 - f.vx) * dt * 0.8; f.vy += ((f.wy == null ? wdy : f.wy) * 7 - f.vy) * dt * 0.8; f.vz += (-1.2 + 2 * Math.sin(T * 3 + f.t)) * dt;
         f.x += f.vx * dt; f.y += f.vy * dt; f.z = Math.max(0.6, f.z + f.vz * dt); f.spin += f.om * dt; f.tx = 0.8 * Math.sin(T * 2.3 + f.t); f.ty = 0.8 * Math.cos(T * 1.9 + f.t);
         const q = { id: 999, R: f.R, o: 1, io: 0.6 + 0.4 * Math.sin(T * 4 + f.t), tx: f.tx, ty: f.ty, spin: f.spin, ph: 0, cols: f.cols, rim: f.rim, k: 0 };
         paint(q, geo(q, f.x, f.y, f.z - 1), 1);
@@ -768,7 +787,7 @@ const ART_MODES = (() => {
         const z = 7 - ((T * 9 + hash(i * 3 + 101) * 7) % 7), a = hash(i * 3 + 102) * TAU, r = 2.6 * Math.sqrt(hash(i * 3 + 103)), X = o.x + Math.cos(a) * r, Y = o.y + Math.sin(a) * r * 0.8;
         P(X, Y, z, p); P(X, Y, z + 0.55, q2); if (p[0] < -20 || p[0] > W + 20 || p[1] < -20 || p[1] > H + 20) continue; rain.moveTo(q2[0], q2[1]); rain.lineTo(p[0], p[1]);
       }
-      c.strokeStyle = day > 0.5 ? 'rgba(255,255,255,0.35)' : 'rgba(200,214,240,0.3)'; c.lineWidth = lw * 0.6; c.stroke(rain);
+      c.strokeStyle = day > 0.5 ? 'rgba(255,255,255,0.35)' : 'rgba(214,214,214,0.3)'; c.lineWidth = lw * 0.6; c.stroke(rain);
       for (const g of gus) {                                     // C: the gust's front, a few streaks sweeping across
         const ag = T - g.t0, f = ag * 8 - 4, al = Math.min(1, ag * 3) * (1 - smoothstep(3, 4.5, ag)) * Math.min(1, g.s);
         if (al < 0.01) continue;
@@ -782,15 +801,15 @@ const ART_MODES = (() => {
       // the lamp heads (lit at night) and the trees' crowns
       for (const [x, y] of st.lamps) {
         P(x, y, 5.2, p); const k = p[2];
-        c.fillStyle = day > 0.5 ? '#3a3a40' : '#0c0c10'; c.beginPath(); c.arc(p[0], p[1], 0.17 * k, 0, TAU); c.fill();
-        if (day < 0.98) { c.globalAlpha = 1 - day; c.drawImage(glow('255,200,140', 64, 0.3), p[0] - 0.7 * k, p[1] - 0.7 * k, 1.4 * k, 1.4 * k); c.fillStyle = '#ffe9c8'; c.beginPath(); c.arc(p[0], p[1], 0.09 * k, 0, TAU); c.fill(); c.globalAlpha = 1; }
+        c.fillStyle = day > 0.5 ? '#3a3a3a' : '#0c0c0c'; c.beginPath(); c.arc(p[0], p[1], 0.17 * k, 0, TAU); c.fill();
+        if (day < 0.98) { c.globalAlpha = 1 - day; c.drawImage(glow('236,236,236', 64, 0.3), p[0] - 0.7 * k, p[1] - 0.7 * k, 1.4 * k, 1.4 * k); c.fillStyle = '#f2f2f2'; c.beginPath(); c.arc(p[0], p[1], 0.09 * k, 0, TAU); c.fill(); c.globalAlpha = 1; }
       }
       for (const t of st.trees) {
         const sw = (wdx * (e + storm) * 0.025 + 0.004 * Math.sin(T * 0.7 + t.r)) * t.r, z = t.r * 2.3;
         if (day < 0.996) c.drawImage(t.n, t.x - z / 2 + sw, t.y - z / 2, z, z);
         if (day > 0.004) { c.globalAlpha = day; c.drawImage(t.d, t.x - z / 2 + sw, t.y - z / 2, z, z); c.globalAlpha = 1; }
       }
-      if (fl > 0.02) { c.fillStyle = `rgba(236,240,255,${0.38 * fl})`; c.fillRect(0, 0, W, H); }
+      if (fl > 0.02) { c.fillStyle = `rgba(242,242,242,${0.38 * fl})`; c.fillRect(0, 0, W, H); }
     },
   };
 

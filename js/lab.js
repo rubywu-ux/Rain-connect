@@ -15,7 +15,7 @@ const RCLab = (() => {
     ] },
     umbrellas: { title: 'Umbrellas', ideas: [
       { id: 'A', name: 'Share an umbrella', k: 'walk', pad: 'steer', keep: 1, btn: 'open',
-        hint: 'You get a walker (ringed in your colour). Drag to walk. Open umbrella + walk up to someone without one = they join you. Closed + stop next to an open one = you share theirs.' },
+        hint: 'Your walker carries the only coloured umbrella. Drag to walk. When the wind tears someone\'s umbrella away (a storm, or press GUST), they run in under yours. Works while it rains.' },
       { id: 'B', name: 'Make it rain here', k: 'shower', pad: 'hold',
         hint: 'Hold a finger in the box. A shower falls on that spot and people under it open their umbrellas.' },
       { id: 'C', name: 'Gust', k: 'gust', pad: 'swipe',
@@ -112,9 +112,17 @@ const RCLab = (() => {
     const row = $('#lab-row'); row.innerHTML = '';
     if (idea.btn === 'open') {
       const b = document.createElement('button'); b.className = 'lab-btn' + (open ? ' on' : '');
-      const label = () => { b.textContent = open ? '☂ umbrella OPEN  (tap to close)' : '⌒ umbrella CLOSED  (tap to open)'; b.classList.toggle('on', open); };
+      const label = () => { b.textContent = open ? '☂ umbrella OPEN' : '⌒ umbrella CLOSED'; b.classList.toggle('on', open); };
       label(); b.onclick = () => { open = !open; label(); send(cur.k, steady(), true); if (navigator.vibrate) navigator.vibrate(15); };
       row.appendChild(b);
+      // a strong gust across the plaza, through where your walker is, from the far side
+      const g = document.createElement('button'); g.className = 'lab-btn'; g.style.flex = '0 0 34%'; g.textContent = 'GUST ≋';
+      g.onclick = () => {
+        const fromRight = pos.u < 0.5;
+        send('gust', { u: fromRight ? 0.98 : 0.02, v: r3(pos.v), du: fromRight ? -1 : 1, dv: 0, s: 1.3, once: 1 }, true);
+        g.classList.add('on'); setTimeout(() => g.classList.remove('on'), 500); if (navigator.vibrate) navigator.vibrate(25);
+      };
+      row.appendChild(g);
     }
     const dot = $('#lab-dot');
     dot.classList.toggle('ring', idea.k === 'walk');
