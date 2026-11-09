@@ -91,9 +91,9 @@
   const phoneUrl = new URL('./', location.href);
   if (RC.base.split('/').pop() !== 'gallery') phoneUrl.searchParams.set('room', RC.base.split('/').pop());
   new URLSearchParams(location.search).get('broker') && phoneUrl.searchParams.set('broker', RC.broker);
-  if (INK) phoneUrl.searchParams.set('ink', '');
   function drawQR() {
     try {
+      if (INK) phoneUrl.searchParams.delete('dark'); else phoneUrl.searchParams.set('dark', '');   // a phone that scans now opens in the wall's theme
       const qr = qrcode(0, 'M'); qr.addData(phoneUrl.href); qr.make();
       $('qr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
       const svg = $('qr').querySelector('svg');
@@ -326,7 +326,7 @@
   // A / Z step through the three views: the rain map (0), then each art mode, then the map again
   const cycleArt = (d = 1) => setArt(((art + (d < 0 ? -1 : 1)) % (NART + 1) + NART + 1) % (NART + 1));
   // the switch lives here on the wall (button / W key); TouchDesigner's Mist toggle can flip it too
-  let mistOn = false, wTarget = 0, w = 0, mistStorm = 0, light = true, lastGust = 0, lastMistBolt = 0, baseDensity = 1.2, mistSeen = 0;
+  let mistOn = false, wTarget = 0, w = 0, mistStorm = 0, light = INK, lastGust = 0, lastMistBolt = 0, baseDensity = 1.2, mistSeen = 0;
   try { mistOn = localStorage.getItem('rc_mist') === '1'; } catch (e) {}
   let eT = 0, xT = 0, yT = 0;      // for the art modes: how hard the mist moves right now, and where in the pot (-1..1)
   function onWeather(m) {
@@ -395,20 +395,21 @@
     setInk(on);
     xfade.style.transition = 'opacity 3s cubic-bezier(.45,0,.55,1)'; xfade.style.opacity = '0';
   }
-  function setLight(on) {
-    on = true;                                                      // fog, always: the weather shows as density and motion, not light and dark
-    if (on === light) return;
-    light = on;
-    turnTo = on;
-    const mode = art ? ART_MODES[art - 1] : null;
-    if (mode && mode.dark) return;                                  // that picture keeps its own black: the page stays with it
-    if (mode && mode.turn === 'dissolve') {
+  function setLight(on) { /* the weather no longer changes the theme: it shows as density and motion. The theme is chosen (S). */ }
+  /* fog <-> night, chosen by the person: the map turns over slowly; the umbrellas dissolve into the other theme */
+  function setTheme(on) {
+    on = !!on;
+    if (on === light && on === INK) return;
+    light = on; turnTo = on;
+    if (art) {
       if (turnRaf) { cancelAnimationFrame(turnRaf); turnRaf = 0; turnP = 0; R.cv.style.filter = ''; }
       if (on !== INK) dissolve(on);
-      return;
-    }
-    if (!turnRaf) { turnLast = performance.now(); turnRaf = requestAnimationFrame(turnStep); }
+    } else if (!turnRaf) { turnLast = performance.now(); turnRaf = requestAnimationFrame(turnStep); }
+    try { localStorage.setItem('rc_theme', on ? 'fog' : 'dark'); } catch (e) {}
+    themeLabel();
   }
+  function themeLabel() { const b = $('theme'); if (b) b.textContent = light ? 'fog' : 'night'; }
+  addEventListener('inkchange', themeLabel);
   setInterval(() => {
     const now = Date.now();
     // ?debug: window.__mistOverride = {w, e, x, y} stands in for TouchDesigner (tests)
@@ -548,6 +549,7 @@
   addEventListener('keydown', e => {
     if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
     if (e.key === 'w') setMist(!mistOn);
+    if (e.key === 's') setTheme(!light);                               // fog <-> night
     if (e.key === 'a') cycleArt();                                     // map -> 1 -> 2 -> map
     if (e.key === 'z') cycleArt(-1);                                   // back the other way
     if (/^[0-9]$/.test(e.key) && +e.key <= NART) setArt(+e.key);       // 0 = the rain map, 1..N pick a mode
@@ -566,7 +568,8 @@
 
   $('mist').onclick = () => setMist(!mistOn);
   $('art').onclick = () => setArt(art >= NART ? 0 : art + 1);       // the button: modes, then off again
-  window.__wall = { setArt, cycleArt, setMist, get art() { return art; }, get mist() { return mistOn; } };   // TouchDesigner flips these
+  $('theme').onclick = () => setTheme(!light); themeLabel();
+  window.__wall = { setArt, cycleArt, setMist, setTheme, toggleTheme: () => setTheme(!light), get art() { return art; }, get mist() { return mistOn; }, get theme() { return light ? 'fog' : 'night'; } };   // TouchDesigner flips these
   try { const a = +(localStorage.getItem('rc_art') || 0); if (a > 0) setArt(a); } catch (e) {}       // old '1' / '0' still work
   setMist(mistOn);
   if (RC.debug) window.__hub = { clients, exits, net, R, S, setMist, setSnap, tagSite, nameOf, get w() { return w; }, get light() { return light; }, get joins() { return joins; } };

@@ -200,6 +200,10 @@
     $('enter').textContent = 'back to the rain';
   };
   $('globe').onclick = () => { $('world').classList.remove('hidden'); $('hud').classList.add('hidden'); };
+  // fog <-> night: the person's choice, kept on this phone
+  const themeLabel = () => { $('theme').textContent = INK ? 'night' : 'fog'; };          // the button names the other one
+  const toggleTheme = () => { setInk(!INK); R.fresh = true; themeLabel(); };
+  $('theme').onclick = toggleTheme; $('theme2').onclick = toggleTheme; themeLabel();
 
   /* ---------------- breath: blow into the phone (opt-in, uses the microphone) */
   let mic = null;

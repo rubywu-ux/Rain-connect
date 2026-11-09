@@ -1,5 +1,5 @@
 # ---- Connect the Rain: the wall's three views from TouchDesigner (run after art_switch.py)
-# In the projector window: A / Z = the rain map <-> Umbrellas; 0 / X / Esc = the rain map, 1 = Umbrellas, W = mist on/off.
+# In the projector window: A / Z = the rain map <-> Umbrellas; 0 / X / Esc = the rain map, 1 = Umbrellas, S = fog <-> night, W = mist on/off.
 # WALL_V (set before exec) = the version tag for the wall page URL.
 CR = op('/project1/connect_rain')
 W = CR.op('wall_web')
@@ -21,6 +21,7 @@ def onKey(dat, key, character, *a, **k):
 	elif ch == 'z': js('window.__wall.cycleArt(-1)')
 	elif ch in ('0', '1'): js('window.__wall.setArt(%s)' % ch)
 	elif ch == 'x' or str(key).lower() in ('esc', 'escape') or ch == '\x1b': js('window.__wall.setArt(0)')
+	elif ch == 's': js('window.__wall.toggleTheme()')
 	elif ch == 'w': c.par.Mist = not c.par.Mist
 	else: return
 	print('wall key', ch)
@@ -37,4 +38,4 @@ if P is not None: P.par.winop = WP.path
 EX = CR.op('wall_autostart') or CR.create(executeDAT, 'wall_autostart')
 EX.text = "def onStart():\n\top('/project1/connect_rain/projector').par.winopen.pulse()\n\treturn\n"
 EX.par.start = True; EX.par.active = True
-print('A / Z = rain map <-> Umbrellas, 0 / X = map, 1 = Umbrellas, W = mist (in the projector window)')
+print('A / Z = rain map <-> Umbrellas, 0 / X = map, 1 = Umbrellas, S = fog <-> night, W = mist (in the projector window)')

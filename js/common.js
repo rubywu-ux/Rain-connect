@@ -84,7 +84,13 @@ class Net {
  * along every filament. Everything is a deterministic function of world position + shared
  * time, so plumes continue across phones placed side by side.
  * Default: white light on black.  ?ink : black ink on white paper. */
-let INK = !new URLSearchParams(location.search).has('dark');     // fog: pale ground, grey ink (the old light-on-black with ?dark)
+/* the theme: fog (pale ground, grey ink) or night (light on black). A choice made on this screen is kept
+   (localStorage rc_theme); otherwise ?dark / ?ink from the URL; otherwise fog. */
+let INK = (() => {
+  try { const t = localStorage.getItem('rc_theme'); if (t === 'fog') return true; if (t === 'dark') return false; } catch (e) {}
+  const p = new URLSearchParams(location.search);
+  return p.has('dark') ? false : true;
+})();
 const PAL_DARK = { bg: '4,4,5', bg2: '4,4,5', ink: '236,237,240', comp: 'lighter', fade: 0.26 };
 const PAL_LIGHT = { bg: '232,235,234', bg2: '214,219,218', ink: '92,100,102', comp: 'source-over', fade: 0.24 };   // fog: milky, a touch cool, darker toward the floor
 const PAL = Object.assign({}, INK ? PAL_LIGHT : PAL_DARK);
@@ -95,6 +101,7 @@ function setInk(on) {
   INK = on; Object.assign(PAL, on ? PAL_LIGHT : PAL_DARK);
   document.documentElement.classList.toggle('ink', on);
   _spark = null;
+  try { localStorage.setItem('rc_theme', on ? 'fog' : 'dark'); } catch (e) {}
   dispatchEvent(new Event('inkchange'));
 }
 /* one colour per phone (strands stay black & white; a person's touches carry their colour) */
@@ -348,7 +355,7 @@ class RainRenderer {
     const pres = this.presence;                                       // 0 = the rain has stopped (fades smoothly)
     c.globalAlpha = pres;
     c.setLineDash([]); c.lineCap = 'round'; c.lineJoin = 'round';
-    const strandQ = INK ? 0.5 : 1, pointQ = INK ? 1.7 : 1;             // fog: quieter strands, firmer points
+    const strandQ = INK ? 0.5 : 0.7, pointQ = INK ? 1.7 : 1;           // soft strands in both themes (quietest in the fog), firm points
     for (let b = 0; b < 3; b++) {                                     // each strand bleeds: a wide faint pass, then a thin one
       const a = Math.min(1, (0.11 + b * 0.15) * boost * strandQ);
       c.strokeStyle = `rgba(${PAL.ink},${(a * 0.16).toFixed(3)})`; c.lineWidth = lw * 3.4; c.stroke(fib[b]);
@@ -547,7 +554,7 @@ class RainRenderer {
     u.width = src.width; u.height = src.height;
     const g = u.getContext('2d');
     g.clearRect(0, 0, u.width, u.height);
-    if (this.ghost) { g.globalAlpha = INK ? 0.2 : 0.3; g.drawImage(this.ghost, 0, 0, u.width, u.height); g.globalAlpha = 1; }
+    if (this.ghost) { g.globalAlpha = INK ? 0.2 : 0.22; g.drawImage(this.ghost, 0, 0, u.width, u.height); g.globalAlpha = 1; }
     if (this.memory) g.drawImage(this.memory, 0, 0, u.width, u.height);
     g.globalCompositeOperation = 'source-in'; g.fillStyle = `rgb(${PAL.ink})`; g.fillRect(0, 0, u.width, u.height);
     g.globalCompositeOperation = 'source-over';

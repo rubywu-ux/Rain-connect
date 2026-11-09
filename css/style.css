@@ -176,16 +176,21 @@ body.art .wall-btns:hover { opacity: 1; }
   color: var(--dim); opacity: 0; transform: translateY(6px); transition: opacity 1.6s ease, transform 1.6s ease; pointer-events: none; }
 body.art .art-line.on, body.art .art-note.on { opacity: 1; transform: none; }
 
-/* ---------- phone, fog theme: readable on a small screen (firmer ink, a size up) */
+/* ---------- phone: readable on a small screen (firmer ink, a size up), in both themes */
 html.ink body:not(.wall) { --ink: #3b4345; --dim: rgba(59, 67, 69, 0.88); --faint: rgba(59, 67, 69, 0.72); }
-html.ink body:not(.wall) .eyebrow, html.ink body:not(.wall) .meta, html.ink body:not(.wall) .world-swipe,
-html.ink body:not(.wall) .pill, html.ink body:not(.wall) .hint, html.ink body:not(.wall) .lede { font-weight: 400; }
-html.ink body:not(.wall) .world-swipe { font-size: 17px; }
-html.ink body:not(.wall) .eyebrow { font-size: 20px; }
-html.ink body:not(.wall) .lede { font-size: 28px; }
-html.ink body:not(.wall) .meta { font-size: 17px; }
-html.ink body:not(.wall) .pill { font-size: 18px; }
-html.ink body:not(.wall) .hint { font-size: 21px; }
-html.ink body:not(.wall) .btn { font-weight: 400; font-size: 21px; border-color: rgba(var(--rgb), .5); }
-html.ink body:not(.wall) .drop-tag b { font-size: 22px; font-weight: 500; }
-html.ink body:not(.wall) .drop-tag small { font-size: 11px; color: var(--dim); }
+html:not(.ink) body:not(.wall) { --dim: rgba(var(--rgb), 0.8); --faint: rgba(var(--rgb), 0.6); }
+body:not(.wall) .eyebrow, body:not(.wall) .meta, body:not(.wall) .world-swipe,
+body:not(.wall) .pill, body:not(.wall) .hint, body:not(.wall) .lede { font-weight: 400; }
+body:not(.wall) .world-swipe { font-size: 17px; }
+body:not(.wall) .eyebrow { font-size: 20px; }
+body:not(.wall) .lede { font-size: 28px; }
+body:not(.wall) .meta { font-size: 17px; }
+body:not(.wall) .pill { font-size: 18px; }
+body:not(.wall) .hint { font-size: 21px; }
+body:not(.wall) .btn { font-weight: 400; font-size: 21px; border-color: rgba(var(--rgb), .5); }
+body:not(.wall) .drop-tag b { font-size: 22px; font-weight: 500; }
+body:not(.wall) .drop-tag small { font-size: 11px; color: var(--dim); }
+/* fog <-> night: a small italic word in the corner of the start screen, a round button in the rain view */
+.theme-btn { position: absolute; z-index: 2; right: 22px; top: calc(env(safe-area-inset-top) + 22px);
+  font: italic 400 17px var(--serif); color: var(--dim); background: none; border: 0; padding: 6px 2px; cursor: pointer; }
+.theme-btn:active { color: var(--ink); }
