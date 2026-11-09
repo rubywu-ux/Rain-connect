@@ -3,14 +3,11 @@
 A rain installation for phones. Open the wall page on the projector laptop. Visitors open
 the phone page by tapping an NFC sticker or scanning the QR code. Their phone shows how
 much of Earth is under rain right now (live data from Open-Meteo), then catches the rain.
-Put phones side by side and swipe one finger across both screens: they join into one
-continuous canvas. Soft plumes of fine, flowing filaments bloom, breathe and slowly dissolve, their
-rims falling as rain, continuing across the seam between joined phones. Each join
-draws a glowing orbit thread and plays a chime; taps bloom like ink in water and drags swirl
-the strands, on every connected screen, echoed on the wall.
+Soft plumes of fine, flowing filaments bloom, breathe and slowly dissolve, their rims falling as
+rain; taps bloom like ink in water, drags swirl the strands and a tilt of the phone leans the
+whole picture, echoed on the wall.
 
-- Each phone gets its own colour (status-pill dot, its blooms, swirl trails and
-  join thread) and its own instrument: bell, marimba, glass, kalimba, felt piano, music
+- Each phone gets its own colour (status-pill dot, its blooms and swirl trails) and its own instrument: bell, marimba, glass, kalimba, felt piano, music
   box, soft flute, vibraphone. All phones share one clock, so every note is a tone of the
   same slowly changing chord (Dmaj9 → Bm9 → Gmaj9 → A6sus, 8 s each) and lands on a shared
   84 bpm pulse. A quiet pad holds the chord, and each phone plays softer in bigger groups,

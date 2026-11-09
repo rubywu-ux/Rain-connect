@@ -24,7 +24,7 @@
   let wallMode = 'map';                 // which view the wall is showing (js/lab.js listens to the wall and tells us)
   function updatePill() {
     const n = members.length;
-    const txt = stormN >= 2 ? `≋ ${stormN} blowing · storm` : wallMode === 'umbrellas' ? 'you carry an umbrella' : n > 1 ? `${n} phones side by side` : 'you are in the rain';
+    const txt = stormN >= 2 ? `≋ ${stormN} blowing · storm` : wallMode === 'umbrellas' ? 'you carry an umbrella' : 'you are in the rain';
     $('pill').innerHTML = pillDots + txt;
   }
   addEventListener('wallmode', e => { wallMode = e.detail; updatePill(); $('enter').textContent = wallMode === 'umbrellas' ? 'carry an umbrella' : 'catch the rain'; });
@@ -100,7 +100,7 @@
     } else if (topic === 'rainnow') {
       setSnap(m);
     } else if (topic === 'stats') {
-      if (m.joins) $('shared').textContent = `Rain shared between ${m.joins} phone${m.joins === 1 ? '' : 's'} so far · ${m.online} here now`;
+      if (m.online != null) $('shared').textContent = m.online > 1 ? `${m.online} phones are in the rain right now` : 'you would be the only one in the rain right now';
     }
   }
 
@@ -287,23 +287,15 @@
     }
   }, 50);
 
-  /* ---------------- touch: tap, drag (wind), edge swipes (connect) */
-  const EDGE = 30;
+  /* ---------------- touch: tap, drag (wind); in the umbrellas view the plaza's gestures (js/lab.js) */
   let drag = null, lastSend = 0;
   const toWorld = (x, y) => ({ x: x + R.view.x, y: y + R.view.y });
-  function edgeOf(x, y) {
-    const w = innerWidth, h = innerHeight;
-    const d = [['left', x], ['right', w - x], ['top', y], ['bottom', h - y]].sort((a, b) => a[1] - b[1])[0];
-    return d[1] <= EDGE ? d[0] : null;
-  }
   rainCv.addEventListener('pointerdown', e => {
     if (!entered) return;
     try { rainCv.setPointerCapture(e.pointerId); } catch (err) {}
     if (drag && drag.lab) { RCLab.down(e); return; }            // a second finger joins the plaza gesture
     drag = { x0: e.clientX, y0: e.clientY, t0: performance.now(), pts: [[e.clientX, e.clientY, performance.now()]], moved: 0 };
-    const side = edgeOf(e.clientX, e.clientY);
-    if (side) net.pub('hub/in', { type: 'enter', id: ME, side, pos: side === 'left' || side === 'right' ? e.clientY : e.clientX });
-    else if (typeof RCLab !== 'undefined' && RCLab.active && RCLab.down(e)) drag.lab = true;   // the wall shows Umbrellas: the gestures are the plaza's
+    if (typeof RCLab !== 'undefined' && RCLab.active && RCLab.down(e)) drag.lab = true;   // the wall shows Umbrellas: the gestures are the plaza's
   });
   rainCv.addEventListener('pointermove', e => {
     if (!drag) return;
@@ -339,12 +331,6 @@
       net.pub('g/' + gid, ev);
       S.plip(x / innerWidth, 0.08);
       play(myColor, ev.u, ev.t, 1);
-    } else {
-      const side = edgeOf(x, y);
-      // finger left the screen through an edge after travelling toward it
-      const toward = { left: drag.x0 - x, right: x - drag.x0, top: drag.y0 - y, bottom: y - drag.y0 }[side];
-      if (side && toward > 40)
-        net.pub('hub/in', { type: 'exit', id: ME, side, pos: side === 'left' || side === 'right' ? y : x });
     }
     drag = null;
   }
