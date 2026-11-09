@@ -26,6 +26,11 @@
     out.sort((a, b) => b.k - a.k);
     const sites = out.slice(0, 60);
     R.sites = sites;
+    // every measured place as a point on the map, like the phone's: dry ones faint, raining ones clear
+    R.points = (s.pts || []).filter(p => p[2] != null || p[3] != null).map(([lat, lon, mm, code]) => {
+      const u = (lon + 180) / 360, v = (90 - lat) / 180;
+      return { x: siteX(u), y: siteY(v), k: isRaining(mm, code) ? rainStrength(mm, code) : null };
+    });
   }
   /* the ghost of the world: every 2° of land as a faint dot, in the same map the plumes hang from */
   function buildGhost() {
@@ -62,23 +67,10 @@
     tag(site, `${i.words} ${i.where}`, who || 'right now', strong);
   }
 
-  /* ---------------- the rain remembers: stains where it has rained, kept across reloads, fading over a day */
-  R.enableMemory();
-  R.bottomFade = 0.55; R.haze = 0.04; R.breathe = true; R.noBoltLines = true;   // a sky to fall from, and a slow pulse with the rain             // the plumes thin out toward the bottom: the numbers and the QR sit on quieter ground
-  try {
-    const m = JSON.parse(localStorage.getItem('rc_memory2') || 'null');
-    if (m && Date.now() - m.t < 24 * 3600e3) {
-      const img = new Image();
-      img.onload = () => { R.memory.getContext('2d').drawImage(img, 0, 0, R.memory.width, R.memory.height); R.fadeMemory(Math.min(0.9, (Date.now() - m.t) / (24 * 3600e3))); };
-      img.src = m.img;
-    }
-  } catch (e) {}
-  setInterval(() => {
-    if (!R.memoryDirty) return;
-    R.memoryDirty = false;
-    try { localStorage.setItem('rc_memory2', JSON.stringify({ t: Date.now(), img: R.memory.toDataURL('image/png') })); } catch (e) {}
-  }, 60e3);
-  setInterval(() => R.fadeMemory(0.03), 10 * 60e3);   // about a day for a stain to disappear
+  /* ---------------- the wall's map: no stain memory (it grew into grey noise over the fog); the plumes thin
+     out toward the bottom so the numbers and the QR sit on quiet ground */
+  R.bottomFade = 0.55; R.haze = 0.04; R.breathe = true; R.noBoltLines = true;
+  try { localStorage.removeItem('rc_memory2'); } catch (e) {}
   const M = new WorldMap($('map'));
   const S = new RainSound();
   const T = () => (Date.now() - EPOCH) / 1000;

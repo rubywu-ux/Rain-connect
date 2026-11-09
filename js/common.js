@@ -457,6 +457,19 @@ class RainRenderer {
       c.fillStyle = g; c.fillRect(0, this.h * 0.45, this.w, this.h * 0.55);
       c.globalCompositeOperation = PAL.comp;
     }
+    // the wall: every measured place as a point, like the phone's map (dry: a faint dot; raining: a clear spark)
+    if (this.points && this.points.length && !this.hideUnder) {
+      const dry = new Path2D(), dr = 1.7 * lw;
+      for (const p of this.points) {
+        const [sx, sy] = this._toScreen(p.x, p.y);
+        if (sx < -30 || sx > this.w + 30 || sy < -30 || sy > this.h + 30) continue;
+        if (p.k == null) { dry.moveTo(sx + dr, sy); dry.arc(sx, sy, dr, 0, 6.283); continue; }
+        const z = (14 + 22 * p.k) * lw;
+        c.globalAlpha = (0.6 + 0.4 * p.k) * pres; c.drawImage(spr, sx - z / 2, sy - z / 2, z, z);
+      }
+      c.globalAlpha = 1; c.globalCompositeOperation = PAL.comp; c.fillStyle = `rgba(${PAL.ink},0.16)`; c.fill(dry);
+    }
+
     // joins: a luminous orbit thread drawn across the connected screens
     this.flashes = this.flashes.filter(f => T - f.t < 5);
     for (const f of this.flashes) {
