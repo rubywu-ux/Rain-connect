@@ -315,7 +315,6 @@ const ART_MODES = (() => {
           P(o.x + Math.cos(a) * r, o.y + Math.sin(a) * r * 0.8, 0, p); const rr = (0.04 + 0.22 * f) * p[2];
           C.dots.moveTo(p[0] + rr, p[1]); C.dots.ellipse(p[0], p[1], rr, rr * 0.82, 0, 0, TAU);
         }
-        P(o.x, o.y, 0, p); C.fib.moveTo(p[0] + 2.8 * p[2], p[1]); C.fib.ellipse(p[0], p[1], 2.8 * p[2], 2.2 * p[2], 0, 0, TAU);   // where it falls
       }
       // the stone is wet: every light above it (lamps, the top of each umbrella) lies in it as a soft vertical smear
       const refl = [];                                         // [x, groundY, k, alpha, col]
