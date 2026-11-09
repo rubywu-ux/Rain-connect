@@ -1233,68 +1233,57 @@ function cacheGet() {
 function cacheSet(s) { try { localStorage.setItem('rc_rain', JSON.stringify(s)); } catch (e) {} }
 
 /* ------------------------------------------------------------------ world map */
+/* the phone's little world: the same map the wall hangs its plumes from. Land is a stipple of dots every 2
+   degrees (places.js LAND_MASK), east-west across and 80N..60S down; every raining place is a spark with a
+   short dotted plume falling from it, brighter where it rains harder; dry sample points are faint dots. */
 class WorldMap {
   constructor(canvas) {
     this.cv = canvas; this.ctx = canvas.getContext('2d');
-    this.land = null; this.snap = null; this.key = '';
-    this._loadLand();
-  }
-  async _loadLand() {
-    try {
-      const r = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-110m.json');
-      const topo = await r.json();
-      this.land = topojson.feature(topo, topo.objects.land);
-    } catch (e) { this.land = null; }
+    this.snap = null; this.land = null; this.key = '';
   }
   setSnapshot(s) { this.snap = s; }
-  _fit(w, h) {
-    const key = w + 'x' + h + (this.land ? 'L' : '');
-    if (key === this.key) return;
+  _xy(lat, lon, w, h) { return [w * (0.04 + 0.92 * (lon + 180) / 360), h * (0.06 + 0.88 * clamp((80 - lat) / 140, 0, 1))]; }
+  _ground(w, h, dpr) {                         // the land, drawn once per size and theme
+    const key = w + 'x' + h + ':' + dpr + ':' + INK;
+    if (key === this.key && this.land) return this.land;
     this.key = key;
-    this.proj = d3.geoNaturalEarth1().fitExtent([[w * 0.04, h * 0.08], [w * 0.96, h * 0.92]], { type: 'Sphere' });
-    this.path = d3.geoPath(this.proj, this.ctx);
+    const cv = this.land || document.createElement('canvas'); cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+    g.fillStyle = `rgba(${PAL.ink},0.42)`;
+    const d = Math.max(0.8, w / 420);
+    if (typeof LAND_MASK !== 'undefined') for (let r = 0; r < 90; r++) for (let c = 0; c < 180; c++) {
+      if (!LAND_MASK[r * 180 + c]) continue;
+      const lat = 89 - r * 2, lon = -179 + c * 2;
+      if (lat < -60 || lat > 80) continue;
+      const [x, y] = this._xy(lat, lon, w, h); g.fillRect(x - d / 2, y - d / 2, d, d);
+    }
+    return (this.land = cv);
   }
   draw(T, w, h, dpr) {
-    if (!window.d3) return;
     const c = this.ctx;
-    if (this.cv.width !== Math.round(w * dpr)) { this.cv.width = Math.round(w * dpr); this.cv.height = Math.round(h * dpr); }
+    if (this.cv.width !== Math.round(w * dpr) || this.cv.height !== Math.round(h * dpr)) { this.cv.width = Math.round(w * dpr); this.cv.height = Math.round(h * dpr); }
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.clearRect(0, 0, w, h);
-    this._fit(w, h);
-    c.beginPath(); this.path({ type: 'Sphere' });
-    c.strokeStyle = `rgba(${PAL.ink},0.12)`; c.lineWidth = 1; c.stroke();
-    if (this.land) {
-      c.beginPath(); this.path(this.land);
-      c.fillStyle = `rgba(${PAL.ink},0.035)`; c.fill();
-      c.strokeStyle = `rgba(${PAL.ink},0.42)`; c.lineWidth = 0.7; c.stroke();
-    }
+    c.drawImage(this._ground(w, h, dpr), 0, 0, w, h);
     if (!this.snap) return;
     c.globalCompositeOperation = PAL.comp;
-    const scl = Math.max(0.6, w / 700);
+    const spr = sparkSprite(), scl = Math.max(0.7, w / 420), dry = new Path2D(), fall = [new Path2D(), new Path2D(), new Path2D()];
     for (const [lat, lon, mm, code] of this.snap.pts) {
-      const p = this.proj([lon, lat]); if (!p) continue;
       if (mm == null && code == null) continue;
-      if (!isRaining(mm, code)) {
-        c.fillStyle = `rgba(${PAL.ink},0.22)`;
-        c.fillRect(p[0] - 0.6, p[1] - 0.6, 1.2, 1.2);
-        continue;
+      const [x, y] = this._xy(lat, lon, w, h);
+      if (!isRaining(mm, code)) { dry.rect(x - 0.7, y - 0.7, 1.4, 1.4); continue; }
+      const k = rainStrength(mm, code), seed = Math.round((lat + 90) * 1000 + lon * 7);
+      const z = (7 + 11 * k) * scl;                                     // the spark
+      c.globalAlpha = 0.55 + 0.45 * k; c.drawImage(spr, x - z / 2, y - z / 2, z, z);
+      for (let q = 0, n = 2 + Math.round(3 * k); q < n; q++) {           // its plume: a few dotted strands falling from it
+        const per = 1.6 + hash(seed + q + 9) * 1.2, ph = ((T + hash(seed + q + 5) * per) % per) / per;
+        const sx = x + (hash(seed + q) - 0.5) * 7 * scl * k, L = (9 + 14 * k) * scl, pp = fall[Math.min(2, Math.floor(k * 3))];
+        for (let m = 0; m < 4; m++) { const f = (ph + m * 0.25) % 1; pp.rect(sx + (hash(seed + q * 3 + m) - 0.5) * 1.2, y + f * L, 1.1, 1.1); }
       }
-      const inten = clamp(0.35 + Math.sqrt(mm || 0.2) / 2.2, 0.35, 1);
-      const glow = c.createRadialGradient(p[0], p[1], 0, p[0], p[1], 16 * scl * inten);
-      glow.addColorStop(0, `rgba(${PAL.ink},${0.3 * inten})`); glow.addColorStop(1, `rgba(${PAL.ink},0)`);
-      c.fillStyle = glow; c.beginPath(); c.arc(p[0], p[1], 16 * scl * inten, 0, Math.PI * 2); c.fill();
-      c.strokeStyle = `rgba(${PAL.ink},${0.8 * inten})`; c.lineWidth = 0.9;
-      const seed = Math.round((lat + 90) * 1000 + lon * 7);
-      c.beginPath();
-      for (let k = 0; k < 6; k++) {
-        const sx = p[0] + (hash(seed + k) - 0.5) * 14 * scl;
-        const per = 0.6 + hash(seed + k + 9) * 0.6;
-        const ph = ((T + hash(seed + k + 5) * per) % per) / per;
-        const sy = p[1] - 10 * scl + ph * 16 * scl;
-        c.moveTo(sx, sy); c.lineTo(sx - 0.8, sy + 4.5 * scl);
-      }
-      c.stroke();
     }
+    c.globalAlpha = 1;
+    c.fillStyle = `rgba(${PAL.ink},0.2)`; c.fill(dry);
+    fall.forEach((pp, i) => { c.fillStyle = `rgba(${PAL.ink},${(0.35 + 0.3 * i).toFixed(2)})`; c.fill(pp); });
     c.globalCompositeOperation = 'source-over';
   }
 }
