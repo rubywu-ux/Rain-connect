@@ -211,8 +211,8 @@ const ART_MODES = (() => {
         if (sx < W * 0.04) ax += 1.5; if (sx > W * 0.96) ax -= 1.5; if (sy < H * 0.08) ay -= 1.5; if (sy > H * 0.96) ay += 1.5;
         for (const b of strikes) { const ux = q.x - ((b.u == null ? 0.5 : b.u) - 0.5) * 16, uy = q.y - 2, ud = Math.hypot(ux, uy) + 0.5; q.vx += ux / ud * 3.5 * (b.power || 0.6); q.vy += uy / ud * 3.5 * (b.power || 0.6); q.om += (rnd() - 0.5) * 14; q.tvx += (rnd() - 0.5) * 3; q.tvy += (rnd() - 0.5) * 3; }
         if (q.ctrl) {                                        // a phone's walker glides straight to the finger, looking a little ahead to hide the network delay
-          const age = Math.min(0.3, T - (q.gAt || T)), lead = Math.max(0, 0.14 - age);
-          const tx = q.gx + (q.tgx || 0) * lead, ty = q.gy + (q.tgy || 0) * lead, k = 1 - Math.exp(-dt * 14);
+          const age = Math.min(0.3, T - (q.gAt || T)), lead = Math.max(0, 0.08 - age);
+          const tx = q.gx + (q.tgx || 0) * lead, ty = q.gy + (q.tgy || 0) * lead, k = 1 - Math.exp(-dt * 5);   // an easy walking pace behind the finger
           const nx = q.x + (tx - q.x) * k, ny = q.y + (ty - q.y) * k;
           q.vx = (nx - q.x) / Math.max(dt, 1e-3); q.vy = (ny - q.y) / Math.max(dt, 1e-3); q.x = nx; q.y = ny;
         } else {
