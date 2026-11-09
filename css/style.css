@@ -175,3 +175,17 @@ body.art .wall-btns:hover { opacity: 1; }
 .art-note { position: fixed; left: 0; right: 0; bottom: 14vh; z-index: 4; margin: 0; text-align: center; font-family: var(--serif); font-style: italic; font-size: 1.5vw;
   color: var(--dim); opacity: 0; transform: translateY(6px); transition: opacity 1.6s ease, transform 1.6s ease; pointer-events: none; }
 body.art .art-line.on, body.art .art-note.on { opacity: 1; transform: none; }
+
+/* ---------- phone, fog theme: readable on a small screen (firmer ink, a size up) */
+html.ink body:not(.wall) { --ink: #3b4345; --dim: rgba(59, 67, 69, 0.88); --faint: rgba(59, 67, 69, 0.72); }
+html.ink body:not(.wall) .eyebrow, html.ink body:not(.wall) .meta, html.ink body:not(.wall) .world-swipe,
+html.ink body:not(.wall) .pill, html.ink body:not(.wall) .hint, html.ink body:not(.wall) .lede { font-weight: 400; }
+html.ink body:not(.wall) .world-swipe { font-size: 17px; }
+html.ink body:not(.wall) .eyebrow { font-size: 20px; }
+html.ink body:not(.wall) .lede { font-size: 28px; }
+html.ink body:not(.wall) .meta { font-size: 17px; }
+html.ink body:not(.wall) .pill { font-size: 18px; }
+html.ink body:not(.wall) .hint { font-size: 21px; }
+html.ink body:not(.wall) .btn { font-weight: 400; font-size: 21px; border-color: rgba(var(--rgb), .5); }
+html.ink body:not(.wall) .drop-tag b { font-size: 22px; font-weight: 500; }
+html.ink body:not(.wall) .drop-tag small { font-size: 11px; color: var(--dim); }

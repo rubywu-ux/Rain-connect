@@ -32,18 +32,25 @@
       return { x: siteX(u), y: siteY(v), k: isRaining(mm, code) ? rainStrength(mm, code) : null };
     });
   }
-  /* the ghost of the world: every 2° of land as a faint dot, in the same map the plumes hang from */
+  /* the ghost of the world: the land as one soft continuous shape (every 2° cell filled, then blurred),
+     in the same map the plumes hang from */
   function buildGhost() {
     const g = document.createElement('canvas'); g.width = Math.round(innerWidth / 2); g.height = Math.round(innerHeight / 2);
     const x = g.getContext('2d'), k = g.width / R.w;
+    const X = lon => (siteX((lon + 180) / 360) - R.view.x) * R.scale * k, Y = lat => (siteY((90 - lat) / 180) - R.view.y) * R.scale * k;
     x.fillStyle = '#fff';
     for (let r = 0; r < 90; r++) for (let c = 0; c < 180; c++) {
       if (!LAND_MASK[r * 180 + c]) continue;
       const lat = 89 - r * 2, lon = -179 + c * 2;
       if (lat < -60 || lat > 80) continue;          // leave the poles out: they would be long bands
-      const px = (siteX((lon + 180) / 360) - R.view.x) * R.scale * k, py = (siteY((90 - lat) / 180) - R.view.y) * R.scale * k;
-      x.fillRect(px, py, 1, 1);
+      const x0 = X(lon - 1), x1 = X(lon + 1), y0 = Y(lat + 1), y1 = Y(lat - 1);
+      x.fillRect(x0 - 0.4, y0 - 0.4, x1 - x0 + 0.8, y1 - y0 + 0.8);
     }
+    try {                                            // soften the shape's edge into the fog
+      const b = document.createElement('canvas'); b.width = g.width; b.height = g.height;
+      const bx = b.getContext('2d'); bx.filter = 'blur(2.5px)'; bx.drawImage(g, 0, 0);
+      x.clearRect(0, 0, g.width, g.height); x.drawImage(b, 0, 0);
+    } catch (e) {}
     R.ghost = g; R.ghostVer = (R.ghostVer || 0) + 1;
   }
   buildGhost();

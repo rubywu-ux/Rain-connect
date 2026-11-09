@@ -17,10 +17,10 @@ const RCLab = (() => {
 
   const CSS = `
   .umb-hint{position:fixed;left:0;right:0;bottom:calc(22px + env(safe-area-inset-bottom));z-index:9;text-align:center;pointer-events:none;
-    font:italic 15px/1.6 'Cormorant Garamond','Times New Roman',serif;color:rgb(var(--rgb,92,100,102));
+    font:italic 400 17px/1.6 'Cormorant Garamond','Times New Roman',serif;color:var(--ink,#3b4345);
     opacity:0;transition:opacity 1.2s ease}
-  .umb-hint.on{opacity:.6}
-  .umb-hint i{display:block;opacity:.6;font-size:13px;margin-bottom:4px}
+  .umb-hint.on{opacity:.85}
+  .umb-hint i{display:block;opacity:.75;font-size:15px;margin-bottom:4px}
   .umb-me{position:fixed;z-index:8;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;pointer-events:none;
     border:1.5px dashed rgb(var(--me,255,255,255));box-shadow:0 0 18px rgba(var(--me,255,255,255),.55);opacity:0;transition:opacity .6s ease}
   .umb-me::after{content:'';position:absolute;left:4px;top:4px;width:4px;height:4px;border-radius:50%;background:rgb(var(--me,255,255,255))}
@@ -31,14 +31,14 @@ const RCLab = (() => {
   @keyframes umbring{0%{transform:scale(1);opacity:.8}100%{transform:scale(9);opacity:0}}
   .umb-helpbtn{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:22px}
   .umb-help{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;justify-content:center;padding:calc(env(safe-area-inset-top) + 24px) 26px 24px;overflow:auto;
-    background:rgba(var(--bgrgb,232,235,234),.95);color:rgb(var(--rgb,92,100,102));font:italic 15px/1.45 'Cormorant Garamond','Times New Roman',serif;
+    background:rgba(var(--bgrgb,232,235,234),.95);color:var(--ink,#3b4345);font:italic 400 17px/1.45 'Cormorant Garamond','Times New Roman',serif;
     opacity:0;pointer-events:none;transition:opacity .6s ease}
   .umb-help.on{opacity:1;pointer-events:auto}
   .umb-help p{margin:0 0 14px}
-  .umb-help b{font-weight:400;display:block;margin-bottom:1px;opacity:.6;font-size:13px}
-  .umb-help .umb-help-lede{font-size:18px;margin-bottom:20px}
+  .umb-help b{font-weight:500;display:block;margin-bottom:1px;opacity:.8;font-size:15px}
+  .umb-help .umb-help-lede{font-size:20px;margin-bottom:20px}
   .umb-help .umb-dim{opacity:.45}
-  .umb-help .umb-help-foot{opacity:.5;font-size:14px;margin-top:10px}`;
+  .umb-help .umb-help-foot{opacity:.7;font-size:15px;margin-top:10px}`;
 
   function build() {
     const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st);

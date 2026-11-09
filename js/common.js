@@ -457,17 +457,17 @@ class RainRenderer {
       c.fillStyle = g; c.fillRect(0, this.h * 0.45, this.w, this.h * 0.55);
       c.globalCompositeOperation = PAL.comp;
     }
-    // the wall: every measured place as a point, like the phone's map (dry: a faint dot; raining: a clear spark)
+    // the wall: every raining place as a clear point, like the phone's map
     if (this.points && this.points.length && !this.hideUnder) {
-      const dry = new Path2D(), dr = 1.7 * lw;
+      c.globalCompositeOperation = PAL.comp;
       for (const p of this.points) {
+        if (p.k == null) continue;                                     // only where it rains
         const [sx, sy] = this._toScreen(p.x, p.y);
         if (sx < -30 || sx > this.w + 30 || sy < -30 || sy > this.h + 30) continue;
-        if (p.k == null) { dry.moveTo(sx + dr, sy); dry.arc(sx, sy, dr, 0, 6.283); continue; }
         const z = (14 + 22 * p.k) * lw;
         c.globalAlpha = (0.6 + 0.4 * p.k) * pres; c.drawImage(spr, sx - z / 2, sy - z / 2, z, z);
       }
-      c.globalAlpha = 1; c.globalCompositeOperation = PAL.comp; c.fillStyle = `rgba(${PAL.ink},0.16)`; c.fill(dry);
+      c.globalAlpha = 1;
     }
 
     // joins: a luminous orbit thread drawn across the connected screens
@@ -547,7 +547,7 @@ class RainRenderer {
     u.width = src.width; u.height = src.height;
     const g = u.getContext('2d');
     g.clearRect(0, 0, u.width, u.height);
-    if (this.ghost) { g.globalAlpha = INK ? 0.85 : 0.6; g.drawImage(this.ghost, 0, 0, u.width, u.height); g.globalAlpha = 1; }
+    if (this.ghost) { g.globalAlpha = INK ? 0.2 : 0.3; g.drawImage(this.ghost, 0, 0, u.width, u.height); g.globalAlpha = 1; }
     if (this.memory) g.drawImage(this.memory, 0, 0, u.width, u.height);
     g.globalCompositeOperation = 'source-in'; g.fillStyle = `rgb(${PAL.ink})`; g.fillRect(0, 0, u.width, u.height);
     g.globalCompositeOperation = 'source-over';
@@ -1281,9 +1281,9 @@ function cacheGet() {
 function cacheSet(s) { try { localStorage.setItem('rc_rain', JSON.stringify(s)); } catch (e) {} }
 
 /* ------------------------------------------------------------------ world map */
-/* the phone's little world: the same map the wall hangs its plumes from. Land is a stipple of dots every 2
-   degrees (places.js LAND_MASK), east-west across and 80N..60S down; every raining place is a spark with a
-   short dotted plume falling from it, brighter where it rains harder; dry sample points are faint dots. */
+/* the phone's little world: the same map the wall hangs its plumes from. Land is one soft shape (places.js
+   LAND_MASK, 2° cells blurred together), east-west across and 80N..60S down; every raining place is a spark
+   with a short plume falling from it, bigger and firmer where it rains harder. */
 class WorldMap {
   constructor(canvas) {
     this.cv = canvas; this.ctx = canvas.getContext('2d');
@@ -1323,14 +1323,20 @@ class WorldMap {
     this.key = key;
     const cv = this.land || document.createElement('canvas'); cv.width = Math.round(mw * dpr); cv.height = Math.round(mh * dpr);
     const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, mw, mh);
-    const spr = sparkSprite(), d = Math.max(3, mw / 150), ox = this.ox, oy = this.oy; this.ox = this.oy = 0;   // land as a soft watermark
-    g.globalAlpha = 0.22;
+    const ox = this.ox, oy = this.oy; this.ox = this.oy = 0;
+    const sh = document.createElement('canvas'); sh.width = cv.width; sh.height = cv.height;   // the land as one soft shape
+    const q = sh.getContext('2d'); q.setTransform(dpr, 0, 0, dpr, 0, 0); q.fillStyle = `rgb(${PAL.ink})`;
     if (typeof LAND_MASK !== 'undefined') for (let r = 0; r < 90; r++) for (let c = 0; c < 180; c++) {
       if (!LAND_MASK[r * 180 + c]) continue;
       const lat = 89 - r * 2, lon = -179 + c * 2;
       if (lat < -60 || lat > 80) continue;
-      const [x, y] = this._xy(lat, lon, w, h); g.drawImage(spr, x - d / 2, y - d / 2, d, d);
+      const [x0, y0] = this._xy(lat + 1, lon - 1, w, h), [x1, y1] = this._xy(lat - 1, lon + 1, w, h);
+      q.fillRect(x0 - 0.3, y0 - 0.3, x1 - x0 + 0.6, y1 - y0 + 0.6);
     }
+    g.globalAlpha = INK ? 0.13 : 0.12;
+    try { g.filter = `blur(${Math.max(2, mw / 200)}px)`; } catch (e) {}
+    g.drawImage(sh, 0, 0, sh.width, sh.height, 0, 0, mw, mh);
+    try { g.filter = 'none'; } catch (e) {}
     g.globalAlpha = 1;
     this.ox = ox; this.oy = oy;
     return (this.land = cv);
@@ -1346,15 +1352,15 @@ class WorldMap {
     c.drawImage(gnd, 0, 0, gnd.width, gnd.height, -this.ox, -this.oy, mw, mh);
     if (!this.snap) return;
     c.globalCompositeOperation = PAL.comp;
-    const spr = sparkSprite(), scl = Math.max(0.7, w / 420), dry = new Path2D(), fall = [new Path2D(), new Path2D(), new Path2D()];
+    const spr = sparkSprite(), scl = Math.max(0.7, w / 420), core = new Path2D(), fall = [new Path2D(), new Path2D(), new Path2D()];
     for (const [lat, lon, mm, code] of this.snap.pts) {
-      if (mm == null && code == null) continue;
+      if (!isRaining(mm, code)) continue;                               // only where it rains
       const [x, y] = this._xy(lat, lon, w, h);
       if (x < -40 || x > w + 40 || y < -40 || y > h + 40) continue;
-      if (!isRaining(mm, code)) { dry.moveTo(x + 1.6, y); dry.arc(x, y, 1.6, 0, 6.283); continue; }
       const k = rainStrength(mm, code), seed = Math.round((lat + 90) * 1000 + lon * 7);
-      const z = (7 + 11 * k) * scl;                                     // the spark
-      c.globalAlpha = 0.55 + 0.45 * k; c.drawImage(spr, x - z / 2, y - z / 2, z, z);
+      const z = (12 + 18 * k) * scl, cr = (1.6 + 1.2 * k) * scl;        // the spark, with a crisp core
+      c.globalAlpha = 0.7 + 0.3 * k; c.drawImage(spr, x - z / 2, y - z / 2, z, z);
+      core.moveTo(x + cr, y); core.arc(x, y, cr, 0, 6.283);
       for (let q = 0, n = 2 + Math.round(3 * k); q < n; q++) {           // its plume: a few dotted strands falling from it
         const per = 1.6 + hash(seed + q + 9) * 1.2, ph = ((T + hash(seed + q + 5) * per) % per) / per;
         const sx = x + (hash(seed + q) - 0.5) * 7 * scl * k, L = (9 + 14 * k) * scl, pp = fall[Math.min(2, Math.floor(k * 3))];
@@ -1362,7 +1368,7 @@ class WorldMap {
       }
     }
     c.globalAlpha = 1;
-    c.fillStyle = `rgba(${PAL.ink},0.12)`; c.fill(dry);
+    c.fillStyle = `rgba(${PAL.ink},0.9)`; c.fill(core);
     c.lineCap = 'round'; fall.forEach((pp, i) => { c.strokeStyle = `rgba(${PAL.ink},${(0.12 + 0.1 * i).toFixed(2)})`; c.lineWidth = 3 * scl; c.stroke(pp); c.strokeStyle = `rgba(${PAL.ink},${(0.3 + 0.2 * i).toFixed(2)})`; c.lineWidth = 1 * scl; c.stroke(pp); });
     c.globalCompositeOperation = 'source-over';
   }
