@@ -194,3 +194,16 @@ body:not(.wall) .drop-tag small { font-size: 15px; color: var(--dim); }
 .theme-btn { position: absolute; z-index: 2; right: 22px; top: calc(env(safe-area-inset-top) + 22px);
   font: italic 400 17px var(--serif); color: var(--dim); background: none; border: 0; padding: 6px 2px; cursor: pointer; }
 .theme-btn:active { color: var(--ink); }
+
+/* ---------- wall text: a size up and firmer, in both themes, so it reads from across the room */
+body.wall { --dim: rgba(var(--rgb), 0.8); --faint: rgba(var(--rgb), 0.62); }
+html.ink body.wall { --dim: rgba(var(--rgb), 0.86); --faint: rgba(var(--rgb), 0.7); }
+.wall-title small { font-size: 1.3vw; font-weight: 400; }
+.wall-stats .big { font-size: 4.2vw; font-weight: 400; }
+.wall-stats .lede { font-size: 1.8vw; font-weight: 400; }
+.wall-stats .meta { font-size: 1.2vw; font-weight: 400; }
+.wall-qr p { font-size: 1.15vw; font-weight: 400; }
+.art-line { font-size: 1.85vw; font-weight: 400; color: var(--dim); }
+.art-line b { font-weight: 500; }
+.art-line i { font-size: 1.3vw; font-weight: 400; color: var(--faint); }
+.art-note { font-size: 1.8vw; font-weight: 400; }
