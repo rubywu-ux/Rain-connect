@@ -119,7 +119,7 @@ const ART_MODES = (() => {
     const old = new Map((st.ppl || []).map(q => [q.id, q])), out = [];
     for (const z of E.sites.slice(0, NPPL)) {
       const R = 0.42 + 0.5 * z.k;
-      const [hx, hy] = st.G(W * (0.06 + 0.88 * z.u), H * (0.12 + 0.8 * southOf(z)));
+      const [hx, hy] = st.G(W * (0.06 + 0.88 * z.u), H * (0.12 + 0.8 * (0.55 * southOf(z) + 0.45 * z.k)));   // across = longitude; down = south, and heavier rain nearer the viewer
       const q = old.get(z.id) || { id: z.id, x: hx, y: hy, vx: 0, vy: 0, hd: hash(z.id) * TAU, ph: hash(z.id + 1) * 9, tx: 0, ty: 0, tvx: 0, tvy: 0, io: 0, iot: 0, calmT: 0,
                                    sp: 0.5 + 0.45 * hash(z.id + 2), spin: hash(z.id + 3) * TAU, om: 0, o: E.fresh ? 1 : 0, lost: 0, th: 0.5 + 0.4 * hash(z.id + 4), gx: hx, gy: hy, gt: 0 };
       Object.assign(q, { hx, hy, R, kind: kindOf(E, z), k: z.k, u: z.u });
@@ -322,7 +322,7 @@ const ART_MODES = (() => {
         // the canopy is one soft shape: its rim, closed, goes to `out` (stroked softly) and `body` (filled faintly);
         // the kind of rain shows as how much of it is filled (drizzle a breath, a thunderstorm nearly solid)
         const rim = pp => { pp.moveTo(tp[0][0], tp[0][1]); for (let i = 0; i < 8; i++) pp.quadraticCurveTo(md[i][0], md[i][1], tp[(i + 1) % 8][0], tp[(i + 1) % 8][1]); pp.closePath(); };
-        rim(out); rim(body || fillK[q.kind] || fillK[1]);
+        rim(out); rim(body || fillK[Math.min(3, Math.floor((q.k || 0) * 4))]);   // heavier rain, a fuller grey
         return { A, tp };
       };
       const aw0 = amt * wet;
@@ -401,7 +401,7 @@ const ART_MODES = (() => {
       c.globalAlpha = 1;
       const flow = -T * (16 + 40 * storm) * ds, br = 0.9 + 0.1 * Math.sin(T * 6.283 / 26);   // the rain's slow breath
       c.lineCap = 'round'; c.lineJoin = 'round'; c.setLineDash([]);
-      fillK.forEach((pp, i) => { c.fillStyle = `rgba(${ink},${((0.03 + 0.035 * i) * br).toFixed(3)})`; c.fill(pp); });   // canopies: a breath of grey, more for heavier rain
+      fillK.forEach((pp, i) => { c.fillStyle = `rgba(${ink},${((0.025 + 0.055 * i) * br).toFixed(3)})`; c.fill(pp); });   // canopies: a breath of grey for drizzle, a fuller grey for heavy rain
       fib.forEach((pp, i) => {                                 // rims bleed: wide and faint, then a fine edge
         const a = (0.22 + 0.2 * i) * br;
         c.strokeStyle = `rgba(${ink},${(a * 0.18).toFixed(3)})`; c.lineWidth = lw * 3.6; c.stroke(pp);
