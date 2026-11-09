@@ -208,7 +208,7 @@ class RainRenderer {
     const und = this._under();            // the faint world + the stains where it has rained, in one layer
     if (und) {
       c.save();
-      c.globalAlpha = 0.16;               // with the frame fade this settles at about 0.6 x the layer
+      c.globalAlpha = INK ? 0.3 : 0.16;   // with the frame fade this settles at about 0.6 x the layer (the fog shows its land more)
       c.globalCompositeOperation = INK ? 'source-over' : 'lighter';
       c.drawImage(und, 0, 0, this.w, this.h);
       c.restore();
@@ -348,8 +348,9 @@ class RainRenderer {
     const pres = this.presence;                                       // 0 = the rain has stopped (fades smoothly)
     c.globalAlpha = pres;
     c.setLineDash([]); c.lineCap = 'round'; c.lineJoin = 'round';
+    const strandQ = INK ? 0.5 : 1, pointQ = INK ? 1.7 : 1;             // fog: quieter strands, firmer points
     for (let b = 0; b < 3; b++) {                                     // each strand bleeds: a wide faint pass, then a thin one
-      const a = Math.min(1, (0.11 + b * 0.15) * boost);
+      const a = Math.min(1, (0.11 + b * 0.15) * boost * strandQ);
       c.strokeStyle = `rgba(${PAL.ink},${(a * 0.16).toFixed(3)})`; c.lineWidth = lw * 3.4; c.stroke(fib[b]);
       c.strokeStyle = `rgba(${PAL.ink},${(a * 0.55).toFixed(3)})`; c.lineWidth = lw * 0.9; c.stroke(fib[b]);
     }
@@ -387,8 +388,8 @@ class RainRenderer {
     for (let k = 0; k < SL; k++) { sp.push(new Path2D()); st.push(new Path2D()); }
     const lvl = al => Math.min(SL - 1, Math.floor(clamp(al * boost, 0, 0.999) * SL));
     for (const [sx, sy, len, al] of streaks) { const p = st[lvl(al)]; p.moveTo(sx, sy - len); p.lineTo(sx, sy); }
-    for (const [sx, sy, al, r] of sparks) {
-      if (al <= 0.03) continue;
+    for (const [sx, sy, al0, r] of sparks) {
+      const al = Math.min(1, al0 * pointQ); if (al <= 0.03) continue;
       const d = r * lw * 2.2; sp[lvl(al)].moveTo(sx + d / 2, sy); sp[lvl(al)].arc(sx, sy, d / 2, 0, 6.283);   // soft round glints
     }
     c.lineWidth = lw * 0.8;
@@ -400,7 +401,7 @@ class RainRenderer {
     }
     const spr = sparkSprite();
     for (const [sx, sy, al] of glows) {
-      c.globalAlpha = Math.min(1, al * boost) * pres;
+      c.globalAlpha = Math.min(1, al * boost * pointQ) * pres;
       c.drawImage(spr, sx - 7 * lw, sy - 7 * lw, 14 * lw, 14 * lw);
     }
     c.globalAlpha = 1;
@@ -533,7 +534,7 @@ class RainRenderer {
     u.width = src.width; u.height = src.height;
     const g = u.getContext('2d');
     g.clearRect(0, 0, u.width, u.height);
-    if (this.ghost) { g.globalAlpha = INK ? 0.4 : 0.6; g.drawImage(this.ghost, 0, 0, u.width, u.height); g.globalAlpha = 1; }
+    if (this.ghost) { g.globalAlpha = INK ? 0.85 : 0.6; g.drawImage(this.ghost, 0, 0, u.width, u.height); g.globalAlpha = 1; }
     if (this.memory) g.drawImage(this.memory, 0, 0, u.width, u.height);
     g.globalCompositeOperation = 'source-in'; g.fillStyle = `rgb(${PAL.ink})`; g.fillRect(0, 0, u.width, u.height);
     g.globalCompositeOperation = 'source-over';
