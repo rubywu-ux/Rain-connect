@@ -258,9 +258,8 @@
     R._artSt = null; R._pc = null; R.fresh = true;
     if (snap) buildSites(snap);
   }
-  // A / Z step through the art modes only (never back to the map view, which is white in calm weather);
-  // from the map view A starts at the first mode, Z at the last. X / Esc go back to the map view.
-  const cycleArt = (d = 1) => setArt(!art ? (d < 0 ? NART : 1) : ((art - 1 + (d < 0 ? -1 : 1)) % NART + NART) % NART + 1);
+  // A / Z step through the three views: the rain map (0), then each art mode, then the map again
+  const cycleArt = (d = 1) => setArt(((art + (d < 0 ? -1 : 1)) % (NART + 1) + NART + 1) % (NART + 1));
   // the switch lives here on the wall (button / W key); TouchDesigner's Mist toggle can flip it too
   let mistOn = false, wTarget = 0, w = 0, mistStorm = 0, light = false, lastGust = 0, lastMistBolt = 0, baseDensity = 1.2, mistSeen = 0;
   try { mistOn = localStorage.getItem('rc_mist') === '1'; } catch (e) {}
@@ -471,10 +470,9 @@
   addEventListener('keydown', e => {
     if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
     if (e.key === 'w') setMist(!mistOn);
-    if (e.key === 'a') cycleArt();                                     // off -> 1 -> 2 -> ... -> off
-    if (e.key === 'z') cycleArt(-1);                                   // back: off -> last -> ... -> 1 -> off
-    if (e.shiftKey && /^Digit[1-5]$/.test(e.code)) { if (10 + +e.code[5] <= NART) setArt(10 + +e.code[5]); }   // Shift+1..5 pick modes 11-15
-    else if (/^[0-9]$/.test(e.key) && (+e.key || 10) <= NART) setArt(+e.key || 10);   // 1..9 pick modes 1-9, 0 = mode 10
+    if (e.key === 'a') cycleArt();                                     // map -> 1 -> 2 -> map
+    if (e.key === 'z') cycleArt(-1);                                   // back the other way
+    if (/^[0-9]$/.test(e.key) && +e.key <= NART) setArt(+e.key);       // 0 = the rain map, 1..N pick a mode
     if (e.key === 'Escape' || e.key === 'x') setArt(0);                         // Esc / X = art off
   });
   function frame() {

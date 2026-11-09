@@ -99,10 +99,10 @@ thunder. `td/record_clips.py` records labelled 10 s clips with voice prompts, fo
 
 ## Art mode (wall)
 
-Two art modes, no map, numbers or names. Both use the same live rain data and the mist from
-TouchDesigner (how much it moves, and where in the pot). **A** and **Z** switch between them (from the
-map view A starts at 1, Z at 2); keys **1-2** pick one; **X** or **Esc** go back to the map view. The
-**art** button (bottom-left of the wall) steps through the modes and then off.
+Two art modes beside the rain map, no map, numbers or names. Both use the same live rain data and the
+mist from TouchDesigner (how much it moves, and where in the pot). **A** steps through the three views
+(rain map, 1 Murmuration, 2 Umbrellas) and **Z** goes back; keys **0-2** pick one directly; **X** or
+**Esc** go back to the rain map. The **art** button (bottom-left of the wall) steps through them too.
 In TouchDesigner use the projector window (same keys), or Mist page > Art mode (on = last mode used).
 
 1. **Murmuration** - a flock of starlings over a gold-leaf folding screen; each raining place leads a

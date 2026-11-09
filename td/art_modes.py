@@ -1,6 +1,6 @@
-# ---- Connect the Rain: the two art modes from TouchDesigner (run after art_switch.py)
-# In the projector window: A / Z = switch between the art modes (1 Murmuration, 2 Umbrellas), 1-2 = pick one,
-# X / Esc = art off (the rain map), W = mist on/off.
+# ---- Connect the Rain: the wall's three views from TouchDesigner (run after art_switch.py)
+# In the projector window: A / Z = step through the rain map, 1 Murmuration and 2 Umbrellas;
+# 0 / X / Esc = the rain map, 1-2 = an art mode, W = mist on/off.
 # WALL_V (set before exec) = the version tag for the wall page URL.
 CR = op('/project1/connect_rain')
 W = CR.op('wall_web')
@@ -20,7 +20,7 @@ def onKey(dat, key, character, *a, **k):
 	c = op('/project1/connect_rain')
 	if ch == 'a': js('window.__wall.cycleArt()')
 	elif ch == 'z': js('window.__wall.cycleArt(-1)')
-	elif ch in ('1', '2'): js('window.__wall.setArt(%s)' % ch)
+	elif ch in ('0', '1', '2'): js('window.__wall.setArt(%s)' % ch)
 	elif ch == 'x' or str(key).lower() in ('esc', 'escape') or ch == '\x1b': js('window.__wall.setArt(0)')
 	elif ch == 'w': c.par.Mist = not c.par.Mist
 	else: return
@@ -38,4 +38,4 @@ if P is not None: P.par.winop = WP.path
 EX = CR.op('wall_autostart') or CR.create(executeDAT, 'wall_autostart')
 EX.text = "def onStart():\n\top('/project1/connect_rain/projector').par.winopen.pulse()\n\treturn\n"
 EX.par.start = True; EX.par.active = True
-print('A / Z = switch art mode, 1-2 = pick, X = art off, W = mist (in the projector window)')
+print('A / Z = next / previous view (map, birds, umbrellas), 0 = map, 1-2 = art, X = map, W = mist (in the projector window)')
