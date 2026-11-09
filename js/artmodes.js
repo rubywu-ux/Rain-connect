@@ -105,6 +105,17 @@ const ART_MODES = (() => {
     }
     return { all, fresh };
   }
+  /* the phones' test panel (js/lab.js, wall.js ixIn): what each phone is doing in this mode right now.
+     live: the latest message from each phone per control (only those still on); fresh: one-off gestures
+     (a drawn shape, a swipe) not seen before. */
+  function ixOf(R, E, mode) {
+    const st = E.st, seen = st.ixSeen || (st.ixSeen = new WeakSet()), live = [], fresh = [];
+    if (!R.ixLive) return { live, fresh };
+    for (const e of R.ixLive.values()) if (e.m === mode && e.on !== 0 && E.T - e.at < (e.keep ? 3.5 : 1.2)) live.push(e);
+    for (const e of R.ixEv) if (e.m === mode && !seen.has(e)) { seen.add(e); if (E.T - e.at < 2) fresh.push(e); }
+    return { live, fresh };
+  }
+  const ixCol = e => colorOf(e.col).split(',').map(Number);
   /* a cross-fade of two prerendered pictures of the same size, kept while it holds still (one blit a frame, not two) */
   function fade2(st, key, A, B, t) {
     if (t < 0.004) return A; if (t > 0.996) return B;
@@ -223,6 +234,52 @@ const ART_MODES = (() => {
           hawks.push([lerp(ox, hx, ea), lerp(oy, hy, ea), lerp(0, hz, ea), 0.11 * W, Math.max(storm, 0.2) * 3200 * sc * ea, h, ea]);
         }
       }
+      // ---- the phones' test panel (js/lab.js): A your own bird, B a drawn shape, C a falcon you fly
+      const ix = ixOf(R, E, 'murmuration');
+      const pb = st.pb || (st.pb = new Map()), pf = st.pf || (st.pf = new Map());
+      for (const m of [pb, pf]) for (const o of m.values()) o.on = 0;
+      for (const ev of ix.live) {
+        const m = ev.k === 'bird' ? pb : ev.k === 'falcon' ? pf : null; if (!m) continue;
+        const tx = (clamp(ev.u, 0, 1) - 0.5) * W * 0.92, ty = (clamp(ev.v, 0, 1) - 0.5) * H * 0.9;
+        let o = m.get(ev.id); if (!o) m.set(ev.id, o = { x: tx, y: ty, vx: 0, vy: 0, a: 0, sw: 0, h: 10 + m.size + (m === pf ? 20 : 0) });
+        o.on = 1; o.tx = tx; o.ty = ty; o.col = ixCol(ev); o.swT = ev.s || 0;
+      }
+      let lx = 0, ly = 0, la = 0;
+      for (const m of [pb, pf]) for (const [id, o] of m) {
+        o.a += ((o.on ? 1 : 0) - o.a) * (1 - Math.exp(-dt * (o.on ? 3 : 1.5)));
+        if (!o.on && o.a < 0.02) { m.delete(id); continue; }
+        if (m === pb) {                                       // your bird: flies to where your finger is, with a little lag
+          const ax = (o.tx - o.x) * 7 - o.vx * 4.2, ay = (o.ty - o.y) * 7 - o.vy * 4.2 + 30 * sc * Math.sin(T * 2.3 + o.h);
+          o.vx += ax * dt; o.vy += ay * dt; const sp = Math.hypot(o.vx, o.vy), cap = 0.7 * W; if (sp > cap) { o.vx *= cap / sp; o.vy *= cap / sp; }
+          o.x += o.vx * dt; o.y += o.vy * dt;
+          lx += (o.x - o.vx * 0.5) * o.a; ly += (o.y - o.vy * 0.5) * o.a; la += o.a;
+        } else {                                              // your falcon: right under your finger; a fast drag is a swoop
+          const k0 = 1 - Math.exp(-dt * 12), px0 = o.x, py0 = o.y; o.x += (o.tx - o.x) * k0; o.y += (o.ty - o.y) * k0;
+          o.vx = (o.x - px0) / Math.max(dt, 1e-3); o.vy = (o.y - py0) / Math.max(dt, 1e-3);
+          o.sw += (Math.max(o.swT, clamp(Math.hypot(o.vx, o.vy) / (1.2 * W), 0, 1)) - o.sw) * (1 - Math.exp(-dt * 4));
+          hawks.push([o.x, o.y, 0, (0.13 + 0.1 * o.sw) * W, (2600 + 4200 * o.sw) * sc * o.a, o.h, o.a, o.col]);
+        }
+      }
+      // the flock's heart follows the birds people fly (a little behind them)
+      st.lw_ = (st.lw_ || 0) + ((la ? Math.min(1, la) : 0) - (st.lw_ || 0)) * (1 - Math.exp(-dt * 1.5));
+      if (la) { st.lx_ = lx / la; st.ly_ = ly / la; }
+      const LW = st.lw_ * 0.85, Cx2 = lerp(Cx, st.lx_ || 0, LW), Cy2 = lerp(Cy, st.ly_ || 0, LW);
+      // a shape drawn on a phone: the flock flies along it for a few seconds, then lets go
+      for (const ev of ix.fresh) if (ev.k === 'shape' && ev.pts && ev.pts.length > 2) {
+        const pts = ev.pts.map(([u, v]) => [(clamp(u, 0, 1) - 0.5) * W * 0.92, (clamp(v, 0, 1) - 0.5) * H * 0.9]), cum = [0];
+        for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+        const L = cum[cum.length - 1], closed = Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) < 0.12 * W;
+        if (L > 0.05 * W) st.shape = { pts, cum, L, closed, t0: T, col: ixCol(ev) };
+      }
+      let shp = st.shape, shw = 0;
+      if (shp) { const ag = T - shp.t0; shw = smoothstep(0, 1.4, ag) * (1 - smoothstep(6.5, 9, ag)); if (ag > 9) shp = st.shape = null; }
+      const sp4 = [0, 0, 0, 0], onShape = f => {             // the point a fraction f along the drawn path, and its direction
+        const d = f * shp.L, cu = shp.cum; let lo = 0, hi = cu.length - 1;
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (cu[mid] < d) lo = mid; else hi = mid; }
+        const a = shp.pts[lo], b = shp.pts[hi], t = clamp((d - cu[lo]) / Math.max(1e-6, cu[hi] - cu[lo]), 0, 1);
+        sp4[0] = a[0] + (b[0] - a[0]) * t; sp4[1] = a[1] + (b[1] - a[1]) * t; sp4[2] = b[0] - a[0]; sp4[3] = b[1] - a[1];
+      };
+      const Kb = K + 3 * shw, Cdb = Cd + 1.2 * shw;
       let startle = 0;
       for (const b of R.bolts) if (b.t > (st.bolt || 0) && T >= b.t) { st.bolt = b.t; startle = Math.max(startle, b.power || 0.6); }
       // phone taps: a pebble thrown into the flock. The starlings near where it lands burst away from it,
@@ -239,12 +296,18 @@ const ART_MODES = (() => {
         let y = O[i3 + 1] * l.r + fold * (x * x - z * z) + 0.02 * W * Math.sin(T * 0.31 + l.w * 1.7);
         let y1 = y * cr - x * sr, x1 = x * cr + y * sr;
         const y2 = y1 * ct - z * stl, z2 = y1 * stl + z * ct;
-        const tx = Cx + x1 * cyw + z2 * syw, ty = Cy + y2, tz = Cz - x1 * syw + z2 * cyw;
+        let tx = Cx2 + x1 * cyw + z2 * syw, ty = Cy2 + y2, tz = Cz - x1 * syw + z2 * cyw;
+        if (shw > 0.001) {                                   // flying the drawn shape (a loop goes round, a line back and forth)
+          const vb = (b * 0.6180339) % 1, ag = T - shp.t0, g = (vb * 0.5 + ag * 0.02) % 1;
+          onShape(shp.closed ? (vb + ag * 0.025) % 1 : 1 - Math.abs(1 - 2 * g));
+          const tl = Math.hypot(sp4[2], sp4[3]) + 1e-6, off = (((b * 0.7548777) % 1) - 0.5) * 0.035 * W;
+          tx = lerp(tx, sp4[0] - sp4[3] / tl * off, shw); ty = lerp(ty, sp4[1] + sp4[2] / tl * off, shw); tz = lerp(tz, (((b * 0.5698403) % 1) - 0.5) * 0.08 * W, shw);
+        }
         if (b >= st.init) { P[i3] = tx; P[i3 + 1] = ty; P[i3 + 2] = tz; }
         const px = P[i3], py = P[i3 + 1], pz = P[i3 + 2];
-        let axx = (tx - px) * K - V[i3] * Cd + J * Math.sin(T * 1.7 + fb * 13);
-        let ayy = (ty - py) * K - V[i3 + 1] * Cd + J * Math.sin(T * 1.3 + fb * 7);
-        let azz = (tz - pz) * K - V[i3 + 2] * Cd + J * Math.sin(T * 1.1 + fb * 11);
+        let axx = (tx - px) * Kb - V[i3] * Cdb + J * Math.sin(T * 1.7 + fb * 13);
+        let ayy = (ty - py) * Kb - V[i3 + 1] * Cdb + J * Math.sin(T * 1.3 + fb * 7);
+        let azz = (tz - pz) * Kb - V[i3 + 2] * Cdb + J * Math.sin(T * 1.1 + fb * 11);
         if (pz < -0.4 * W) azz += (-0.4 * W - pz) * 9;                       // a soft wall: no bird comes right up to the camera
         for (const [hx, hy, hz, hr, hs] of hawks) {
           const dx = px - hx, dy = py - hy, dz = pz - hz, dd = dx * dx + dy * dy + dz * dz;
@@ -264,7 +327,7 @@ const ART_MODES = (() => {
         }
         if (startle) { const dx = px - Cx, dy = py - Cy, dz = pz - Cz, q = Math.hypot(dx, dy, dz) + 1, f = startle * 650 * sc / q; V[i3] += dx * f; V[i3 + 1] += dy * f; V[i3 + 2] += dz * f; }
         let vx = V[i3] + axx * dt, vy = V[i3 + 1] + ayy * dt, vz = V[i3 + 2] + azz * dt;
-        const sp = Math.hypot(vx, vy, vz), cap = vmax * (startle ? 3 : 1.6); if (sp > cap) { const q = cap / sp; vx *= q; vy *= q; vz *= q; }
+        const sp = Math.hypot(vx, vy, vz), cap = vmax * (startle ? 3 : 1.6) * (1 + 1.5 * shw); if (sp > cap) { const q = cap / sp; vx *= q; vy *= q; vz *= q; }
         V[i3] = vx; V[i3 + 1] = vy; V[i3 + 2] = vz;
         P[i3] = px + vx * dt; P[i3 + 1] = py + vy * dt; P[i3 + 2] = pz + vz * dt;
         F[b] = fb + dt * (10 + sp * 0.03 / sc);
@@ -302,6 +365,21 @@ const ART_MODES = (() => {
       c.fillStyle = 'rgba(46,30,10,0.62)'; c.fill(dots);
       c.lineJoin = 'round'; c.lineWidth = lw * 0.5;
       [['54,36,12', 0.7], ['30,19,7', 0.85], ['18,11,4', 0.95]].forEach(([col, a], i) => { c.fillStyle = c.strokeStyle = `rgba(${col},${a})`; c.fill(B3[i]); c.stroke(B3[i]); });
+      // the drawn shape, faintly, for a moment; and the birds flown from phones, each in its colour with a ring
+      if (shp && T - shp.t0 < 3) {
+        c.strokeStyle = `rgba(${shp.col.join(',')},${(0.6 * (1 - smoothstep(1.5, 3, T - shp.t0))).toFixed(3)})`; c.lineWidth = lw * 1.5; c.setLineDash([3 * lw, 6 * lw]);
+        c.beginPath(); shp.pts.forEach(([x, y], i) => i ? c.lineTo(cx + x, cy + y) : c.moveTo(cx + x, cy + y)); c.stroke(); c.setLineDash([]);
+      }
+      for (const o of pb.values()) {
+        const x = cx + o.x, y = cy + o.y, col = o.col.join(','), sz = sz0 * 5.5, fm = Math.hypot(o.vx, o.vy);
+        let fx = 1, fy = 0; if (fm > 5) { fx = o.vx / fm; fy = o.vy / fm; }
+        const fp = Math.sin(T * 11 + o.h), span = sz * (0.55 + 0.45 * Math.abs(fp)), sw = sz * (0.15 - 0.3 * fp);
+        c.globalAlpha = o.a; c.fillStyle = `rgb(${col})`; c.strokeStyle = 'rgba(20,12,4,0.8)'; c.lineWidth = lw * 0.6; c.beginPath();
+        c.moveTo(x + fx * sz * 0.32, y + fy * sz * 0.32); c.lineTo(x - fy * span - fx * sw, y + fx * span - fy * sw); c.lineTo(x - fx * sz * 0.12, y - fy * sz * 0.12);
+        c.lineTo(x + fy * span - fx * sw, y - fx * span - fy * sw); c.closePath(); c.fill(); c.stroke();
+        c.strokeStyle = `rgba(${col},0.7)`; c.lineWidth = lw * 1.2; c.setLineDash([4 * lw, 4 * lw]); c.beginPath(); c.arc(x, y, sz * 1.3, 0, TAU); c.stroke(); c.setLineDash([]);
+        c.globalAlpha = 1;
+      }
       // the falcons, facing the way they fly
       st.hk = st.hk || [];
       for (const hk of hawks) {
@@ -313,7 +391,7 @@ const ART_MODES = (() => {
         let fx = x - prev[0], fy = y - prev[1]; const fm = Math.hypot(fx, fy) + 1e-3; fx /= fm; fy /= fm;
         st.hk[h] = [lerp(prev[0], x, 0.3), lerp(prev[1], y, 0.3)];
         const sz = sz0 * 4.5 * k * (0.75 + 0.25 * pres), fp = Math.sin(T * 9 + h * 2), span = sz * (0.7 + 0.3 * fp), swp = sz * (0.35 - 0.25 * fp);
-        c.fillStyle = `rgba(14,9,3,${(0.95 * Math.min(1, pres * 1.4)).toFixed(3)})`; c.beginPath();
+        c.fillStyle = `rgba(${hk[7] ? hk[7].join(',') : '14,9,3'},${(0.95 * Math.min(1, pres * 1.4)).toFixed(3)})`; c.beginPath();
         c.moveTo(x + fx * sz * 0.55, y + fy * sz * 0.55);
         c.quadraticCurveTo(x - fy * span * 0.5 + fx * sz * 0.1, y + fx * span * 0.5 + fy * sz * 0.1, x - fy * span - fx * swp, y + fx * span - fy * swp);
         c.lineTo(x - fx * sz * 0.2, y - fy * sz * 0.2); c.lineTo(x - fx * sz * 0.6 - fy * sz * 0.12, y - fy * sz * 0.6 + fx * sz * 0.12); c.lineTo(x - fx * sz * 0.6 + fy * sz * 0.12, y - fy * sz * 0.6 - fx * sz * 0.12);
@@ -452,14 +530,48 @@ const ART_MODES = (() => {
       // startled by a strike: everybody jumps away from it; taps twirl umbrellas
       const strikes = newBolts(R, st, T);
       const tp = tapsOf(R, E);
-      for (const q of ppl) {
+      // ---- the phones' test panel (js/lab.js): A your own walker, B a shower where you hold, C a gust you swipe
+      const ix = ixOf(R, E, 'umbrellas'), mine = st.mine || (st.mine = new Map()), shw = st.shw || (st.shw = new Map()), live = new Set();
+      for (const ev of ix.live) {
+        const [gx, gy] = st.G(clamp(ev.u, 0, 1) * W, clamp(ev.v, 0, 1) * H);
+        if (ev.k === 'walk') {
+          let q = mine.get(ev.id);
+          if (!q) {
+            const col = ixCol(ev); st.nid = (st.nid || 0) + 1;
+            q = { id: 9000 + st.nid * 7, ctrl: 1, x: gx, y: gy, vx: 0, vy: 0, hd: 0, ph: 0, tx: 0, ty: 0, tvx: 0, tvy: 0, io: 0, iot: 0, calmT: 0, sp: 1, spin: 0, om: 0, o: 0, lost: 0, th: 0.75,
+                  gt: 1e9, gx, gy, hx: gx, hy: gy, coat: col.join(','), hair: '24,20,18', R: 0.75, kind: 1, k: 0.6, cols: [0, 1, 2, 3, 4, 5, 6, 7].map(i => i & 1 ? [245, 242, 235] : col), rim: null, col };
+            mine.set(ev.id, q);
+          }
+          q.gx = gx; q.gy = gy; q.open = !!ev.open; live.add(ev.id);
+        } else if (ev.k === 'shower') {
+          let o = shw.get(ev.id); if (!o) shw.set(ev.id, o = { x: gx, y: gy, a: 0 });
+          o.x += (gx - o.x) * 0.3; o.y += (gy - o.y) * 0.3; o.on = T;
+        }
+      }
+      for (const id of [...mine.keys()]) if (!live.has(id)) mine.delete(id);
+      for (const [id, o] of shw) { const on = T - o.on < 0.4; o.a += ((on ? 1 : 0) - o.a) * (1 - Math.exp(-dt * (on ? 1.8 : 0.35))); if (!on && o.a < 0.02) shw.delete(id); }
+      const gus = st.gus || (st.gus = []);
+      for (const ev of ix.fresh) if (ev.k === 'gust') {
+        const u = clamp(ev.u, 0, 1) * W, v = clamp(ev.v, 0, 1) * H, [x0, y0] = st.G(u, v), [x1, y1] = st.G(u + (ev.du || 0) * 40, v + (ev.dv || 0) * 40), dl = Math.hypot(x1 - x0, y1 - y0) || 1;
+        gus.push({ x0, y0, dx: (x1 - x0) / dl, dy: (y1 - y0) / dl, s: clamp(ev.s || 0.6, 0.2, 1.4), t0: T });
+      }
+      while (gus.length && T - gus[0].t0 > 5) gus.shift();
+      const all = mine.size ? ppl.concat([...mine.values()]) : ppl;
+      for (const q of all) {
         P(q.x, q.y, 2, p); const sx = p[0], sy = p[1];
-        const G = e * (0.3 + 0.7 * Math.exp(-((sx - bxs) ** 2) / (0.2 * W * W))) * (0.85 + 0.15 * Math.sin(T * 7 + q.id)) + storm * (0.5 + 0.5 * vnoise(T * 0.9, q.id * 0.37));
+        // a shower someone holds over this spot, and a gust's front passing through
+        let lwq = 0; for (const o of shw.values()) lwq = Math.max(lwq, o.a * Math.exp(-((q.x - o.x) ** 2 + (q.y - o.y) ** 2) / 7));
+        q.lw = lwq;
+        let gg = 0, gdx = 0, gdy = 0;
+        for (const g of gus) { const ag = T - g.t0, d = (q.x - g.x0) * g.dx + (q.y - g.y0) * g.dy, w = g.s * Math.exp(-(((d - (ag * 8 - 4)) / 2.4) ** 2)) * (1 - smoothstep(3.5, 5, ag)); gg += w; gdx += g.dx * w; gdy += g.dy * w; }
+        const gw = Math.min(1, gg), qwx = gg > 0.01 ? lerp(wdx, gdx / gg, gw) : wdx, qwy = gg > 0.01 ? lerp(wdy, gdy / gg, gw) : wdy;
+        const held = T - (q.guestT || -9) < 0.6;
+        const G = e * (0.3 + 0.7 * Math.exp(-((sx - bxs) ** 2) / (0.2 * W * W))) * (0.85 + 0.15 * Math.sin(T * 7 + q.id)) + storm * (0.5 + 0.5 * vnoise(T * 0.9, q.id * 0.37)) + 0.9 * gg;
         // walking: toward a spot near home, a new one now and then
-        if (T > q.gt || Math.hypot(q.gx - q.x, q.gy - q.y) < 0.4) { q.gt = T + 6 + 8 * rnd(); const a = rnd() * TAU, r = 0.5 + 2.4 * Math.sqrt(rnd()); q.gx = q.hx + Math.cos(a) * r * 1.4; q.gy = q.hy + Math.sin(a) * r; }
+        if (!q.ctrl && !held && (T > q.gt || Math.hypot(q.gx - q.x, q.gy - q.y) < 0.4)) { q.gt = T + 6 + 8 * rnd(); const a = rnd() * TAU, r = 0.5 + 2.4 * Math.sqrt(rnd()); q.gx = q.hx + Math.cos(a) * r * 1.4; q.gy = q.hy + Math.sin(a) * r; }
         const dx = q.gx - q.x, dy = q.gy - q.y, dd = Math.hypot(dx, dy) + 1e-6, run = q.lost > T ? 2 : 1;
-        const spd = q.sp * (0.8 + 0.5 * (1 - calm) + 0.9 * storm) * run;
-        let ax = dx / dd * spd + wdx * G * 1.6, ay = dy / dd * spd + wdy * G * 1.6;
+        const spd = q.ctrl ? 1.7 * Math.min(1, dd / 0.9) : q.sp * (0.8 + 0.5 * (1 - calm) + 0.9 * storm) * run * (1 + 0.8 * lwq) * (held ? Math.min(1, dd / 0.6) : 1);
+        let ax = dx / dd * spd + qwx * G * 1.6, ay = dy / dd * spd + qwy * G * 1.6;
         if (sx < W * 0.04) ax += 1.5; if (sx > W * 0.96) ax -= 1.5; if (sy < H * 0.08) ay -= 1.5; if (sy > H * 0.96) ay += 1.5;
         for (const b of strikes) { const ux = q.x - ((b.u == null ? 0.5 : b.u) - 0.5) * 16, uy = q.y - 2, ud = Math.hypot(ux, uy) + 0.5; q.vx += ux / ud * 3.5 * (b.power || 0.6); q.vy += uy / ud * 3.5 * (b.power || 0.6); q.om += (rnd() - 0.5) * 14; q.tvx += (rnd() - 0.5) * 3; q.tvy += (rnd() - 0.5) * 3; }
         const kv = 1 - Math.exp(-dt * 2.5); q.vx += (ax - q.vx) * kv; q.vy += (ay - q.vy) * kv;
@@ -469,9 +581,9 @@ const ART_MODES = (() => {
         q.ph += dt * vm * 5;
         // the umbrella leans with the wind (a spring), and may blow inside out
         const lean = 0.95 * G * (1.25 - 0.35 * q.R);
-        q.tvx += ((wdx * lean + 0.03 * Math.sin(q.ph) - q.tx) * 34 - q.tvx * 6) * dt; q.tvy += ((wdy * lean + 0.03 * Math.cos(q.ph * 0.5) - q.ty) * 34 - q.tvy * 6) * dt;
+        q.tvx += ((qwx * lean + 0.03 * Math.sin(q.ph) - q.tx) * 34 - q.tvx * 6) * dt; q.tvy += ((qwy * lean + 0.03 * Math.cos(q.ph * 0.5) - q.ty) * 34 - q.tvy * 6) * dt;
         q.tx = clamp(q.tx + q.tvx * dt, -0.9, 0.9); q.ty = clamp(q.ty + q.tvy * dt, -0.9, 0.9);
-        if (G > q.th + 0.12 * (q.R - 0.5) && openT > 0.5) { if (!q.iot) { q.om += (rnd() - 0.5) * 16; q.tvx += wdx * 4; q.tvy += wdy * 4; } q.iot = 1; q.calmT = T; }   // pop!
+        if (G > q.th + 0.12 * (q.R - 0.5) && q.o > 0.5) { if (!q.iot) { q.om += (rnd() - 0.5) * 16; q.tvx += qwx * 4; q.tvy += qwy * 4; } q.iot = 1; q.calmT = T; }   // pop!
         else if (G < q.th * 0.45 && T - q.calmT > 1.4) q.iot = 0;
         q.io += (q.iot - q.io) * (1 - Math.exp(-dt * (q.iot > q.io ? 16 : 2.4)));
         // a storm tears a few out of people's hands
@@ -479,7 +591,7 @@ const ART_MODES = (() => {
           q.lost = T + 7 + 6 * rnd(); q.o = 0;
           st.fly.push({ x: q.x, y: q.y, z: 2.2, vx: wdx * 5, vy: wdy * 5, vz: 2.5, cols: q.cols, rim: q.rim, R: q.R, spin: q.spin, om: 9 * (rnd() < 0.5 ? -1 : 1), tx: wdx * 0.6, ty: 0.5, t: T });
         }
-        const ot = q.lost > T ? 0 : openT;
+        const ot = q.ctrl ? (q.open ? 1 : 0) : q.lost > T ? 0 : Math.max(openT, smoothstep(0.15, 0.5, lwq));
         q.o += (ot - q.o) * (1 - Math.exp(-dt * (ot > q.o ? 2.6 : 1.5)));           // calm: fold, then fade away; rain: fade in folded, then unfold
         // twirls
         for (const t of tp.fresh) {
@@ -488,9 +600,25 @@ const ART_MODES = (() => {
         }
         q.om *= Math.exp(-dt * 0.7); q.om += (rnd() - 0.5) * storm * 30 * dt; q.spin += q.om * dt;
       }
+      // A: sharing. A walker's open umbrella brought up to someone without one takes them in (they walk along
+      // beside it); a walker with a closed umbrella who stops by an open one is taken in there (that person waits)
+      for (const me of mine.values()) {
+        me.under = null; let best = null, bd = 1.6;
+        for (const q of all) { if (q === me) continue; const d = Math.hypot(q.x - me.x, q.y - me.y); if (d < bd) { bd = d; best = q; } }
+        if (!best) continue;
+        if (me.o > 0.6 && best.o < 0.35 && !best.ctrl) {
+          const sd = Math.atan2(best.y - me.y, best.x - me.x);
+          best.guestOf = me; best.guestT = T; me.shT = T; best.gx = me.x + Math.cos(sd) * 0.5; best.gy = me.y + Math.sin(sd) * 0.5; best.gt = T + 3;
+        } else if (me.o < 0.35 && best.o > 0.6) {
+          me.under = best; best.shT = T; if (!best.ctrl) { best.guestOf = me; best.guestT = T; best.gx = best.x; best.gy = best.y; best.gt = T + 3; }
+        }
+      }
+      if (mine.size || st.anySh) { st.anySh = 0; for (const q of all) { q.sh = (q.sh || 0) + ((T - (q.shT || -9) < 0.4 ? 1 : 0) - (q.sh || 0)) * (1 - Math.exp(-dt * 3)); if (q.sh > 0.01) st.anySh = 1; } }
+      const close = (A, B) => (A.under === B || B.under === A || (T - (A.guestT || -9) < 0.6 && A.guestOf === B) || (T - (B.guestT || -9) < 0.6 && B.guestOf === A));
       // keep a little room between people
-      for (let i = 0; i < ppl.length; i++) for (let j = i + 1; j < ppl.length; j++) {
-        const A = ppl[i], B = ppl[j], dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) + 1e-6, m = (A.R + B.R) * 0.85 - d;
+      for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+        const A = all[i], B = all[j]; if (close(A, B)) continue;
+        const dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) + 1e-6, m = (A.R + B.R) * 0.85 - d;
         if (m > 0) { const f = m * 2.5 * dt / d; A.x -= dx * f; A.y -= dy * f; B.x += dx * f; B.y += dy * f; }
       }
       // ---- draw: the plaza
@@ -504,12 +632,20 @@ const ART_MODES = (() => {
         const r = (0.04 + 0.2 * f) * p[2];
         spl.moveTo(p[0] + r, p[1]); spl.ellipse(p[0], p[1], r, r * 0.82, 0, 0, TAU);
       }
+      for (const o of shw.values()) for (let i = 0, n = Math.round(26 * o.a); i < n; i++) {      // B: the shower's splashes
+        const ph = T / 0.35 + hash(i * 5 + 1), cyc = Math.floor(ph), f = ph - cyc, sd = i * 977 + cyc * 7919, a = hash(sd) * TAU, r = 2.6 * Math.sqrt(hash(sd + 1));
+        P(o.x + Math.cos(a) * r, o.y + Math.sin(a) * r * 0.8, 0, p); const rr = (0.04 + 0.2 * f) * p[2]; spl.moveTo(p[0] + rr, p[1]); spl.ellipse(p[0], p[1], rr, rr * 0.82, 0, 0, TAU);
+      }
       c.strokeStyle = `rgba(${day > 0.5 ? '255,255,255' : '200,210,235'},${0.16 + 0.1 * storm})`; c.lineWidth = lw * 0.6; c.stroke(spl);
+      for (const o of shw.values()) {                            // ... and the cloud's shade over that spot
+        P(o.x, o.y, 0, p); const r = 3 * p[2], gr = c.createRadialGradient(p[0], p[1], 0, p[0], p[1], r);
+        gr.addColorStop(0, `rgba(20,24,34,${(0.3 * o.a).toFixed(3)})`); gr.addColorStop(1, 'rgba(20,24,34,0)'); c.fillStyle = gr; c.beginPath(); c.ellipse(p[0], p[1], r, r * 0.8, 0, 0, TAU); c.fill();
+      }
       // ---- each person: the canopy's points in space (tilted with the wind, inside out if it blew), then shadows and paint
       const L = day > 0.5 ? [-0.3, 0.22, 0.93] : [0.3, 0.22, 0.93];   // by day the sun is up and to the left
       const lb = fb ? [((fb.u == null ? 0.5 : fb.u) - 0.5) * -1.6, -0.5, 0.75] : null;
       const geo = (q, x, y, zh, ox) => {                        // -> {apex, tips, mids} as [X, Y, Z]
-        const o = ox == null ? q.o : ox, io = q.io, R = q.R * (0.14 + 0.86 * o) * (1 + 0.22 * io), zr = 2.05 - (1 - o) * 0.75 * q.R + 0.03 * Math.sin(q.ph * 2);
+        const o = ox == null ? q.o : ox, io = q.io, R = q.R * (0.14 + 0.86 * o) * (1 + 0.22 * io) * (1 + 0.3 * (q.sh || 0)), zr = 2.05 - (1 - o) * 0.75 * q.R + 0.03 * Math.sin(q.ph * 2);
         const za = zr + q.R * 0.42 * o * (1 - 2 * io), tw = (pt) => { const dz = pt[2] - zh; pt[0] += q.tx * dz; pt[1] += q.ty * dz; pt[2] -= 0.5 * (q.tx * q.tx + q.ty * q.ty) * dz; return pt; };
         const apex = tw([x, y, za]), tips = [], mids = [];
         for (let i = 0; i < 8; i++) {
@@ -519,7 +655,7 @@ const ART_MODES = (() => {
         }
         return { apex, tips, mids };
       };
-      const list = ppl.map(q => { P(q.x, q.y, 2, p); return [p[1], q]; }).sort((a, b) => a[0] - b[0]).map(a => a[1]);
+      const list = all.map(q => { P(q.x, q.y, 2, p); return [p[1], q]; }).sort((a, b) => a[0] - b[0]).map(a => a[1]);
       // shadows. The camera looks down at a slant, so a shadow cast straight down lands well below the canopy on
       // screen and reads as a separate grey shape. Instead each shadow starts on the ground right behind what is
       // drawn (G = the ground point under a screen point) and slides a little away from the light: it peeks out
@@ -556,6 +692,11 @@ const ART_MODES = (() => {
       };
       if (day > 0.02) hard(L, 0.3 * day * (1 - 0.5 * (1 - calm)), 0.7);   // softer under rain clouds
       if (fl > 0.05 && lb) hard(lb, 0.45 * fl, 0.5);
+      for (const q of mine.values()) {                          // A: your walker, ringed in your colour
+        P(q.x, q.y, 1.45, p); const g0 = st.G(p[0], p[1]); P(g0[0], g0[1], 0, p); const rr = 1.1 * p[2] * (1 + 0.3 * (q.sh || 0));
+        c.strokeStyle = `rgba(${q.col.join(',')},0.95)`; c.lineWidth = lw * 2; c.setLineDash([5 * lw, 4 * lw]);
+        c.beginPath(); c.ellipse(p[0], p[1], rr, rr * 0.8, 0, 0, TAU); c.stroke(); c.setLineDash([]);
+      }
       // people (seen when the umbrella is closed or gone) and canopies, far ones first
       const seams = new Path2D(), ribs = new Path2D(), caps = new Path2D(), drops = new Path2D();
       const paint = (q, gq, alpha) => {
@@ -584,7 +725,8 @@ const ART_MODES = (() => {
         c.fillStyle = day > 0.5 ? 'rgba(250,246,238,0.95)' : 'rgba(220,214,206,0.9)'; c.beginPath(); c.arc(A[0], A[1], Math.max(1.6, 0.05 * A[2]), 0, TAU); c.fill();
         c.globalAlpha = 1;
         // rain landing on it
-        if (amt * wet > 0.02 && alpha > 0.5) for (let n = 0, m = Math.round(amt * wet * (1.5 + 2 * q.k)); n < m; n++) {
+        const aw = Math.max(amt * wet, (q.lw || 0) * 1.3);
+        if (aw > 0.02 && alpha > 0.5) for (let n = 0, m = Math.round(aw * (1.5 + 2 * q.k)); n < m; n++) {
           const i = Math.floor(rnd() * 8), f = rnd() * 0.85; const x = A[0] + (tips[i][0] - A[0]) * f, y = A[1] + (tips[i][1] - A[1]) * f, d = 1.2 + 1.4 * rnd();
           drops.rect(x - d / 2, y - d / 2, d, d);
         }
@@ -622,7 +764,21 @@ const ART_MODES = (() => {
         if (p[0] < -20 || p[0] > W + 20 || p[1] < -20 || p[1] > H + 20) continue;
         rain.moveTo(q2[0], q2[1]); rain.lineTo(p[0], p[1]);
       }
+      for (const o of shw.values()) for (let i = 0, n = Math.round(140 * o.a); i < n; i++) {     // B: the shower itself
+        const z = 7 - ((T * 9 + hash(i * 3 + 101) * 7) % 7), a = hash(i * 3 + 102) * TAU, r = 2.6 * Math.sqrt(hash(i * 3 + 103)), X = o.x + Math.cos(a) * r, Y = o.y + Math.sin(a) * r * 0.8;
+        P(X, Y, z, p); P(X, Y, z + 0.55, q2); if (p[0] < -20 || p[0] > W + 20 || p[1] < -20 || p[1] > H + 20) continue; rain.moveTo(q2[0], q2[1]); rain.lineTo(p[0], p[1]);
+      }
       c.strokeStyle = day > 0.5 ? 'rgba(255,255,255,0.35)' : 'rgba(200,214,240,0.3)'; c.lineWidth = lw * 0.6; c.stroke(rain);
+      for (const g of gus) {                                     // C: the gust's front, a few streaks sweeping across
+        const ag = T - g.t0, f = ag * 8 - 4, al = Math.min(1, ag * 3) * (1 - smoothstep(3, 4.5, ag)) * Math.min(1, g.s);
+        if (al < 0.01) continue;
+        const wl = new Path2D();
+        for (let j = -16; j <= 16; j++) {
+          const off = j * 0.9 + (hash(j + 40) - 0.5) * 0.8, fj = f + (hash(j + 60) - 0.5) * 2.5, ln = 2 + 2 * hash(j + 80), fx = g.x0 + g.dx * fj - g.dy * off, fy = g.y0 + g.dy * fj + g.dx * off;
+          P(fx - g.dx * ln, fy - g.dy * ln, 2.6, q2); P(fx, fy, 2.6, p); wl.moveTo(q2[0], q2[1]); wl.lineTo(p[0], p[1]);
+        }
+        c.strokeStyle = `rgba(255,255,255,${(0.7 * al).toFixed(3)})`; c.lineWidth = lw * 1.6; c.stroke(wl);
+      }
       // the lamp heads (lit at night) and the trees' crowns
       for (const [x, y] of st.lamps) {
         P(x, y, 5.2, p); const k = p[2];

@@ -42,7 +42,9 @@
   net.sub('stats');
   net.sub('storm');
   net.sub('strike');
+  net.sub('art');              // which view the wall is on (the test panel, js/lab.js, follows it)
   net.connect();
+  if (typeof RCLab !== 'undefined') RCLab.init({ net, ME, color: () => myColor });
 
   function hello() { net.pub('hub/in', { type: 'hello', id: ME, w: innerWidth, h: innerHeight }); ping(); }
   function ping() { net.pub('hub/in', { type: 'ping', id: ME, t0: Date.now() }); }
@@ -84,6 +86,8 @@
       if (!entered) return;
       R.addBolt({ u: m.u, seed: m.seed, power: m.power, t: T() });
       S.thunder(m.power, 0);
+    } else if (topic === 'art') {
+      if (typeof RCLab !== 'undefined') RCLab.onArt(m);
     } else if (topic === 'rainnow') {
       setSnap(m);
     } else if (topic === 'stats') {

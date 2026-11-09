@@ -117,6 +117,7 @@
   const net = new Net(onMsg, st => {
     $('netdot').classList.toggle('ok', st === 'online');
     if (st === 'online' && snap) net.pub('rainnow', snap, true);
+    if (st === 'online') pubArt();
   });
   net.sub('hub/in');
   net.sub('g/+');
@@ -166,7 +167,22 @@
     if ((m.type === 'hb' || m.type === 'hello') && m.w && (m.w !== c.w || m.h !== c.h)) { c.w = m.w; c.h = m.h; sendAssign(c.gid); }
     if (m.type === 'exit' || m.type === 'enter') swipe(m);
     if (m.type === 'blow') { blowers.set(m.id, { at: Date.now(), s: m.s || 0.5 }); lastPhone = Date.now(); }
+    if (m.type === 'ix') ixIn(m, c);
   }
+  /* ---------------- test panel on the phones (js/lab.js): interaction ideas for the art modes.
+     Steady controls (a bird you fly, a walker, a held finger) keep their latest message in R.ixLive;
+     one-off gestures (a drawn shape, a swipe) also go to R.ixEv. The art modes read both (ixOf). */
+  R.ixLive = new Map(); R.ixEv = [];
+  function ixIn(m, c) {
+    lastPhone = Date.now();
+    const e = Object.assign({}, m, { col: c.color, at: T() });
+    R.ixLive.set(m.id + ':' + m.k, e);
+    if (m.once) { R.ixEv.push(e); R.ixEv = R.ixEv.filter(o => e.at - o.at < 12); }
+    for (const [key, o] of R.ixLive) if (e.at - o.at > 20) R.ixLive.delete(key);
+  }
+  // the phones show the panel for the view the wall is on
+  function pubArt() { try { net.pub('art', { n: art, name: art ? ART_MODES[art - 1].name : 'map', at: Date.now() }, true); } catch (e) {} }
+  setInterval(pubArt, 5000);
 
   /* A swipe that leaves phone A's edge and lands on phone B's opposite edge
      within ~1.5 s joins B (and everyone already with B) to A's group.
@@ -257,6 +273,7 @@
     R.art = n > 0; R.artIdx = n;      // the renderer draws the art mode instead of the map of plumes
     R._artSt = null; R._pc = null; R.fresh = true;
     if (snap) buildSites(snap);
+    if (typeof pubArt === 'function') pubArt();
   }
   // A / Z step through the three views: the rain map (0), then each art mode, then the map again
   const cycleArt = (d = 1) => setArt(((art + (d < 0 ? -1 : 1)) % (NART + 1) + NART + 1) % (NART + 1));
