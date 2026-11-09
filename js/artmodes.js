@@ -191,7 +191,7 @@ const ART_MODES = (() => {
     Object.assign(st, { lead, N, P, V, O, Ld, F, Z, init: old ? Math.min(oldN, N) : 0 });
   }
   const murm = {
-    name: 'murmuration', title: 'Murmuration', dark: true, bolts: false,
+    name: 'murmuration', title: 'Murmuration', bolts: false,
     draw(R, c, E) {
       const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E), wy = windY(E), sc = W / 1600;
       if (st.W !== W || st.H !== H || !st.bg) { murmSetup(st, W, H, E.dpr); st.ref = null; st.P = null; st.N = 0; }
@@ -333,54 +333,55 @@ const ART_MODES = (() => {
         F[b] = fb + dt * (10 + sp * 0.03 / sc);
       }
       st.init = N;
-      // ---- draw: the gold, then the birds (far ones small and paler, near ones bigger and darker)
-      c.globalCompositeOperation = 'source-over';
-      c.drawImage(st.bg, 0, 0, W, H);
+      // ---- draw, in the plumes' manner: each starling a point of light (ink on paper in the light theme) leaving a
+      // soft trail as it flies, far ones fainter, near ones a fine stroke of wings. Colour only for what the phones do.
+      const ink = PAL.ink, spr = sparkSprite(), ds = E.s || 1;
+      c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.lineCap = 'round'; c.lineJoin = 'round'; c.setLineDash([]);
+      c.fillStyle = `rgba(${PAL.bg},${E.fresh ? 1 : PAL.fade})`; c.fillRect(0, 0, W, H);
+      c.globalCompositeOperation = PAL.comp;
       let fl = 0;
       for (const b of R.bolts) { const age = T - b.t; if (age >= 0) fl = Math.max(fl, (age < 0.07 ? 1 : age < 0.12 ? 0.3 : age < 0.2 ? 0.85 : Math.max(0, 0.85 - (age - 0.2) * 1.5)) * (b.power || 0.6)); }
-      if (fl > 0.01) { c.globalCompositeOperation = 'lighter'; c.fillStyle = `rgba(255,214,140,${0.5 * fl})`; c.fillRect(0, 0, W, H); c.globalCompositeOperation = 'source-over'; }
+      if (fl > 0.01) { c.fillStyle = `rgba(${ink},${(0.3 * fl).toFixed(3)})`; c.fillRect(0, 0, W, H); }
       const sz0 = 0.0042 * W;
-      const B3 = [new Path2D(), new Path2D(), new Path2D()], dots = new Path2D(), xs = [], ys = [];
+      const DT = [0, 1, 2, 3].map(() => new Path2D()), WG = [0, 1, 2, 3].map(() => new Path2D()), xs = [], ys = [];
       for (let b = 0; b < N; b++) {
         const i3 = b * 3, k = FOC / (FOC + Math.max(P[i3 + 2], -0.5 * W));    // and never drawn bigger than that
         if (k <= 0) continue;
         const x = cx + P[i3] * k, y = cy + P[i3 + 1] * k;
         if ((b & 7) === 0) { xs.push(x - cx); ys.push(y - cy); }
         if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
-        const size = sz0 * k * Z[b];
-        if (size < 3.2) { const d = Math.max(1.1, size * 0.45); dots.rect(x - d / 2, y - d * 0.35, d, d * 0.7); continue; }
+        const size = sz0 * k * Z[b], lv = Math.min(3, Math.max(0, Math.floor((k - 0.7) / 0.5 * 4)));
+        const d = lw * (0.9 + 0.5 * Math.min(1.5, k));
+        DT[lv].rect(x - d / 2, y - d / 2, d, d);
+        if (size < 4) continue;                                // near ones: a fine stroke of wings
         let fx = V[i3], fy = V[i3 + 1]; const fm = Math.hypot(fx, fy) + 1e-3; fx /= fm; fy /= fm;
         const fp = Math.sin(F[b]), span = size * (0.55 + 0.45 * Math.abs(fp)), sw = size * (0.15 - 0.3 * fp);   // wings beat: up, sweep, down
-        const p = B3[k > 1.12 ? 2 : k > 0.95 ? 1 : 0];
-        p.moveTo(x + fx * size * 0.32, y + fy * size * 0.32);
-        p.lineTo(x - fy * span - fx * sw, y + fx * span - fy * sw);
-        p.lineTo(x - fx * size * 0.12, y - fy * size * 0.12);
-        p.lineTo(x + fy * span - fx * sw, y - fx * span - fy * sw);
-        p.lineTo(x + fx * size * 0.32, y + fy * size * 0.32);
+        const p = WG[lv];
+        p.moveTo(x - fy * span - fx * sw, y + fx * span - fy * sw); p.lineTo(x, y); p.lineTo(x + fy * span - fx * sw, y - fx * span - fy * sw);
       }
       if (xs.length > 8) {                                  // how far the flock reaches (ignoring the few stragglers at either end)
         xs.sort((a, b) => a - b); ys.sort((a, b) => a - b); const q = Math.floor(xs.length * 0.04), r = xs.length - 1 - q;
         st.ext = [xs[q], xs[r], ys[q], ys[r]];
       }
-      c.fillStyle = 'rgba(46,30,10,0.62)'; c.fill(dots);
-      c.lineJoin = 'round'; c.lineWidth = lw * 0.5;
-      [['54,36,12', 0.7], ['30,19,7', 0.85], ['18,11,4', 0.95]].forEach(([col, a], i) => { c.fillStyle = c.strokeStyle = `rgba(${col},${a})`; c.fill(B3[i]); c.stroke(B3[i]); });
-      // the drawn shape, faintly, for a moment; and the birds flown from phones, each in its colour with a ring
-      if (shp && T - shp.t0 < 3) {
-        c.strokeStyle = `rgba(${shp.col.join(',')},${(0.6 * (1 - smoothstep(1.5, 3, T - shp.t0))).toFixed(3)})`; c.lineWidth = lw * 1.5; c.setLineDash([3 * lw, 6 * lw]);
-        c.beginPath(); shp.pts.forEach(([x, y], i) => i ? c.lineTo(cx + x, cy + y) : c.moveTo(cx + x, cy + y)); c.stroke(); c.setLineDash([]);
+      DT.forEach((pp, i) => { c.fillStyle = `rgba(${ink},${(0.35 + 0.2 * i).toFixed(2)})`; c.fill(pp); });
+      c.lineWidth = lw * 0.8; WG.forEach((pp, i) => { c.strokeStyle = `rgba(${ink},${(0.25 + 0.18 * i).toFixed(2)})`; c.stroke(pp); });
+      // the drawn shape, as a dotted line of the phone's colour for a moment; then the birds flown from phones
+      const flow = -T * (16 + 40 * storm) * ds;
+      if (shp && T - shp.t0 < 3.5) {
+        c.strokeStyle = `rgba(${shp.col.join(',')},${(0.9 * (1 - smoothstep(2, 3.5, T - shp.t0))).toFixed(3)})`; c.lineWidth = lw * 1.6; c.setLineDash([0.01, 3 * ds]); c.lineDashOffset = flow;
+        c.beginPath(); shp.pts.forEach(([x, y], i) => i ? c.lineTo(cx + x, cy + y) : c.moveTo(cx + x, cy + y)); c.stroke(); c.setLineDash([]); c.lineDashOffset = 0;
       }
       for (const o of pb.values()) {
         const x = cx + o.x, y = cy + o.y, col = o.col.join(','), sz = sz0 * 5.5, fm = Math.hypot(o.vx, o.vy);
         let fx = 1, fy = 0; if (fm > 5) { fx = o.vx / fm; fy = o.vy / fm; }
-        const fp = Math.sin(T * 11 + o.h), span = sz * (0.55 + 0.45 * Math.abs(fp)), sw = sz * (0.15 - 0.3 * fp);
-        c.globalAlpha = o.a; c.fillStyle = `rgb(${col})`; c.strokeStyle = 'rgba(20,12,4,0.8)'; c.lineWidth = lw * 0.6; c.beginPath();
-        c.moveTo(x + fx * sz * 0.32, y + fy * sz * 0.32); c.lineTo(x - fy * span - fx * sw, y + fx * span - fy * sw); c.lineTo(x - fx * sz * 0.12, y - fy * sz * 0.12);
-        c.lineTo(x + fy * span - fx * sw, y - fx * span - fy * sw); c.closePath(); c.fill(); c.stroke();
-        c.strokeStyle = `rgba(${col},0.7)`; c.lineWidth = lw * 1.2; c.setLineDash([4 * lw, 4 * lw]); c.beginPath(); c.arc(x, y, sz * 1.3, 0, TAU); c.stroke(); c.setLineDash([]);
+        const fp = Math.sin(T * 11 + o.h), span = sz * (0.55 + 0.45 * Math.abs(fp)), sw = sz * (0.15 - 0.3 * fp), z = sz * 3.2;
+        c.globalAlpha = o.a * 0.9; c.drawImage(glow(col, 64, 0.3), x - z / 2, y - z / 2, z, z); c.globalAlpha = o.a;
+        c.strokeStyle = `rgb(${col})`; c.lineWidth = lw * 1.6; c.beginPath();
+        c.moveTo(x - fy * span - fx * sw, y + fx * span - fy * sw); c.lineTo(x, y); c.lineTo(x + fy * span - fx * sw, y - fx * span - fy * sw); c.stroke();
+        c.setLineDash([0.01, 3 * ds]); c.lineDashOffset = flow; c.lineWidth = lw * 1.5; c.beginPath(); c.arc(x, y, sz * 1.4, 0, TAU); c.stroke(); c.setLineDash([]); c.lineDashOffset = 0;
         c.globalAlpha = 1;
       }
-      // the falcons, facing the way they fly
+      // the falcons: a brighter spark with an outline of wings (a phone's falcon in its colour)
       st.hk = st.hk || [];
       for (const hk of hawks) {
         const h = hk[5]; if (h == null) continue;
@@ -391,16 +392,19 @@ const ART_MODES = (() => {
         let fx = x - prev[0], fy = y - prev[1]; const fm = Math.hypot(fx, fy) + 1e-3; fx /= fm; fy /= fm;
         st.hk[h] = [lerp(prev[0], x, 0.3), lerp(prev[1], y, 0.3)];
         const sz = sz0 * 4.5 * k * (0.75 + 0.25 * pres), fp = Math.sin(T * 9 + h * 2), span = sz * (0.7 + 0.3 * fp), swp = sz * (0.35 - 0.25 * fp);
-        c.fillStyle = `rgba(${hk[7] ? hk[7].join(',') : '14,9,3'},${(0.95 * Math.min(1, pres * 1.4)).toFixed(3)})`; c.beginPath();
+        const col = hk[7] ? hk[7].join(',') : ink, a = Math.min(1, pres * 1.4), z = sz * (hk[7] ? 3 : 2);
+        c.globalAlpha = a * (hk[7] ? 0.9 : 0.6); c.drawImage(hk[7] ? glow(col, 64, 0.3) : spr, x - z / 2, y - z / 2, z, z); c.globalAlpha = 1;
+        c.strokeStyle = `rgba(${col},${(0.95 * a).toFixed(3)})`; c.lineWidth = lw * (hk[7] ? 1.6 : 1.1); c.beginPath();
         c.moveTo(x + fx * sz * 0.55, y + fy * sz * 0.55);
         c.quadraticCurveTo(x - fy * span * 0.5 + fx * sz * 0.1, y + fx * span * 0.5 + fy * sz * 0.1, x - fy * span - fx * swp, y + fx * span - fy * swp);
         c.lineTo(x - fx * sz * 0.2, y - fy * sz * 0.2); c.lineTo(x - fx * sz * 0.6 - fy * sz * 0.12, y - fy * sz * 0.6 + fx * sz * 0.12); c.lineTo(x - fx * sz * 0.6 + fy * sz * 0.12, y - fy * sz * 0.6 - fx * sz * 0.12);
         c.lineTo(x - fx * sz * 0.2, y - fy * sz * 0.2);
         c.lineTo(x + fy * span - fx * swp, y - fx * span - fy * swp);
         c.quadraticCurveTo(x + fy * span * 0.5 + fx * sz * 0.1, y - fx * span * 0.5 + fy * sz * 0.1, x + fx * sz * 0.55, y + fy * sz * 0.55);
-        c.fill();
+        c.stroke();
         st.hkSeen = T;
       }
+      c.globalCompositeOperation = 'source-over';
     },
   };
 
@@ -422,68 +426,32 @@ const ART_MODES = (() => {
     st.P = (X, Y, Z, out) => { const dy = Y - Cy, dz = Z - Cz, zc = dy * cp - dz * sp, yc = dy * sp + dz * cp, k = F / zc; out[0] = W / 2 + X * k; out[1] = H / 2 - yc * k; out[2] = k; return out; };
     st.G = (sx, sy) => { const rx = (sx - W / 2) / F, ry = -(sy - H / 2) / F, dy = cp + ry * sp, dz = -sp + ry * cp, t = -Cz / dz; return [t * rx, Cy + t * dy]; };
   }
-  function umbBg(st, W, H, dpr, day) {
+  /* the plaza drawn the way the map draws the world: a stipple of the floor (a dot where the slabs meet), the
+     puddles as rings of dots like dried raindrops, the trees' crowns as clouds of dots. White on clear, tinted
+     to the theme's ink; laid down faintly every frame like the map's ghost. */
+  function umbGround(st, W, H, dpr) {
     const cv = canvas(W * dpr, H * dpr), g = cv.getContext('2d'), P = st.P, p = [0, 0, 0];
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = day ? '#b3ada2' : '#17181d'; g.fillRect(0, 0, W, H);
-    // big stone slabs, each a slightly different stone, wet
-    const S = 1.6, joints = new Path2D(), tones = [[], [], [], [], []];
-    for (let j = -5; j < 9; j++) for (let i = -11; i < 11; i++) {
-      const q = [];
-      for (const [a, b] of [[0, 0], [1, 0], [1, 1], [0, 1]]) { P((i + a) * S, (j + b) * S, 0, p); q.push([p[0], p[1]]); }
-      const path = new Path2D(); q.forEach(([x, y], n) => n ? path.lineTo(x, y) : path.moveTo(x, y)); path.closePath();
-      tones[Math.floor(hash(i * 31 + j * 17 + 5) * 5)].push(path);
-      q.forEach(([x, y], n) => n ? joints.lineTo(x, y) : joints.moveTo(x, y)); joints.lineTo(q[0][0], q[0][1]);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.fillStyle = '#fff';
+    const dot = (x, y, d, a) => { g.globalAlpha = a; g.fillRect(x - d / 2, y - d / 2, d, d); };
+    for (let j = -12; j <= 24; j++) for (let i = -26; i <= 26; i++) {
+      P(i * 0.8, j * 0.8 - 2, 0, p); if (p[0] < -4 || p[0] > W + 4 || p[1] < -4 || p[1] > H + 4) continue;
+      const major = !(i & 1) && !(j & 1), k = clamp(p[2] / 55, 0.6, 1.5);
+      dot(p[0], p[1], (major ? 1.7 : 1.1) * k, major ? 0.9 : 0.4);
     }
-    const T5 = day ? ['178,171,160', '186,180,170', '170,164,154', '192,186,176', '164,158,150'] : ['27,28,34', '31,32,38', '24,25,31', '35,35,42', '22,23,28'];
-    tones.forEach((list, n) => { g.fillStyle = `rgb(${T5[n]})`; for (const path of list) g.fill(path); });
-    g.strokeStyle = day ? 'rgba(90,84,76,0.45)' : 'rgba(0,0,0,0.6)'; g.lineWidth = 1.2; g.stroke(joints);
-    // a band of dark granite running across the plaza
-    g.fillStyle = day ? 'rgba(80,76,72,0.35)' : 'rgba(0,0,0,0.3)';
-    const band = new Path2D(); [[-20, 1.6], [20, 1.6], [20, 3.2], [-20, 3.2]].forEach(([x, y], n) => { P(x, y, 0, p); n ? band.lineTo(p[0], p[1]) : band.moveTo(p[0], p[1]); }); band.closePath(); g.fill(band);
-    // the light: lamps on the wet stone at night, a patch of sun by day
-    if (!day) for (const [x, y] of st.lamps) {
-      P(x, y, 0, p); const r = 4.2 * p[2];
-      g.save(); g.translate(p[0], p[1]); g.scale(1, 0.86);
-      const q = g.createRadialGradient(0, 0, 0, 0, 0, r); q.addColorStop(0, 'rgba(255,170,90,0.34)'); q.addColorStop(0.4, 'rgba(255,140,70,0.12)'); q.addColorStop(1, 'rgba(255,140,70,0)');
-      g.fillStyle = q; g.fillRect(-r, -r, 2 * r, 2 * r); g.restore();
-    } else {
-      const q = g.createRadialGradient(W * 0.62, H * 0.42, 0, W * 0.62, H * 0.42, W * 0.6); q.addColorStop(0, 'rgba(255,236,190,0.42)'); q.addColorStop(0.6, 'rgba(255,226,170,0.12)'); q.addColorStop(1, 'rgba(255,220,160,0)');
-      g.fillStyle = q; g.fillRect(0, 0, W, H);
-    }
-    // puddles: the sky in them (a rainbow in one, by day)
-    for (let n = 0; n < 6; n++) {
-      const cx = n === 2 ? 3.5 : (hash(n * 7 + 1) - 0.5) * 18, cy = n === 2 ? -1 : -3 + hash(n * 7 + 2) * 10, r = n === 2 ? 1.7 : 0.8 + 1.4 * hash(n * 7 + 3), path = new Path2D();
-      for (let i = 0; i <= 24; i++) { const a = i / 24 * TAU, rr = r * (1 + 0.35 * vnoise(Math.cos(a) * 1.5 + n * 3, Math.sin(a) * 1.5)); P(cx + Math.cos(a) * rr * 1.5, cy + Math.sin(a) * rr, 0, p); i ? path.lineTo(p[0], p[1]) : path.moveTo(p[0], p[1]); }
-      path.closePath();
-      g.fillStyle = day ? 'rgba(186,210,232,0.9)' : 'rgba(10,12,26,0.85)'; g.fill(path);
-      g.strokeStyle = day ? 'rgba(255,255,255,0.35)' : 'rgba(120,130,170,0.18)'; g.lineWidth = 1.5; g.stroke(path);
-      g.save(); g.clip(path);
-      if (day && n === 2) {
-        P(cx, cy + r * 0.6, 0, p); const k = p[2];
-        ['255,60,60', '255,150,40', '255,230,60', '80,200,90', '60,140,255', '140,80,220'].forEach((col, i) => { g.strokeStyle = `rgba(${col},0.32)`; g.lineWidth = 0.09 * k; g.beginPath(); g.ellipse(p[0], p[1] + r * k * 0.4, r * k * (1.2 - i * 0.09), r * k * 0.7 * (1.2 - i * 0.09), 0, Math.PI, TAU); g.stroke(); });
+    for (let n = 0; n < 6; n++) {                                // puddles
+      const cx = n === 2 ? 3.5 : (hash(n * 7 + 1) - 0.5) * 18, cy = n === 2 ? -1 : -3 + hash(n * 7 + 2) * 10, r = n === 2 ? 1.7 : 0.8 + 1.4 * hash(n * 7 + 3);
+      const rr = a => r * (1 + 0.35 * vnoise(Math.cos(a) * 1.5 + n * 3, Math.sin(a) * 1.5));
+      for (let q = 0; q < 260 * r; q++) {
+        const a = hash(n * 997 + q * 3) * TAU, edge = hash(n * 997 + q * 3 + 1) < 0.7, f = edge ? 0.9 + 0.12 * hash(n * 997 + q * 3 + 2) : Math.sqrt(hash(n * 997 + q * 3 + 2)) * 0.9;
+        P(cx + Math.cos(a) * rr(a) * 1.5 * f, cy + Math.sin(a) * rr(a) * f, 0, p);
+        dot(p[0], p[1], edge ? 1.3 : 1, edge ? 0.75 : 0.18);
       }
-      if (!day) { P(cx, cy, 0, p); const q = g.createLinearGradient(p[0], p[1] - r * p[2], p[0], p[1] + r * p[2]); q.addColorStop(0, 'rgba(255,160,90,0)'); q.addColorStop(0.5, 'rgba(255,160,90,0.12)'); q.addColorStop(1, 'rgba(255,160,90,0)'); g.fillStyle = q; g.fill(path); }
-      g.restore();
     }
-    // grain, and a darker edge
-    const gr = [new Path2D(), new Path2D()];
-    for (let i = 0; i < 9000; i++) gr[i & 1].rect(hash(i * 3 + 1) * W, hash(i * 3 + 2) * H, 1.2, 1.2);
-    g.fillStyle = day ? 'rgba(60,54,46,0.1)' : 'rgba(0,0,0,0.25)'; g.fill(gr[0]); g.fillStyle = day ? 'rgba(255,255,250,0.12)' : 'rgba(255,255,255,0.03)'; g.fill(gr[1]);
-    const v = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.45, W / 2, H / 2, Math.hypot(W, H) * 0.62);
-    v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, day ? 'rgba(40,30,20,0.22)' : 'rgba(0,0,0,0.5)');
-    g.fillStyle = v; g.fillRect(0, 0, W, H);
-    return cv;
-  }
-  function umbTree(st, r, day, sd) {                // a tree crown seen from above (Seattle in autumn)
-    const S = Math.ceil(r * 2.3), cv = canvas(S, S), g = cv.getContext('2d'), m = S / 2;
-    const cols = day ? ['58,92,44', '82,112,48', '170,146,52', '206,124,40', '120,120,50', '190,80,40'] : ['22,36,26', '30,44,28', '64,52,22', '78,46,18', '36,42,24', '70,30,20'];
-    for (let i = 0; i < 420; i++) {
-      const a = hash(sd + i * 3) * TAU, d = Math.sqrt(hash(sd + i * 3 + 1)) * r * 0.9, x = m + Math.cos(a) * d, y = m + Math.sin(a) * d, z = r * (0.08 + 0.12 * hash(sd + i * 3 + 2));
-      const col = cols[Math.floor(hash(sd + i * 7) * cols.length)];
-      g.fillStyle = `rgba(${col},0.9)`; g.beginPath(); g.arc(x, y, z * 0.7, 0, TAU); g.fill();
-      g.fillStyle = day ? 'rgba(255,250,220,0.18)' : 'rgba(120,120,100,0.08)'; g.beginPath(); g.arc(x - z * 0.2, y - z * 0.2, z * 0.35, 0, TAU); g.fill();
+    for (const t of st.trees) for (let q = 0; q < 900; q++) {   // crowns
+      const a = hash(t.sd + q * 3) * TAU, f = Math.pow(hash(t.sd + q * 3 + 1), 0.35), x = t.x + Math.cos(a) * t.r * 0.9 * f, y = t.y + Math.sin(a) * t.r * 0.9 * f;
+      dot(x, y, 0.9 + 1.2 * hash(t.sd + q * 3 + 2), 0.25 + 0.5 * f);
     }
+    g.globalAlpha = 1; g.globalCompositeOperation = 'source-in'; g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = `rgb(${PAL.ink})`; g.fillRect(0, 0, cv.width, cv.height);
     return cv;
   }
   function umbPeople(st, E, W, H) {
@@ -519,15 +487,15 @@ const ART_MODES = (() => {
     return cv;
   }
   const umbrellas = {
-    name: 'umbrellas', title: 'Umbrellas', dark: true, bolts: false,
+    name: 'umbrellas', title: 'Umbrellas', bolts: false,
     draw(R, c, E) {
       const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E), wy = windY(E), dpr = E.dpr;
       if (st.W !== W || st.H !== H || !st.bgN) {
         st.W = W; st.H = H; umbCam(st, W, H);
         st.lamps = [[-7.5, 5.5], [0.5, 5.5], [8, 5.5], [-6, -2.6], [6.5, -2.6]];
-        st.bgN = toGrey(umbBg(st, W, H, dpr, false)); st.bgD = toGrey(umbBg(st, W, H, dpr, true));
+        st.bgN = 1; st.gndKey = null;
         const rt = Math.min(W, H) * 0.26;
-        st.trees = [[-0.02 * W, 0.18 * H, rt, 11], [1.03 * W, 0.62 * H, rt * 1.15, 47], [0.12 * W, 1.04 * H, rt * 0.9, 83]].map(([x, y, r, sd]) => ({ x, y, r, n: toGrey(umbTree(st, r, false, sd)), d: toGrey(umbTree(st, r, true, sd)) }));
+        st.trees = [[-0.02 * W, 0.18 * H, rt, 11], [1.03 * W, 0.62 * H, rt * 1.15, 47], [0.12 * W, 1.04 * H, rt * 0.9, 83]].map(([x, y, r, sd]) => ({ x, y, r, sd }));
         st.ref = null; st.fly = []; st.ppl = null;
       }
       if (st.ref !== E.sites) umbPeople(st, E, W, H);
@@ -554,10 +522,10 @@ const ART_MODES = (() => {
                   gt: 1e9, gx, gy, hx: gx, hy: gy, coat: col.join(','), hair: '24,20,18', R: 0.75, kind: 1, k: 0.6, cols: [0, 1, 2, 3, 4, 5, 6, 7].map(i => i & 1 ? [245, 242, 235] : col), rim: null, col };
             mine.set(ev.id, q);
           }
-          q.gx = gx; q.gy = gy; q.open = !!ev.open; q.key = ev.id; live.add(ev.id);
+          q.gx = gx; q.gy = gy; q.open = !!ev.open; q.key = ev.id; q.col = ixCol(ev); live.add(ev.id);
         } else if (ev.k === 'shower') {
           let o = shw.get(ev.id); if (!o) shw.set(ev.id, o = { x: gx, y: gy, a: 0 });
-          o.x += (gx - o.x) * 0.3; o.y += (gy - o.y) * 0.3; o.on = T;
+          o.x += (gx - o.x) * 0.3; o.y += (gy - o.y) * 0.3; o.on = T; o.col = ixCol(ev);
         }
       }
       for (const id of [...mine.keys()]) if (!live.has(id)) mine.delete(id);
@@ -565,7 +533,7 @@ const ART_MODES = (() => {
       const gus = st.gus || (st.gus = []);
       for (const ev of ix.fresh) if (ev.k === 'gust') {
         const u = clamp(ev.u, 0, 1) * W, v = clamp(ev.v, 0, 1) * H, [x0, y0] = st.G(u, v), [x1, y1] = st.G(u + (ev.du || 0) * 40, v + (ev.dv || 0) * 40), dl = Math.hypot(x1 - x0, y1 - y0) || 1;
-        gus.push({ x0, y0, dx: (x1 - x0) / dl, dy: (y1 - y0) / dl, s: clamp(ev.s || 0.6, 0.2, 1.4), t0: T });
+        gus.push({ x0, y0, dx: (x1 - x0) / dl, dy: (y1 - y0) / dl, s: clamp(ev.s || 0.6, 0.2, 1.4), t0: T, col: ixCol(ev) });
       }
       while (gus.length && T - gus[0].t0 > 5) gus.shift();
       const all = mine.size ? ppl.concat([...mine.values()]) : ppl;
@@ -640,29 +608,41 @@ const ART_MODES = (() => {
         const dx = B.x - A.x, dy = B.y - A.y, d = Math.hypot(dx, dy) + 1e-6, m = (A.R + B.R) * 0.85 - d;
         if (m > 0) { const f = m * 2.5 * dt / d; A.x -= dx * f; A.y -= dy * f; B.x += dx * f; B.y += dy * f; }
       }
-      // ---- draw: the plaza
-      c.globalCompositeOperation = 'source-over';
-      c.drawImage(fade2(st, 'fb', st.bgN, st.bgD, day), 0, 0, W, H);
-      // splashes on the stone
-      const spl = new Path2D(), nsp = Math.round((14 + 120 * amt) * wet * W / 1600);
+      // ---- draw, in the plumes' manner: light on black (ink on paper in the light theme), everything made of
+      // flowing dots and fine lines, with a soft trail as things move. Colour only for what the phones do.
+      const ink = PAL.ink, spr = sparkSprite(), ds = E.s || 1;
+      c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.lineCap = 'round'; c.lineJoin = 'round'; c.setLineDash([]);
+      c.fillStyle = `rgba(${PAL.bg},${E.fresh ? 1 : PAL.fade})`; c.fillRect(0, 0, W, H);
+      c.globalCompositeOperation = PAL.comp;
+      const gk = W + ':' + H + ':' + INK;
+      if (st.gndKey !== gk) { st.gnd = umbGround(st, W, H, dpr); st.gndKey = gk; }
+      c.globalAlpha = E.fresh ? 0.45 : 0.12; c.drawImage(st.gnd, 0, 0, W, H); c.globalAlpha = 1;
+      if (fl > 0.02) { c.fillStyle = `rgba(${ink},${(0.3 * fl).toFixed(3)})`; c.fillRect(0, 0, W, H); }
+      const fib = [0, 1, 2, 3].map(() => new Path2D()), dts = [0, 1, 2, 3].map(() => new Path2D()), silk = new Path2D(), sparks = [];
+      const lev = (arr, al) => arr[Math.min(3, Math.max(0, Math.floor(al * 4)))];
+      const dot = (pp, x, y, d) => pp.rect(x - d / 2, y - d / 2, d, d);
+      const cp = new Map(), CP = col => { const k = col.join(','); let o = cp.get(k); if (!o) cp.set(k, o = { fib: new Path2D(), body: new Path2D(), lines: new Path2D(), dots: new Path2D(), glow: [] }); return o; };
+      const off = (x, y) => x < -30 || x > W + 30 || y < -30 || y > H + 30;
+      // splashes: a ring of dots opening on the stone (in a phone's colour where its shower falls)
+      const nsp = Math.round((14 + 120 * amt) * wet * W / 1600);
       for (let i = 0; i < nsp; i++) {
         const ph = T / 0.4 + hash(i * 7 + 3), cyc = Math.floor(ph), f = ph - cyc, sd = i * 131 + cyc * 7919;
-        P((hash(sd) - 0.5) * 26, -6 + hash(sd + 1) * 16, 0, p); if (p[0] < -10 || p[0] > W + 10 || p[1] < -10 || p[1] > H + 10) continue;
-        const r = (0.04 + 0.2 * f) * p[2];
-        spl.moveTo(p[0] + r, p[1]); spl.ellipse(p[0], p[1], r, r * 0.82, 0, 0, TAU);
+        P((hash(sd) - 0.5) * 26, -6 + hash(sd + 1) * 16, 0, p); if (off(p[0], p[1])) continue;
+        const r = (0.04 + 0.22 * f) * p[2], pp = lev(dts, 0.7 * (1 - f));
+        for (let m = 0; m < 7; m++) { const a = hash(sd + m * 5) * TAU; dot(pp, p[0] + Math.cos(a) * r, p[1] + Math.sin(a) * r * 0.82, lw * 1.1); }
       }
-      for (const o of shw.values()) for (let i = 0, n = Math.round(26 * o.a); i < n; i++) {      // B: the shower's splashes
-        const ph = T / 0.35 + hash(i * 5 + 1), cyc = Math.floor(ph), f = ph - cyc, sd = i * 977 + cyc * 7919, a = hash(sd) * TAU, r = 2.6 * Math.sqrt(hash(sd + 1));
-        P(o.x + Math.cos(a) * r, o.y + Math.sin(a) * r * 0.8, 0, p); const rr = (0.04 + 0.2 * f) * p[2]; spl.moveTo(p[0] + rr, p[1]); spl.ellipse(p[0], p[1], rr, rr * 0.82, 0, 0, TAU);
+      for (const o of shw.values()) {
+        const C = CP(o.col);
+        for (let i = 0, n = Math.round(26 * o.a); i < n; i++) {
+          const ph = T / 0.35 + hash(i * 5 + 1), cyc = Math.floor(ph), f = ph - cyc, sd = i * 977 + cyc * 7919, a = hash(sd) * TAU, r = 2.6 * Math.sqrt(hash(sd + 1));
+          P(o.x + Math.cos(a) * r, o.y + Math.sin(a) * r * 0.8, 0, p); const rr = (0.04 + 0.22 * f) * p[2];
+          for (let m = 0; m < 6; m++) { const b = hash(sd + m * 5) * TAU; dot(C.dots, p[0] + Math.cos(b) * rr, p[1] + Math.sin(b) * rr * 0.82, lw * 1.2); }
+        }
+        P(o.x, o.y, 0, p); C.fib.moveTo(p[0] + 2.8 * p[2], p[1]); C.fib.ellipse(p[0], p[1], 2.8 * p[2], 2.2 * p[2], 0, 0, TAU);   // where it falls
       }
-      c.strokeStyle = `rgba(${day > 0.5 ? '255,255,255' : '212,212,212'},${0.16 + 0.1 * storm})`; c.lineWidth = lw * 0.6; c.stroke(spl);
-      for (const o of shw.values()) {                            // ... and the cloud's shade over that spot
-        P(o.x, o.y, 0, p); const r = 3 * p[2], gr = c.createRadialGradient(p[0], p[1], 0, p[0], p[1], r);
-        gr.addColorStop(0, `rgba(24,24,24,${(0.3 * o.a).toFixed(3)})`); gr.addColorStop(1, 'rgba(24,24,24,0)'); c.fillStyle = gr; c.beginPath(); c.ellipse(p[0], p[1], r, r * 0.8, 0, 0, TAU); c.fill();
-      }
-      // ---- each person: the canopy's points in space (tilted with the wind, inside out if it blew), then shadows and paint
-      const L = day > 0.5 ? [-0.3, 0.22, 0.93] : [0.3, 0.22, 0.93];   // by day the sun is up and to the left
-      const lb = fb ? [((fb.u == null ? 0.5 : fb.u) - 0.5) * -1.6, -0.5, 0.75] : null;
+      // the lamps glow at night
+      if (day < 0.98) for (const [x, y] of st.lamps) { P(x, y, 5.2, p); sparks.push([p[0], p[1], 0.3 * (1 - day), 0.7 * p[2]]); }
+      // ---- each person: the canopy's points in space (tilted with the wind, inside out if it blew)
       const geo = (q, x, y, zh, ox) => {                        // -> {apex, tips, mids} as [X, Y, Z]
         const o = ox == null ? q.o : ox, io = q.io, R = q.R * (0.14 + 0.86 * o) * (1 + 0.22 * io) * (1 + 0.22 * (q.sh || 0)), zr = 2.05 - (1 - o) * 0.75 * q.R + 0.03 * Math.sin(q.ph * 2);
         const za = zr + q.R * 0.42 * o * (1 - 2 * io), tw = (pt) => { const dz = pt[2] - zh; pt[0] += q.tx * dz; pt[1] += q.ty * dz; pt[2] -= 0.5 * (q.tx * q.tx + q.ty * q.ty) * dz; return pt; };
@@ -675,141 +655,100 @@ const ART_MODES = (() => {
         return { apex, tips, mids };
       };
       const list = all.map(q => { const r = q.host || q; P(r.x, r.y, 2, p); return [p[1] - (r !== q ? 0.5 : 0), q]; }).sort((a, b) => a[0] - b[0]).map(a => a[1]);
-      // shadows. The camera looks down at a slant, so a shadow cast straight down lands well below the canopy on
-      // screen and reads as a separate grey shape. Instead each shadow starts on the ground right behind what is
-      // drawn (G = the ground point under a screen point) and slides a little away from the light: it peeks out
-      // from under its umbrella or person. All of them go into one layer, so where two meet it is not darker.
-      const G = st.G, onGround = (x, y, z, ox, oy) => { P(x, y, z, p); const g0 = G(p[0], p[1]); return P(g0[0] + ox, g0[1] + oy, 0, p); };
-      const soft = 1 - day;
-      if (soft > 0.02) {                                       // lamplight: soft pools under each
-        const sp = [new Path2D(), new Path2D()];
-        for (const q of list) { onGround(q.x, q.y, 1.5 + 0.5 * q.o, 0.15, -0.12); const r = q.R * (0.5 + 0.6 * q.o) * p[2]; sp[0].moveTo(p[0] + r * 1.25, p[1]); sp[0].ellipse(p[0], p[1], r * 1.25, r, 0, 0, TAU); sp[1].moveTo(p[0] + r * 0.8, p[1]); sp[1].ellipse(p[0], p[1], r * 0.8, r * 0.62, 0, 0, TAU); }
-        c.fillStyle = `rgba(0,0,0,${0.13 * soft})`; c.fill(sp[0]); c.fill(sp[1]);
-      }
-      const SH = 4;                                            // the shadow layer is drawn at 1/4 size, so its edges come out soft
-      if (!st.shc || st.shc.width !== Math.ceil(W / SH) || st.shc.height !== Math.ceil(H / SH)) st.shc = canvas(Math.ceil(W / SH), Math.ceil(H / SH));
-      const hard = (Lv, a, len) => {
-        const g = st.shc.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, st.shc.width, st.shc.height); g.setTransform(1 / SH, 0, 0, 1 / SH, 0, 0);
-        g.fillStyle = 'rgb(24,24,24)';
-        const dx = -Lv[0] / Lv[2] * len, dy = -Lv[1] / Lv[2] * len, dl = Math.hypot(dx, dy) || 1, nx = -dy / dl, ny = dx / dl;
-        for (const q of list) {
-          const ca = q.o > 0.02 ? smoothstep(0.02, 0.4, q.o) : 0, pa = 1 - smoothstep(0.15, 0.6, q.o);
-          if (ca > 0) {                                        // the canopy's shadow, as faint as the canopy
-            const cp = new Path2D(), gq = geo(q, q.x, q.y, 1.1);
-            gq.tips.forEach((t, i) => { onGround(t[0], t[1], t[2], dx * t[2], dy * t[2]); i ? cp.lineTo(p[0], p[1]) : cp.moveTo(p[0], p[1]); }); cp.closePath();
-            g.globalAlpha = ca; g.fill(cp);
-          }
-          if (pa > 0.01) {                                     // the person's own shadow, from under their shoulders
-            P(q.x, q.y, 1.45, p); const g0 = G(p[0], p[1]), bx = g0[0], by = g0[1], cp = new Path2D();
-            const pts = [[bx + nx * 0.2, by + ny * 0.2], [bx + dx * 1.7 + nx * 0.13, by + dy * 1.7 + ny * 0.13], [bx + dx * 1.7 - nx * 0.13, by + dy * 1.7 - ny * 0.13], [bx - nx * 0.2, by - ny * 0.2]];
-            pts.forEach(([x, y], i) => { P(x, y, 0, p); i ? cp.lineTo(p[0], p[1]) : cp.moveTo(p[0], p[1]); }); cp.closePath();
-            g.globalAlpha = pa; g.fill(cp);
-          }
+      // a canopy as a little plume: ribs of dots running down from the top, a dotted rim, and inner arcs on the
+      // panels the kind of rain fills (drizzle none, rain every other, showers two quarters, thunderstorm all)
+      const PAT = [0, 0b01010101, 0b00110011, 255];
+      const canopy = (q, gq, out, body) => {
+        const A = P(gq.apex[0], gq.apex[1], gq.apex[2], [0, 0, 0]), tp = gq.tips.map(t => P(t[0], t[1], t[2], [0, 0, 0])), md = gq.mids.map(t => P(t[0], t[1], t[2], [0, 0, 0]));
+        for (let i = 0; i < 8; i++) { out.moveTo(A[0], A[1]); out.lineTo(tp[i][0], tp[i][1]); }
+        const rim = pp => { pp.moveTo(tp[0][0], tp[0][1]); for (let i = 0; i < 8; i++) pp.quadraticCurveTo(md[i][0], md[i][1], tp[(i + 1) % 8][0], tp[(i + 1) % 8][1]); };
+        rim(out); rim(body || silk);
+        const pat = q.ctrl ? 255 : PAT[q.kind] || 0;
+        for (let i = 0; i < 8; i++) if (pat >> i & 1) for (const f of [0.42, 0.7]) {
+          const t0 = tp[i], t1 = tp[(i + 1) % 8], m = md[i];
+          out.moveTo(A[0] + (t0[0] - A[0]) * f, A[1] + (t0[1] - A[1]) * f);
+          out.quadraticCurveTo(A[0] + (m[0] - A[0]) * f, A[1] + (m[1] - A[1]) * f, A[0] + (t1[0] - A[0]) * f, A[1] + (t1[1] - A[1]) * f);
         }
-        g.globalAlpha = 1;
-        c.imageSmoothingEnabled = true; c.globalAlpha = a; c.drawImage(st.shc, 0, 0, W, H); c.globalAlpha = 1;
+        return { A, tp };
       };
-      if (day > 0.02) hard(L, 0.3 * day * (1 - 0.5 * (1 - calm)), 0.7);   // softer under rain clouds
-      if (fl > 0.05 && lb) hard(lb, 0.45 * fl, 0.5);
-      for (const q of mine.values()) {                          // A: your walker, ringed in your colour
-        P(q.x, q.y, 1.45, p); const g0 = st.G(p[0], p[1]); P(g0[0], g0[1], 0, p); const rr = 1.1 * p[2] * (1 + 0.22 * (q.sh || 0));
-        c.strokeStyle = `rgba(${q.col.join(',')},0.95)`; c.lineWidth = lw * 2; c.setLineDash([5 * lw, 4 * lw]);
-        c.beginPath(); c.ellipse(p[0], p[1], rr, rr * 0.8, 0, 0, TAU); c.stroke(); c.setLineDash([]);
-      }
-      // people (seen when the umbrella is closed or gone) and canopies, far ones first
-      const seams = new Path2D(), ribs = new Path2D(), caps = new Path2D(), drops = new Path2D();
-      const paint = (q, gq, alpha) => {
-        const A = P(gq.apex[0], gq.apex[1], gq.apex[2], [0, 0, 0]), tips = gq.tips.map(t => P(t[0], t[1], t[2], [0, 0, 0])), mids = gq.mids.map(t => P(t[0], t[1], t[2], [0, 0, 0]));
-        const Lx = L[0] * (1 - fl) + (lb ? lb[0] : 0) * fl, Ly = L[1], Lz = L[2];
-        c.globalAlpha = alpha;
-        for (let i = 0; i < 8; i++) {
-          const t0 = gq.tips[i], t1 = gq.tips[(i + 1) % 8], ap = gq.apex;
-          const ax = t0[0] - ap[0], ay = t0[1] - ap[1], az = t0[2] - ap[2], bx = t1[0] - ap[0], by = t1[1] - ap[1], bz = t1[2] - ap[2];
-          let nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx; const nm = Math.hypot(nx, ny, nz) + 1e-9; nx /= nm; ny /= nm; nz /= nm;
-          const under = q.io > 0.5, d = Math.max(0, nx * Lx + ny * Ly + nz * Lz);          // inside out: we look into the cup, at the lining
-          const lit = (under ? 0.26 + 0.4 * d : 0.38 + 0.78 * d) * (0.74 + 0.26 * day) + 0.5 * fl, col = q.cols[i];
-          c.fillStyle = `rgb(${Math.min(255, col[0] * lit) | 0},${Math.min(255, col[1] * lit) | 0},${Math.min(255, col[2] * lit) | 0})`;
-          c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(tips[i][0], tips[i][1]); c.quadraticCurveTo(mids[i][0], mids[i][1], tips[(i + 1) % 8][0], tips[(i + 1) % 8][1]); c.closePath(); c.fill();
-          if (alpha > 0.97) {
-            seams.moveTo(A[0], A[1]); seams.lineTo(tips[i][0], tips[i][1]);
-            if (q.io > 0.3) { ribs.moveTo(A[0], A[1]); ribs.lineTo(tips[i][0], tips[i][1]); }
-            caps.rect(tips[i][0] - 1.1, tips[i][1] - 1.1, 2.2, 2.2);
-          }
-        }
-        if (q.rim) {                                           // the black ones: a coloured rim
-          c.strokeStyle = `rgb(${q.rim})`; c.lineWidth = Math.max(1.1, 0.026 * A[2]); c.beginPath();
-          for (let i = 0; i <= 8; i++) { const t = tips[i % 8]; if (!i) c.moveTo(t[0], t[1]); else c.quadraticCurveTo(mids[i - 1][0], mids[i - 1][1], t[0], t[1]); }
-          c.stroke();
-        }
-        c.fillStyle = day > 0.5 ? 'rgba(248,248,248,0.95)' : 'rgba(216,216,216,0.9)'; c.beginPath(); c.arc(A[0], A[1], Math.max(1.6, 0.05 * A[2]), 0, TAU); c.fill();
-        c.globalAlpha = 1;
-        // rain landing on it
-        const aw = Math.max(amt * wet, (q.lw || 0) * 1.3);
-        if (aw > 0.02 && alpha > 0.5) for (let n = 0, m = Math.round(aw * (1.5 + 2 * q.k)); n < m; n++) {
-          const i = Math.floor(rnd() * 8), f = rnd() * 0.85; const x = A[0] + (tips[i][0] - A[0]) * f, y = A[1] + (tips[i][1] - A[1]) * f, d = 1.2 + 1.4 * rnd();
-          drops.rect(x - d / 2, y - d / 2, d, d);
-        }
-      };
+      const aw0 = amt * wet;
       for (const q of list) {
-        // the person underneath: shoulders and head, seen as the umbrella fades
+        const C = q.ctrl ? CP(q.col) : null;
+        // the person: a dotted head and shoulders, seen as the umbrella fades
         const vis = 1 - smoothstep(0.15, 0.6, q.o);
         if (vis > 0.01) {
-          P(q.x, q.y, 1.45, p); const k = p[2], ch = Math.cos(q.hd), shh = Math.sin(q.hd), sw = Math.sin(q.ph) * 0.06;
-          c.globalAlpha = vis;
-          c.fillStyle = `rgb(${q.coat})`; c.beginPath(); c.ellipse(p[0], p[1], 0.3 * k, 0.15 * k, q.hd + Math.PI / 2, 0, TAU); c.fill();
-          c.fillStyle = `rgb(${q.hair})`; P(q.x + ch * 0.04, q.y + shh * 0.04, 1.7, q2); c.beginPath(); c.arc(q2[0], q2[1], 0.12 * q2[2], 0, TAU); c.fill();
-          c.globalAlpha = 1;
+          const out = C ? C.fib : lev(fib, 0.55 * vis);
+          P(q.x, q.y, 1.45, p); const k = p[2];
+          out.moveTo(p[0] + 0.3 * k, p[1]); out.ellipse(p[0], p[1], 0.3 * k, 0.15 * k, q.hd + Math.PI / 2, 0, TAU);
+          P(q.x + Math.cos(q.hd) * 0.04, q.y + Math.sin(q.hd) * 0.04, 1.7, q2); out.moveTo(q2[0] + 0.12 * q2[2], q2[1]); out.arc(q2[0], q2[1], 0.12 * q2[2], 0, TAU);
         }
-        if (q.o > 0.02) paint(q, geo(q, q.x, q.y, 1.1), smoothstep(0.02, 0.4, q.o));  // folds, and fades as it finishes folding
+        if (C) { P(q.x, q.y, 1.45, p); const g0 = st.G(p[0], p[1]); P(g0[0], g0[1], 0, p); const rr = 1.1 * p[2] * (1 + 0.22 * (q.sh || 0));   // your ring on the ground
+          C.fib.moveTo(p[0] + rr, p[1]); C.fib.ellipse(p[0], p[1], rr, rr * 0.8, 0, 0, TAU); }
+        if (q.o > 0.02) {
+          const al = smoothstep(0.02, 0.4, q.o), gq = geo(q, q.x, q.y, 1.1);
+          const { A, tp } = canopy(q, gq, C ? C.fib : lev(fib, al * (0.35 + 0.6 * q.k)), C ? C.body : null);
+          if (C) C.glow.push([A[0], A[1], 0.8 * al, 1.8 * A[2] * q.R]); else sparks.push([A[0], A[1], al * (0.12 + 0.3 * q.k), 0.38 * A[2] * q.R]);
+          const aw = Math.max(aw0, (q.lw || 0) * 1.3);          // rain landing on it: a few bright drops
+          if (aw > 0.02 && al > 0.5) for (let n = 0, m = Math.round(aw * (1.5 + 2 * q.k)); n < m; n++) {
+            const i = Math.floor(rnd() * 8), f = rnd() * 0.85; dot(dts[3], A[0] + (tp[i][0] - A[0]) * f, A[1] + (tp[i][1] - A[1]) * f, lw * 1.3);
+          }
+        }
       }
-      c.lineWidth = lw * 0.45; c.strokeStyle = 'rgba(0,0,0,0.22)'; c.stroke(seams);
-      c.strokeStyle = 'rgba(234,234,234,0.9)'; c.lineWidth = lw * 1.1; c.stroke(ribs);
-      c.fillStyle = 'rgba(238,238,238,0.7)'; c.fill(caps);
-      c.fillStyle = `rgba(242,242,242,${0.55 + 0.2 * storm})`; c.fill(drops);
-      // umbrellas the storm tore away, tumbling off downwind
+      // umbrellas the wind tore away, tumbling off downwind
       st.fly = st.fly.filter(f => {
         f.vx += ((f.wx == null ? wdx : f.wx) * 7 - f.vx) * dt * 0.8; f.vy += ((f.wy == null ? wdy : f.wy) * 7 - f.vy) * dt * 0.8; f.vz += (-1.2 + 2 * Math.sin(T * 3 + f.t)) * dt;
         f.x += f.vx * dt; f.y += f.vy * dt; f.z = Math.max(0.6, f.z + f.vz * dt); f.spin += f.om * dt; f.tx = 0.8 * Math.sin(T * 2.3 + f.t); f.ty = 0.8 * Math.cos(T * 1.9 + f.t);
-        const q = { id: 999, R: f.R, o: 1, io: 0.6 + 0.4 * Math.sin(T * 4 + f.t), tx: f.tx, ty: f.ty, spin: f.spin, ph: 0, cols: f.cols, rim: f.rim, k: 0 };
-        paint(q, geo(q, f.x, f.y, f.z - 1), 1);
+        const q = { id: 999, R: f.R, o: 1, io: 0.6 + 0.4 * Math.sin(T * 4 + f.t), tx: f.tx, ty: f.ty, spin: f.spin, ph: 0, kind: 1, k: 0 };
+        canopy(q, geo(q, f.x, f.y, f.z - 1), fib[2]);
         P(f.x, f.y, f.z, p); return p[0] > -200 && p[0] < W + 200 && p[1] > -200 && p[1] < H + 200 && T - f.t < 12;
       });
-      // ---- the rain itself, falling past the window
+      // ---- the rain itself, falling past the window (a phone's shower in its colour)
       const rain = new Path2D(), nr = Math.round((40 + 700 * amt) * wet * W / 1600 * (0.4 + 0.6 * (E.pts.length ? 1 : 0.6)));
       const slx = wdx * (0.25 + 1.2 * e + 0.8 * storm), sly = wdy * (0.25 + 1.2 * e + 0.8 * storm);
       for (let i = 0; i < nr; i++) {
         const z = 9 - ((T * 9 + hash(i * 3 + 3) * 9) % 9), X = (hash(i * 3 + 1) - 0.5) * 30 + slx * (9 - z) * 0.3, Y = -6 + hash(i * 3 + 2) * 18 + sly * (9 - z) * 0.3;
         P(X, Y, z, p); P(X - slx * 0.12, Y - sly * 0.12, z + 0.55, q2);
-        if (p[0] < -20 || p[0] > W + 20 || p[1] < -20 || p[1] > H + 20) continue;
+        if (off(p[0], p[1])) continue;
         rain.moveTo(q2[0], q2[1]); rain.lineTo(p[0], p[1]);
       }
-      for (const o of shw.values()) for (let i = 0, n = Math.round(140 * o.a); i < n; i++) {     // B: the shower itself
-        const z = 7 - ((T * 9 + hash(i * 3 + 101) * 7) % 7), a = hash(i * 3 + 102) * TAU, r = 2.6 * Math.sqrt(hash(i * 3 + 103)), X = o.x + Math.cos(a) * r, Y = o.y + Math.sin(a) * r * 0.8;
-        P(X, Y, z, p); P(X, Y, z + 0.55, q2); if (p[0] < -20 || p[0] > W + 20 || p[1] < -20 || p[1] > H + 20) continue; rain.moveTo(q2[0], q2[1]); rain.lineTo(p[0], p[1]);
-      }
-      c.strokeStyle = day > 0.5 ? 'rgba(255,255,255,0.35)' : 'rgba(214,214,214,0.3)'; c.lineWidth = lw * 0.6; c.stroke(rain);
-      for (const g of gus) {                                     // C: the gust's front, a few streaks sweeping across
-        const ag = T - g.t0, f = ag * 8 - 4, al = Math.min(1, ag * 3) * (1 - smoothstep(3, 4.5, ag)) * Math.min(1, g.s);
-        if (al < 0.01) continue;
-        const wl = new Path2D();
-        for (let j = -16; j <= 16; j++) {
-          const off = j * 0.9 + (hash(j + 40) - 0.5) * 0.8, fj = f + (hash(j + 60) - 0.5) * 2.5, ln = 2 + 2 * hash(j + 80), fx = g.x0 + g.dx * fj - g.dy * off, fy = g.y0 + g.dy * fj + g.dx * off;
-          P(fx - g.dx * ln, fy - g.dy * ln, 2.6, q2); P(fx, fy, 2.6, p); wl.moveTo(q2[0], q2[1]); wl.lineTo(p[0], p[1]);
+      for (const o of shw.values()) {
+        const C = CP(o.col);
+        for (let i = 0, n = Math.round(140 * o.a); i < n; i++) {
+          const z = 7 - ((T * 9 + hash(i * 3 + 101) * 7) % 7), a = hash(i * 3 + 102) * TAU, r = 2.6 * Math.sqrt(hash(i * 3 + 103)), X = o.x + Math.cos(a) * r, Y = o.y + Math.sin(a) * r * 0.8;
+          P(X, Y, z, p); P(X, Y, z + 0.55, q2); if (off(p[0], p[1])) continue; C.lines.moveTo(q2[0], q2[1]); C.lines.lineTo(p[0], p[1]);
         }
-        c.strokeStyle = `rgba(255,255,255,${(0.7 * al).toFixed(3)})`; c.lineWidth = lw * 1.6; c.stroke(wl);
       }
-      // the lamp heads (lit at night) and the trees' crowns
-      for (const [x, y] of st.lamps) {
-        P(x, y, 5.2, p); const k = p[2];
-        c.fillStyle = day > 0.5 ? '#3a3a3a' : '#0c0c0c'; c.beginPath(); c.arc(p[0], p[1], 0.17 * k, 0, TAU); c.fill();
-        if (day < 0.98) { c.globalAlpha = 1 - day; c.drawImage(glow('236,236,236', 64, 0.3), p[0] - 0.7 * k, p[1] - 0.7 * k, 1.4 * k, 1.4 * k); c.fillStyle = '#f2f2f2'; c.beginPath(); c.arc(p[0], p[1], 0.09 * k, 0, TAU); c.fill(); c.globalAlpha = 1; }
+      for (const g of gus) {                                     // a gust: dotted streaks sweeping across, in the colour of the phone that sent it
+        const ag = T - g.t0, f = ag * 8 - 4, al = Math.min(1, ag * 3) * (1 - smoothstep(3, 4.5, ag)) * Math.min(1, g.s);
+        if (al < 0.05) continue;
+        const C = CP(g.col);
+        for (let j = -16; j <= 16; j++) {
+          const o2 = j * 0.9 + (hash(j + 40) - 0.5) * 0.8, fj = f + (hash(j + 60) - 0.5) * 2.5, ln = (2 + 2 * hash(j + 80)) * al, fx = g.x0 + g.dx * fj - g.dy * o2, fy = g.y0 + g.dy * fj + g.dx * o2;
+          P(fx - g.dx * ln, fy - g.dy * ln, 2.6, q2); P(fx, fy, 2.6, p); C.fib.moveTo(q2[0], q2[1]); C.fib.lineTo(p[0], p[1]);
+        }
       }
-      for (const t of st.trees) {
-        const sw = (wdx * (e + storm) * 0.025 + 0.004 * Math.sin(T * 0.7 + t.r)) * t.r, z = t.r * 2.3;
-        if (day < 0.996) c.drawImage(t.n, t.x - z / 2 + sw, t.y - z / 2, z, z);
-        if (day > 0.004) { c.globalAlpha = day; c.drawImage(t.d, t.x - z / 2 + sw, t.y - z / 2, z, z); c.globalAlpha = 1; }
+      // ---- now lay it all down: faint silk under the rims, the dotted filaments (the dots flow, as in the plumes),
+      // sparks and drops, the falling streaks; then the phones' own, in colour
+      const flow = -T * (16 + 40 * storm) * ds;
+      c.strokeStyle = `rgba(${ink},0.05)`; c.lineWidth = lw * 0.6; c.stroke(silk);
+      c.setLineDash([0.01, 3 * ds]); c.lineDashOffset = flow; c.lineWidth = lw * 1.25;
+      fib.forEach((pp, i) => { c.strokeStyle = `rgba(${ink},${(0.2 + 0.25 * i).toFixed(2)})`; c.stroke(pp); });
+      c.setLineDash([]); c.lineDashOffset = 0;
+      dts.forEach((pp, i) => { c.fillStyle = `rgba(${ink},${(0.2 + 0.25 * i).toFixed(2)})`; c.fill(pp); });
+      c.strokeStyle = `rgba(${ink},${(0.16 + 0.06 * storm).toFixed(3)})`; c.lineWidth = lw * 0.8; c.stroke(rain);
+      for (const [x, y, al, z] of sparks) { c.globalAlpha = Math.min(1, al); c.drawImage(spr, x - z / 2, y - z / 2, z, z); }
+      c.globalAlpha = 1;
+      for (const [k, o] of cp) {
+        c.fillStyle = `rgba(${k},0.14)`; c.fill(o.body);
+        c.strokeStyle = `rgba(${k},0.35)`; c.lineWidth = lw * 0.6; c.stroke(o.body);
+        c.strokeStyle = `rgba(${k},0.55)`; c.lineWidth = lw * 0.9; c.stroke(o.lines);
+        c.fillStyle = `rgba(${k},0.95)`; c.fill(o.dots);
+        c.setLineDash([0.01, 3 * ds]); c.lineDashOffset = flow; c.strokeStyle = `rgba(${k},1)`; c.lineWidth = lw * 1.7; c.stroke(o.fib); c.setLineDash([]); c.lineDashOffset = 0;
+        const gl = glow(k, 64, 0.3);
+        for (const [x, y, al, z] of o.glow) { c.globalAlpha = al; c.drawImage(gl, x - z / 2, y - z / 2, z, z); }
+        c.globalAlpha = 1;
       }
-      if (fl > 0.02) { c.fillStyle = `rgba(242,242,242,${0.38 * fl})`; c.fillRect(0, 0, W, H); }
+      c.globalCompositeOperation = 'source-over';
     },
   };
 
