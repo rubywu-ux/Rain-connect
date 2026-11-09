@@ -479,7 +479,7 @@ const ART_MODES = (() => {
           st.fly.push({ x: q.x, y: q.y, z: 2.2, vx: wdx * 5, vy: wdy * 5, vz: 2.5, cols: q.cols, rim: q.rim, R: q.R, spin: q.spin, om: 9 * (rnd() < 0.5 ? -1 : 1), tx: wdx * 0.6, ty: 0.5, t: T });
         }
         const ot = q.lost > T ? 0 : openT;
-        q.o += (ot - q.o) * (1 - Math.exp(-dt * (ot > q.o ? 1.6 : 0.9)));           // calm: fold, then fade away; rain: fade in folded, then unfold
+        q.o += (ot - q.o) * (1 - Math.exp(-dt * (ot > q.o ? 2.6 : 1.5)));           // calm: fold, then fade away; rain: fade in folded, then unfold
         // twirls
         for (const t of tp.fresh) {
           if (t.site === q.id) q.om += t.echo ? 2.6 : 11 * (hash(t.seed) < 0.5 ? -1 : 1);
