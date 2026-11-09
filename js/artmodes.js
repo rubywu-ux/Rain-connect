@@ -479,7 +479,7 @@ const ART_MODES = (() => {
           st.fly.push({ x: q.x, y: q.y, z: 2.2, vx: wdx * 5, vy: wdy * 5, vz: 2.5, cols: q.cols, rim: q.rim, R: q.R, spin: q.spin, om: 9 * (rnd() < 0.5 ? -1 : 1), tx: wdx * 0.6, ty: 0.5, t: T });
         }
         const ot = q.lost > T ? 0 : openT;
-        q.o += (ot - q.o) * (1 - Math.exp(-dt * (ot > q.o ? 2.2 : 1.3)));
+        q.o += (ot - q.o) * (1 - Math.exp(-dt * (ot > q.o ? 1.4 : 0.55)));          // calm: the umbrellas fade away slowly (and back in when it rains)
         // twirls
         for (const t of tp.fresh) {
           if (t.site === q.id) q.om += t.echo ? 2.6 : 11 * (hash(t.seed) < 0.5 ? -1 : 1);
@@ -508,8 +508,8 @@ const ART_MODES = (() => {
       const L = day > 0.5 ? [0.62, 0.42, 0.66] : [-0.55, 0.42, 0.72];
       const lb = fb ? [((fb.u == null ? 0.5 : fb.u) - 0.5) * -1.6, -0.5, 0.75] : null;
       const geo = (q, x, y, zh, ox) => {                        // -> {apex, tips, mids} as [X, Y, Z]
-        const o = ox == null ? q.o : ox, io = q.io, R = q.R * (0.14 + 0.86 * o) * (1 + 0.22 * io), zr = 2.05 - (1 - o) * 0.75 * q.R + 0.03 * Math.sin(q.ph * 2);
-        const za = zr + q.R * 0.42 * o * (1 - 2 * io), tw = (pt) => { const dz = pt[2] - zh; pt[0] += q.tx * dz; pt[1] += q.ty * dz; pt[2] -= 0.5 * (q.tx * q.tx + q.ty * q.ty) * dz; return pt; };
+        const o = ox == null ? q.o : ox, io = q.io, R = q.R * (0.9 + 0.1 * o) * (1 + 0.22 * io), zr = 2.05 + 0.03 * Math.sin(q.ph * 2);
+        const za = zr + q.R * 0.42 * (1 - 2 * io), tw = (pt) => { const dz = pt[2] - zh; pt[0] += q.tx * dz; pt[1] += q.ty * dz; pt[2] -= 0.5 * (q.tx * q.tx + q.ty * q.ty) * dz; return pt; };
         const apex = tw([x, y, za]), tips = [], mids = [];
         for (let i = 0; i < 8; i++) {
           const a = q.spin + i * TAU / 8, a2 = a + TAU / 16, j = io * (hash(q.id * 9 + i) - 0.5);
@@ -529,8 +529,12 @@ const ART_MODES = (() => {
       const hard = (Lv, a) => {
         const path = new Path2D();
         for (const q of list) {
-          const gq = geo(q, q.x, q.y, 1.1), proj = pt => P(pt[0] - Lv[0] * pt[2] / Lv[2], pt[1] - Lv[1] * pt[2] / Lv[2], 0, p);
-          if (q.o > 0.2) { gq.tips.forEach((t, i) => { proj(t); i ? path.lineTo(p[0], p[1]) : path.moveTo(p[0], p[1]); }); path.closePath(); }
+          const proj = pt => P(pt[0] - Lv[0] * pt[2] / Lv[2], pt[1] - Lv[1] * pt[2] / Lv[2], 0, p);
+          if (q.o > 0.02) {                                    // the canopy's shadow, as faint as the canopy
+            const cp = new Path2D(), gq = geo(q, q.x, q.y, 1.1);
+            gq.tips.forEach((t, i) => { proj(t); i ? cp.lineTo(p[0], p[1]) : cp.moveTo(p[0], p[1]); }); cp.closePath();
+            c.fillStyle = `rgba(20,16,12,${(a * q.o * q.o * (3 - 2 * q.o)).toFixed(3)})`; c.fill(cp);
+          }
           proj([q.x, q.y, 1.5]); const ex = p[0], ey = p[1]; P(q.x, q.y, 0, q2);    // the person's own shadow
           path.moveTo(q2[0] + 0.2 * q2[2], q2[1]); path.lineTo(ex + 0.16 * q2[2], ey); path.lineTo(ex - 0.16 * q2[2], ey); path.lineTo(q2[0] - 0.2 * q2[2], q2[1]); path.closePath();
         }
@@ -552,9 +556,11 @@ const ART_MODES = (() => {
           const lit = (under ? 0.26 + 0.4 * d : 0.38 + 0.78 * d) * (0.74 + 0.26 * day) + 0.5 * fl, col = q.cols[i];
           c.fillStyle = `rgb(${Math.min(255, col[0] * lit) | 0},${Math.min(255, col[1] * lit) | 0},${Math.min(255, col[2] * lit) | 0})`;
           c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(tips[i][0], tips[i][1]); c.quadraticCurveTo(mids[i][0], mids[i][1], tips[(i + 1) % 8][0], tips[(i + 1) % 8][1]); c.closePath(); c.fill();
-          seams.moveTo(A[0], A[1]); seams.lineTo(tips[i][0], tips[i][1]);
-          if (q.io > 0.3) { ribs.moveTo(A[0], A[1]); ribs.lineTo(tips[i][0], tips[i][1]); }
-          caps.rect(tips[i][0] - 1.1, tips[i][1] - 1.1, 2.2, 2.2);
+          if (alpha > 0.97) {
+            seams.moveTo(A[0], A[1]); seams.lineTo(tips[i][0], tips[i][1]);
+            if (q.io > 0.3) { ribs.moveTo(A[0], A[1]); ribs.lineTo(tips[i][0], tips[i][1]); }
+            caps.rect(tips[i][0] - 1.1, tips[i][1] - 1.1, 2.2, 2.2);
+          }
         }
         if (q.rim) {                                           // the black ones: a coloured rim
           c.strokeStyle = `rgb(${q.rim})`; c.lineWidth = Math.max(1.1, 0.026 * A[2]); c.beginPath();
@@ -570,23 +576,16 @@ const ART_MODES = (() => {
         }
       };
       for (const q of list) {
-        // the person underneath: shoulders and head, the closed umbrella at their side
-        const vis = 1 - smoothstep(0.15, 0.6, q.o);
+        // the person underneath: shoulders and head, seen as the umbrella fades
+        const vis = 1 - smoothstep(0.2, 0.75, q.o);
         if (vis > 0.01) {
           P(q.x, q.y, 1.45, p); const k = p[2], ch = Math.cos(q.hd), shh = Math.sin(q.hd), sw = Math.sin(q.ph) * 0.06;
           c.globalAlpha = vis;
           c.fillStyle = `rgb(${q.coat})`; c.beginPath(); c.ellipse(p[0], p[1], 0.3 * k, 0.15 * k, q.hd + Math.PI / 2, 0, TAU); c.fill();
           c.fillStyle = `rgb(${q.hair})`; P(q.x + ch * 0.04, q.y + shh * 0.04, 1.7, q2); c.beginPath(); c.arc(q2[0], q2[1], 0.12 * q2[2], 0, TAU); c.fill();
-          if (q.lost < T) {                                  // the closed umbrella, swinging at their side
-            const sx = q.x - shh * 0.3 + ch * sw, sy = q.y + ch * 0.3 + shh * sw;
-            P(sx, sy, 0.95, p); P(sx + ch * 0.62, sy + shh * 0.62, 0.2, q2);
-            const ux = q2[0] - p[0], uy = q2[1] - p[1], ul = Math.hypot(ux, uy) + 1e-6, nx = -uy / ul * 0.07 * p[2], ny = ux / ul * 0.07 * p[2];
-            c.fillStyle = `rgb(${q.cols[0].map(v => v * 0.85 | 0)})`; c.beginPath(); c.moveTo(p[0] - ux * 0.1, p[1] - uy * 0.1);
-            c.quadraticCurveTo(p[0] + ux * 0.3 + nx, p[1] + uy * 0.3 + ny, q2[0], q2[1]); c.quadraticCurveTo(p[0] + ux * 0.3 - nx, p[1] + uy * 0.3 - ny, p[0] - ux * 0.1, p[1] - uy * 0.1); c.fill();
-          }
           c.globalAlpha = 1;
         }
-        if (q.o > 0.15) paint(q, geo(q, q.x, q.y, 1.1), smoothstep(0.15, 0.5, q.o));
+        if (q.o > 0.01) paint(q, geo(q, q.x, q.y, 1.1), q.o * q.o * (3 - 2 * q.o));   // fades out as it closes
       }
       c.lineWidth = lw * 0.45; c.strokeStyle = 'rgba(0,0,0,0.22)'; c.stroke(seams);
       c.strokeStyle = 'rgba(232,232,240,0.9)'; c.lineWidth = lw * 1.1; c.stroke(ribs);
