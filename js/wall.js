@@ -281,7 +281,7 @@
     try { localStorage.setItem('rc_art', String(n)); } catch (e) {}
     document.body.classList.toggle('art', n > 0);
     $('art').classList.toggle('on', n > 0);
-    $('art').textContent = mode ? `art · ${n} ${mode.title.toLowerCase()}` : 'art · off';
+    $('art').textContent = mode ? mode.title.toLowerCase() : 'rain map';
     // modes with their own dark palette keep it in the light theme too: the page's vignette would tint their edges
     const vig = document.querySelector('.vignette'); if (vig) vig.style.opacity = mode && mode.dark ? '0' : '';
     R.hideUnder = n > 0;              // the stippled map and the stains belong to the map view
