@@ -106,13 +106,15 @@ const ART_MODES = (() => {
       const major = !(i & 1) && !(j & 1), k = clamp(p[2] / 55, 0.6, 1.5);
       dot(p[0], p[1], (major ? 1.7 : 1.1) * k, major ? 0.9 : 0.4);
     }
-    for (let n = 0; n < 6; n++) {                                // puddles
+    st.puddles = [];
+    for (let n = 0; n < 6; n++) {                                // puddles: a dense dotted shoreline, a faint stipple of surface
       const cx = n === 2 ? 3.5 : (hash(n * 7 + 1) - 0.5) * 18, cy = n === 2 ? -1 : -3 + hash(n * 7 + 2) * 10, r = n === 2 ? 1.7 : 0.8 + 1.4 * hash(n * 7 + 3);
       const rr = a => r * (1 + 0.35 * vnoise(Math.cos(a) * 1.5 + n * 3, Math.sin(a) * 1.5));
-      for (let q = 0; q < 260 * r; q++) {
-        const a = hash(n * 997 + q * 3) * TAU, edge = hash(n * 997 + q * 3 + 1) < 0.7, f = edge ? 0.9 + 0.12 * hash(n * 997 + q * 3 + 2) : Math.sqrt(hash(n * 997 + q * 3 + 2)) * 0.9;
+      st.puddles.push({ cx, cy, r, rr, n });
+      for (let q = 0; q < 420 * r; q++) {
+        const a = hash(n * 997 + q * 3) * TAU, edge = hash(n * 997 + q * 3 + 1) < 0.75, f = edge ? 0.94 + 0.08 * hash(n * 997 + q * 3 + 2) : Math.sqrt(hash(n * 997 + q * 3 + 2)) * 0.9;
         P(cx + Math.cos(a) * rr(a) * 1.5 * f, cy + Math.sin(a) * rr(a) * f, 0, p);
-        dot(p[0], p[1], edge ? 1.3 : 1, edge ? 0.75 : 0.18);
+        dot(p[0], p[1], edge ? 1.5 : 1, edge ? 1 : 0.26);
       }
     }
     for (const t of st.trees) for (let q = 0; q < 900; q++) {   // crowns
@@ -267,7 +269,7 @@ const ART_MODES = (() => {
       const gk = W + ':' + H + ':' + INK;
       if (st.gndKey !== gk) { st.gnd = umbGround(st, W, H, dpr); st.gndKey = gk; }
       c.globalAlpha = E.fresh ? 0.3 : 0.07; c.drawImage(st.gnd, 0, 0, W, H); c.globalAlpha = 1;
-      if (fl > 0.02) { c.fillStyle = `rgba(${ink},${(0.3 * fl).toFixed(3)})`; c.fillRect(0, 0, W, H); }
+      if (fl > 0.02) { c.fillStyle = `rgba(${ink},${(0.1 * fl).toFixed(3)})`; c.fillRect(0, 0, W, H); }
       const fib = [0, 1, 2, 3].map(() => new Path2D()), dts = [0, 1, 2, 3].map(() => new Path2D()), silk = new Path2D(), sparks = [];
       const lev = (arr, al) => arr[Math.min(3, Math.max(0, Math.floor(al * 4)))];
       const dot = (pp, x, y, d) => pp.rect(x - d / 2, y - d / 2, d, d);
@@ -289,6 +291,20 @@ const ART_MODES = (() => {
           for (let m = 0; m < 6; m++) { const b = hash(sd + m * 5) * TAU; dot(C.dots, p[0] + Math.cos(b) * rr, p[1] + Math.sin(b) * rr * 0.82, lw * 1.2); }
         }
         P(o.x, o.y, 0, p); C.fib.moveTo(p[0] + 2.8 * p[2], p[1]); C.fib.ellipse(p[0], p[1], 2.8 * p[2], 2.2 * p[2], 0, 0, TAU);   // where it falls
+      }
+      // the puddles are water: a faint sheen, and the rain's rings widening on them
+      for (const pd of st.puddles) {
+        const sh = new Path2D();
+        for (let i = 0; i <= 28; i++) { const a = i / 28 * TAU, rr = pd.rr(a); P(pd.cx + Math.cos(a) * rr * 1.5, pd.cy + Math.sin(a) * rr, 0, p); i ? sh.lineTo(p[0], p[1]) : sh.moveTo(p[0], p[1]); }
+        sh.closePath(); c.fillStyle = `rgba(${ink},0.009)`; c.fill(sh);
+        const nr = Math.round((3 + 9 * amt) * pd.r);
+        for (let i = 0; i < nr; i++) {
+          const ph = T / 1.6 + hash(pd.n * 53 + i * 7), cyc = Math.floor(ph), f = ph - cyc, sd = pd.n * 7919 + i * 131 + cyc * 977;
+          const a = hash(sd) * TAU, d = Math.sqrt(hash(sd + 1)) * 0.85, rr = pd.rr(a);
+          P(pd.cx + Math.cos(a) * rr * 1.5 * d, pd.cy + Math.sin(a) * rr * d, 0, p);
+          const R0 = (0.06 + 0.55 * f) * p[2] * pd.r * 0.6, pp = lev(dts, 0.55 * (1 - f) * (1 - f));
+          for (let m = 0, nm = 6 + Math.round(R0 / 3); m < nm; m++) { const b = m / nm * TAU + hash(sd + 9) * TAU; dot(pp, p[0] + Math.cos(b) * R0, p[1] + Math.sin(b) * R0 * 0.8, lw * 1.05); }
+        }
       }
       // the lamps glow at night
       if (day < 0.98) for (const [x, y] of st.lamps) { P(x, y, 5.2, p); sparks.push([p[0], p[1], 0.3 * (1 - day), 0.7 * p[2]]); }
@@ -324,10 +340,10 @@ const ART_MODES = (() => {
       const aw0 = amt * wet;
       for (const q of list) {
         const C = q.ctrl ? CP(q.col) : null;
-        // the person: a dotted head and shoulders, seen as the umbrella fades
+        // the person: a dotted head and shoulders, seen as the umbrella fades; under a phone's umbrella, in its colour
         const vis = 1 - smoothstep(0.15, 0.6, q.o);
         if (vis > 0.01) {
-          const out = C ? C.fib : lev(fib, 0.55 * vis);
+          const out = C ? C.fib : q.host ? CP(q.host.col).lines : lev(fib, 0.75 * vis);
           P(q.x, q.y, 1.45, p); const k = p[2];
           out.moveTo(p[0] + 0.3 * k, p[1]); out.ellipse(p[0], p[1], 0.3 * k, 0.15 * k, q.hd + Math.PI / 2, 0, TAU);
           P(q.x + Math.cos(q.hd) * 0.04, q.y + Math.sin(q.hd) * 0.04, 1.7, q2); out.moveTo(q2[0] + 0.12 * q2[2], q2[1]); out.arc(q2[0], q2[1], 0.12 * q2[2], 0, TAU);
@@ -391,7 +407,7 @@ const ART_MODES = (() => {
       for (const [k, o] of cp) {
         c.fillStyle = `rgba(${k},0.1)`; c.fill(o.body);
         c.strokeStyle = `rgba(${k},0.3)`; c.lineWidth = lw * 0.6; c.stroke(o.body);
-        c.strokeStyle = `rgba(${k},0.45)`; c.lineWidth = lw * 0.8; c.stroke(o.lines);
+        c.strokeStyle = `rgba(${k},0.6)`; c.lineWidth = lw * 0.9; c.stroke(o.lines);
         c.fillStyle = `rgba(${k},0.9)`; c.fill(o.dots);
         c.setLineDash([0.01, 3 * ds]); c.lineDashOffset = flow; c.strokeStyle = `rgba(${k},0.95)`; c.lineWidth = lw * 1.4; c.stroke(o.fib); c.setLineDash([]); c.lineDashOffset = 0;
         const gl = glow(k, 64, 0.3);
