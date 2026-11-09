@@ -41,7 +41,7 @@ const RCLab = (() => {
   function send(k, data, force) {
     if (!net) return;
     const now = performance.now();
-    if (!force && now - lastSend < 90) return;
+    if (!force && now - lastSend < 40) return;
     lastSend = now;
     net.pub('hub/in', Object.assign({ type: 'ix', id: ME, m: 'umbrellas', k }, data));
   }
@@ -53,7 +53,7 @@ const RCLab = (() => {
   function down(e) {
     if (!on) return false;
     const t = performance.now();
-    g = { x0: e.clientX, y0: e.clientY, t0: t, x: e.clientX, y: e.clientY, t, moved: 0, hold: false, pk: 0 };
+    g = { x0: e.clientX, y0: e.clientY, t0: t, x: e.clientX, y: e.clientY, t, moved: 0, hold: false, pk: 0, pos0: pos };
     return true;
   }
   function move(e) {
@@ -64,7 +64,7 @@ const RCLab = (() => {
     if (g.hold) {                                            // raining where the finger is: it can be dragged about
       send('shower', { u: r3(g.x / innerWidth), v: r3(g.y / innerHeight), on: 1 });
       const r = $('#umb-ring'); r.style.left = g.x + 'px'; r.style.top = g.y + 'px';
-    } else if (g.moved > 12 && g.pk < 2.2) {                 // a drag: your umbrella follows the finger
+    } else if (g.moved > 8) {                                // a drag: your umbrella follows the finger, right away
       pos = { u: g.x / innerWidth, v: g.y / innerHeight }; placeDot(); send('walk', walkMsg());
     }
     return true;
@@ -77,6 +77,7 @@ const RCLab = (() => {
     if (L > 0.22 && dur < 420 && mine.pk > 2.2) {            // a flick: a gust across the plaza from where it started
       const s = Math.min(1.4, Math.max(0.5, L / (dur / 1000) / 2.2));
       send('gust', { u: r3(mine.x0 / innerWidth), v: r3(mine.y0 / innerHeight), du: r3(dx / (L * innerWidth)), dv: r3(dy / (L * innerWidth)), s: r3(s), once: 1 }, true);
+      pos = mine.pos0; placeDot(); if (pos) send('walk', walkMsg(), true);   // a flick is wind, not a walk: the umbrella goes back where it was
       if (navigator.vibrate) navigator.vibrate(20);
       return true;
     }

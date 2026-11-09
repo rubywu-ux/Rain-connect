@@ -173,6 +173,11 @@ const ART_MODES = (() => {
                   gt: 1e9, gx, gy, hx: gx, hy: gy, R: 0.85, kind: 3, k: 0.6, col, ci: ev.col };
             mine.set(ev.id, q);
           }
+          if (ev.at !== q.gAt) {                              // a new position from the phone: how fast the finger is moving
+            const dtm = q.gAt == null ? 0 : ev.at - q.gAt;
+            if (dtm > 0.02 && dtm < 0.5) { q.tgx = (gx - q.gx) / dtm; q.tgy = (gy - q.gy) / dtm; } else { q.tgx = q.tgy = 0; }
+            q.gAt = ev.at;
+          }
           q.gx = gx; q.gy = gy; q.key = ev.id; q.col = ixCol(ev); q.ci = ev.col; live.add(ev.id);
         } else if (ev.k === 'shower') {
           let o = shw.get(ev.id); if (!o) shw.set(ev.id, o = { x: gx, y: gy, a: 0 });
@@ -205,8 +210,15 @@ const ART_MODES = (() => {
         let ax = dx / dd * spd + qwx * G * 1.6, ay = dy / dd * spd + qwy * G * 1.6;
         if (sx < W * 0.04) ax += 1.5; if (sx > W * 0.96) ax -= 1.5; if (sy < H * 0.08) ay -= 1.5; if (sy > H * 0.96) ay += 1.5;
         for (const b of strikes) { const ux = q.x - ((b.u == null ? 0.5 : b.u) - 0.5) * 16, uy = q.y - 2, ud = Math.hypot(ux, uy) + 0.5; q.vx += ux / ud * 3.5 * (b.power || 0.6); q.vy += uy / ud * 3.5 * (b.power || 0.6); q.om += (rnd() - 0.5) * 14; q.tvx += (rnd() - 0.5) * 3; q.tvy += (rnd() - 0.5) * 3; }
-        const kv = 1 - Math.exp(-dt * 2.5); q.vx += (ax - q.vx) * kv; q.vy += (ay - q.vy) * kv;
-        q.x += q.vx * dt; q.y += q.vy * dt;
+        if (q.ctrl) {                                        // a phone's walker glides straight to the finger, looking a little ahead to hide the network delay
+          const age = Math.min(0.3, T - (q.gAt || T)), lead = Math.max(0, 0.14 - age);
+          const tx = q.gx + (q.tgx || 0) * lead, ty = q.gy + (q.tgy || 0) * lead, k = 1 - Math.exp(-dt * 14);
+          const nx = q.x + (tx - q.x) * k, ny = q.y + (ty - q.y) * k;
+          q.vx = (nx - q.x) / Math.max(dt, 1e-3); q.vy = (ny - q.y) / Math.max(dt, 1e-3); q.x = nx; q.y = ny;
+        } else {
+          const kv = 1 - Math.exp(-dt * 2.5); q.vx += (ax - q.vx) * kv; q.vy += (ay - q.vy) * kv;
+          q.x += q.vx * dt; q.y += q.vy * dt;
+        }
         const vm = Math.hypot(q.vx, q.vy);
         if (vm > 0.05) { let dh = Math.atan2(q.vy, q.vx) - q.hd; dh = Math.atan2(Math.sin(dh), Math.cos(dh)); q.hd += dh * Math.min(1, dt * 4); }
         q.ph += dt * vm * 5;
