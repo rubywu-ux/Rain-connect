@@ -278,7 +278,7 @@ const ART_MODES = (() => {
       const fib = [0, 1, 2, 3].map(() => new Path2D()), dts = [0, 1, 2, 3].map(() => new Path2D()), silk = new Path2D(), sparks = [];
       const lev = (arr, al) => arr[Math.min(3, Math.max(0, Math.floor(al * 4)))];
       const dot = (pp, x, y, d) => pp.rect(x - d / 2, y - d / 2, d, d);
-      const cp = new Map(), CP = col => { const k = col.join(','); let o = cp.get(k); if (!o) cp.set(k, o = { key: k, fib: new Path2D(), body: new Path2D(), lines: new Path2D(), dots: new Path2D(), glow: [] }); return o; };
+      const cp = new Map(), CP = col => { const k = col.join(','); let o = cp.get(k); if (!o) cp.set(k, o = { key: k, fib: new Path2D(), body: new Path2D(), lines: new Path2D(), dots: new Path2D(), gust: new Path2D(), ppl: new Path2D(), glow: [] }); return o; };
       const off = (x, y) => x < -30 || x > W + 30 || y < -30 || y > H + 30;
       // splashes: a ring of dots opening on the stone (in a phone's colour where its shower falls)
       const nsp = Math.round((6 + 60 * amt) * W / 1600);
@@ -325,18 +325,31 @@ const ART_MODES = (() => {
         rim(out); rim(body || fillK[Math.min(3, Math.floor((q.k || 0) * 4))]);   // heavier rain, a fuller grey
         return { A, tp };
       };
+      const pplK = new Path2D(), legK = new Path2D();          // the people, filled and stroked on their own (inside a canopy's path they would cut a hole)
+      const figure = (q, pc) => {                              // head, shoulders to hips, legs mid-stride along the heading
+        const hd = q.hd || 0, ux = Math.cos(hd), uy = Math.sin(hd), vx = -uy, vy = ux, sw = Math.sin(q.ph || 0);
+        const body = pc ? pc.ppl : pplK, legs = pc ? pc.lines : legK;
+        const pt = (f, sd, z) => P(q.x + ux * f + vx * sd, q.y + uy * f + vy * sd, z, [0, 0, 0]);
+        const hdp = pt(0.03, 0, 1.52), sL = pt(0, -0.21, 1.34), sR = pt(0, 0.21, 1.34), hL = pt(0, -0.12, 0.8), hR = pt(0, 0.12, 0.8);
+        const r = 0.105 * hdp[2];
+        body.moveTo(hdp[0] + r, hdp[1]); body.ellipse(hdp[0], hdp[1], r, r * 1.08, 0, 0, TAU);
+        body.moveTo(sL[0], sL[1]); body.quadraticCurveTo((sL[0] + sR[0]) / 2, sL[1] - 0.06 * sL[2], sR[0], sR[1]); body.lineTo(hR[0], hR[1]); body.lineTo(hL[0], hL[1]); body.closePath();
+        const fL = pt(0.17 * sw, -0.09, 0), fR = pt(-0.17 * sw, 0.09, 0);
+        legs.moveTo(hL[0], hL[1]); legs.lineTo(fL[0], fL[1]); legs.moveTo(hR[0], hR[1]); legs.lineTo(fR[0], fR[1]);
+      };
       const aw0 = amt * wet;
       for (const q of list) {
         const C = q.ctrl ? CP(q.col) : null;
-        // the person: a dotted head and shoulders, seen as the umbrella fades; under a phone's umbrella, in its colour
+        // the person under the canopy: a head, shoulders and two walking legs, seen from the high window, so the
+        // legs show below the rim; in grey, or in the colour of the phone whose umbrella it is (or shares)
         const hv = 1 - (q.hide || 0); if (hv < 0.02) continue;
-        const vis = (1 - smoothstep(0.15, 0.6, q.o)) * hv;
-        if (vis > 0.01) {
-          const pc = C ? C : q.host ? CP(q.host.col) : null;   // a soft figure: shoulders and a head, in grey or the host's colour
-          P(q.x, q.y, 1.45, p); const k = p[2];
-          const shp = pc ? pc.body : fillK[2]; shp.moveTo(p[0] + 0.3 * k, p[1]); shp.ellipse(p[0], p[1], 0.3 * k, 0.15 * k, q.hd + Math.PI / 2, 0, TAU);
-          P(q.x + Math.cos(q.hd) * 0.04, q.y + Math.sin(q.hd) * 0.04, 1.7, q2);
-          if (pc) pc.glow.push([q2[0], q2[1], 0.7 * vis, 0.6 * q2[2]]); else sparks.push([q2[0], q2[1], 0.5 * vis * hush, 0.5 * q2[2]]);
+        {
+          const pc = C ? C : q.host ? CP(q.host.col) : null;
+          figure(q, pc);
+          if (q.o < 0.6) {                                      // no canopy over them: the head catches the light
+            P(q.x, q.y, 1.55, q2); const vis = (1 - smoothstep(0.15, 0.6, q.o)) * hv;
+            if (pc) pc.glow.push([q2[0], q2[1], 0.5 * vis, 0.6 * q2[2]]); else sparks.push([q2[0], q2[1], 0.35 * vis * hush, 0.5 * q2[2]]);
+          }
         }
         const LK = R.artLook && R.artLook.site === q.id ? 1 - smoothstep(3, 4.5, T - R.artLook.t) : 0;   // a phone is looking at this place
         if (LK > 0.01) {
@@ -382,13 +395,15 @@ const ART_MODES = (() => {
           P(X, Y, z, p); P(X, Y, z + 0.55, q2); if (off(p[0], p[1])) continue; C.lines.moveTo(q2[0], q2[1]); C.lines.lineTo(p[0], p[1]);
         }
       }
-      for (const g of gus) {                                     // a gust: dotted streaks sweeping across, in the colour of the phone that sent it
-        const ag = T - g.t0, f = ag * 8 - 4, al = Math.min(1, ag * 3) * (1 - smoothstep(3, 4.5, ag)) * Math.min(1, g.s);
+      for (const g of gus) {                                     // a gust: a breath of short soft streaks drifting across, faint, in the sender's colour
+        const ag = T - g.t0, f = ag * 8 - 4, al = Math.min(1, ag * 3) * (1 - smoothstep(2.5, 4, ag)) * Math.min(1, g.s);
         if (al < 0.05) continue;
         const C = CP(g.col);
-        for (let j = -16; j <= 16; j++) {
-          const o2 = j * 0.9 + (hash(j + 40) - 0.5) * 0.8, fj = f + (hash(j + 60) - 0.5) * 2.5, ln = (2 + 2 * hash(j + 80)) * al, fx = g.x0 + g.dx * fj - g.dy * o2, fy = g.y0 + g.dy * fj + g.dx * o2;
-          P(fx - g.dx * ln, fy - g.dy * ln, 2.6, q2); P(fx, fy, 2.6, p); C.fib.moveTo(q2[0], q2[1]); C.fib.lineTo(p[0], p[1]);
+        for (let j = -14; j <= 14; j++) {
+          const o2 = j * 1.05 + (hash(j + 40) - 0.5) * 1.2, fj = f + (hash(j + 60) - 0.5) * 3, ln = (0.8 + 1.2 * hash(j + 80)) * al, fx = g.x0 + g.dx * fj - g.dy * o2, fy = g.y0 + g.dy * fj + g.dx * o2;
+          const lift = 2.3 + 0.8 * hash(j + 90);                 // at different heights, like leaves in the air
+          P(fx - g.dx * ln, fy - g.dy * ln, lift, q2); P(fx, fy, lift, p);
+          C.gust.moveTo(q2[0], q2[1]); C.gust.quadraticCurveTo((q2[0] + p[0]) / 2, (q2[1] + p[1]) / 2 + 0.05 * p[2] * (hash(j + 70) - 0.5), p[0], p[1]);
         }
       }
       // ---- now lay it all down: faint silk under the rims, the dotted filaments (the dots flow, as in the plumes),
@@ -402,6 +417,8 @@ const ART_MODES = (() => {
       const flow = -T * (16 + 40 * storm) * ds, br = 0.9 + 0.1 * Math.sin(T * 6.283 / 26);   // the rain's slow breath
       c.lineCap = 'round'; c.lineJoin = 'round'; c.setLineDash([]);
       fillK.forEach((pp, i) => { c.fillStyle = `rgba(${ink},${((0.025 + 0.055 * i) * br).toFixed(3)})`; c.fill(pp); });   // canopies: a breath of grey for drizzle, a fuller grey for heavy rain
+      c.fillStyle = `rgba(${ink},${(0.26 * br).toFixed(3)})`; c.fill(pplK);                                         // the people: a firmer grey, read through the canopy
+      c.strokeStyle = `rgba(${ink},${(0.3 * br).toFixed(3)})`; c.lineWidth = lw * 1.5; c.stroke(legK);
       fib.forEach((pp, i) => {                                 // rims bleed: wide and faint, then a fine edge
         const a = (0.22 + 0.2 * i) * br;
         c.strokeStyle = `rgba(${ink},${(a * 0.18).toFixed(3)})`; c.lineWidth = lw * 3.6; c.stroke(pp);
@@ -413,10 +430,13 @@ const ART_MODES = (() => {
       c.globalAlpha = 1;
       for (const [k, o] of cp) {
         c.fillStyle = `rgba(${k},0.22)`; c.fill(o.body);
+        c.fillStyle = `rgba(${k},0.45)`; c.fill(o.ppl);
         c.strokeStyle = `rgba(${k},0.5)`; c.lineWidth = lw * 1.2; c.stroke(o.lines);
         c.strokeStyle = `rgba(${k},0.45)`; c.lineWidth = lw * 1.2; c.stroke(o.dots);
         c.strokeStyle = `rgba(${k},0.16)`; c.lineWidth = lw * 4; c.stroke(o.fib);
         c.strokeStyle = `rgba(${k},0.7)`; c.lineWidth = lw * 1.1; c.stroke(o.fib);
+        c.strokeStyle = `rgba(${k},0.07)`; c.lineWidth = lw * 5; c.stroke(o.gust);     // the gust: soft, bleeding, never a hard line
+        c.strokeStyle = `rgba(${k},0.22)`; c.lineWidth = lw * 1.2; c.stroke(o.gust);
         const gl = glow(k, 64, 0.3);
         for (const [x, y, al, z] of o.glow) { c.globalAlpha = al; c.drawImage(gl, x - z / 2, y - z / 2, z, z); }
         c.globalAlpha = 1;
