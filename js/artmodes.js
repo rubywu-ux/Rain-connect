@@ -100,15 +100,15 @@ const ART_MODES = (() => {
   function umbGround(st, W, H, dpr) {
     const cv = canvas(W * dpr, H * dpr), g = cv.getContext('2d'), P = st.P, p = [0, 0, 0];
     g.setTransform(dpr, 0, 0, dpr, 0, 0); g.fillStyle = '#fff';
-    const dot = (x, y, d, a) => { g.globalAlpha = a; g.fillRect(x - d / 2, y - d / 2, d, d); };
-    for (let j = -12; j <= 24; j++) for (let i = -26; i <= 26; i++) {
-      P(i * 0.8, j * 0.8 - 2, 0, p); if (p[0] < -4 || p[0] > W + 4 || p[1] < -4 || p[1] > H + 4) continue;
-      const major = !(i & 1) && !(j & 1), k = clamp(p[2] / 55, 0.6, 1.5);
-      dot(p[0], p[1], (major ? 1.7 : 1.1) * k, major ? 0.9 : 0.4);
+    const spr = sparkSprite();
+    for (let n = 0; n < 26; n++) {                                // fog lying on the stone, in soft uneven patches
+      P((hash(n * 7 + 1) - 0.5) * 30, -6 + hash(n * 7 + 2) * 18, 0, p); if (p[0] < -W || p[0] > 2 * W) continue;
+      const r = (2.2 + 3 * hash(n * 7 + 3)) * p[2];
+      g.globalAlpha = 0.05 + 0.07 * hash(n * 7 + 4); g.drawImage(spr, p[0] - r, p[1] - r * 0.55, 2 * r, r * 1.1);
     }
-    for (const t of st.trees) for (let q = 0; q < 900; q++) {   // crowns
-      const a = hash(t.sd + q * 3) * TAU, f = Math.pow(hash(t.sd + q * 3 + 1), 0.35), x = t.x + Math.cos(a) * t.r * 0.9 * f, y = t.y + Math.sin(a) * t.r * 0.9 * f;
-      dot(x, y, 0.9 + 1.2 * hash(t.sd + q * 3 + 2), 0.25 + 0.5 * f);
+    for (const t of st.trees) for (let q = 0; q < 28; q++) {    // crowns: soft overlapping blooms
+      const a = hash(t.sd + q * 3) * TAU, f = Math.pow(hash(t.sd + q * 3 + 1), 0.5), x = t.x + Math.cos(a) * t.r * 0.7 * f, y = t.y + Math.sin(a) * t.r * 0.7 * f, r = t.r * (0.25 + 0.3 * hash(t.sd + q * 3 + 2));
+      g.globalAlpha = 0.12; g.drawImage(spr, x - r, y - r, 2 * r, 2 * r);
     }
     g.globalAlpha = 1; g.globalCompositeOperation = 'source-in'; g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = `rgb(${PAL.ink})`; g.fillRect(0, 0, cv.width, cv.height);
     return cv;
@@ -286,14 +286,14 @@ const ART_MODES = (() => {
         const ph = T / 0.4 + hash(i * 7 + 3), cyc = Math.floor(ph), f = ph - cyc, sd = i * 131 + cyc * 7919;
         P((hash(sd) - 0.5) * 26, -6 + hash(sd + 1) * 16, 0, p); if (off(p[0], p[1])) continue;
         const r = (0.04 + 0.22 * f) * p[2], pp = lev(dts, 0.5 * (1 - f));
-        for (let m = 0; m < 5; m++) { const a = hash(sd + m * 5) * TAU; dot(pp, p[0] + Math.cos(a) * r, p[1] + Math.sin(a) * r * 0.82, lw * 1.1); }
+        pp.moveTo(p[0] + r, p[1]); pp.ellipse(p[0], p[1], r, r * 0.82, 0, 0, TAU);
       }
       for (const o of shw.values()) {
         const C = CP(o.col);
         for (let i = 0, n = Math.round(26 * o.a); i < n; i++) {
           const ph = T / 0.35 + hash(i * 5 + 1), cyc = Math.floor(ph), f = ph - cyc, sd = i * 977 + cyc * 7919, a = hash(sd) * TAU, r = 2.6 * Math.sqrt(hash(sd + 1));
           P(o.x + Math.cos(a) * r, o.y + Math.sin(a) * r * 0.8, 0, p); const rr = (0.04 + 0.22 * f) * p[2];
-          for (let m = 0; m < 6; m++) { const b = hash(sd + m * 5) * TAU; dot(C.dots, p[0] + Math.cos(b) * rr, p[1] + Math.sin(b) * rr * 0.82, lw * 1.2); }
+          C.dots.moveTo(p[0] + rr, p[1]); C.dots.ellipse(p[0], p[1], rr, rr * 0.82, 0, 0, TAU);
         }
         P(o.x, o.y, 0, p); C.fib.moveTo(p[0] + 2.8 * p[2], p[1]); C.fib.ellipse(p[0], p[1], 2.8 * p[2], 2.2 * p[2], 0, 0, TAU);   // where it falls
       }
@@ -316,18 +316,13 @@ const ART_MODES = (() => {
       const list = all.map(q => { const r = q.host || q; P(r.x, r.y, 2, p); return [p[1] - (r !== q ? 0.5 : 0), q]; }).sort((a, b) => a[0] - b[0]).map(a => a[1]);
       // a canopy as a little plume: ribs of dots running down from the top, a dotted rim, and inner arcs on the
       // panels the kind of rain fills (drizzle none, rain every other, showers two quarters, thunderstorm all)
-      const PAT = [0, 0b01010101, 0b00110011, 255];
+      const fillK = [0, 1, 2, 3].map(() => new Path2D());   // canopy fills by kind of rain
       const canopy = (q, gq, out, body) => {
         const A = P(gq.apex[0], gq.apex[1], gq.apex[2], [0, 0, 0]), tp = gq.tips.map(t => P(t[0], t[1], t[2], [0, 0, 0])), md = gq.mids.map(t => P(t[0], t[1], t[2], [0, 0, 0]));
-        for (let i = 0; i < 8; i += 2) { out.moveTo(A[0], A[1]); out.lineTo(tp[i][0], tp[i][1]); }   // four ribs read as an umbrella; eight read as a wireframe
-        const rim = pp => { pp.moveTo(tp[0][0], tp[0][1]); for (let i = 0; i < 8; i++) pp.quadraticCurveTo(md[i][0], md[i][1], tp[(i + 1) % 8][0], tp[(i + 1) % 8][1]); };
-        rim(out); rim(body || silk);
-        const pat = PAT[q.kind] || 0, inner = body || silk;   // the kind of rain, as faint arcs inside
-        for (let i = 0; i < 8; i++) if (pat >> i & 1) {
-          const t0 = tp[i], t1 = tp[(i + 1) % 8], m = md[i], f = 0.62;
-          inner.moveTo(A[0] + (t0[0] - A[0]) * f, A[1] + (t0[1] - A[1]) * f);
-          inner.quadraticCurveTo(A[0] + (m[0] - A[0]) * f, A[1] + (m[1] - A[1]) * f, A[0] + (t1[0] - A[0]) * f, A[1] + (t1[1] - A[1]) * f);
-        }
+        // the canopy is one soft shape: its rim, closed, goes to `out` (stroked softly) and `body` (filled faintly);
+        // the kind of rain shows as how much of it is filled (drizzle a breath, a thunderstorm nearly solid)
+        const rim = pp => { pp.moveTo(tp[0][0], tp[0][1]); for (let i = 0; i < 8; i++) pp.quadraticCurveTo(md[i][0], md[i][1], tp[(i + 1) % 8][0], tp[(i + 1) % 8][1]); pp.closePath(); };
+        rim(out); rim(body || fillK[q.kind] || fillK[1]);
         return { A, tp };
       };
       const aw0 = amt * wet;
@@ -337,19 +332,20 @@ const ART_MODES = (() => {
         const hv = 1 - (q.hide || 0); if (hv < 0.02) continue;
         const vis = (1 - smoothstep(0.15, 0.6, q.o)) * hv;
         if (vis > 0.01) {
-          const out = C ? C.fib : q.host ? CP(q.host.col).lines : lev(fib, 0.75 * vis * hush);
+          const pc = C ? C : q.host ? CP(q.host.col) : null;   // a soft figure: shoulders and a head, in grey or the host's colour
           P(q.x, q.y, 1.45, p); const k = p[2];
-          out.moveTo(p[0] + 0.3 * k, p[1]); out.ellipse(p[0], p[1], 0.3 * k, 0.15 * k, q.hd + Math.PI / 2, 0, TAU);
-          P(q.x + Math.cos(q.hd) * 0.04, q.y + Math.sin(q.hd) * 0.04, 1.7, q2); out.moveTo(q2[0] + 0.12 * q2[2], q2[1]); out.arc(q2[0], q2[1], 0.12 * q2[2], 0, TAU);
+          const shp = pc ? pc.body : fillK[2]; shp.moveTo(p[0] + 0.3 * k, p[1]); shp.ellipse(p[0], p[1], 0.3 * k, 0.15 * k, q.hd + Math.PI / 2, 0, TAU);
+          P(q.x + Math.cos(q.hd) * 0.04, q.y + Math.sin(q.hd) * 0.04, 1.7, q2);
+          if (pc) pc.glow.push([q2[0], q2[1], 0.7 * vis, 0.6 * q2[2]]); else sparks.push([q2[0], q2[1], 0.5 * vis * hush, 0.5 * q2[2]]);
         }
         const LK = R.artLook && R.artLook.site === q.id ? 1 - smoothstep(3, 4.5, T - R.artLook.t) : 0;   // a phone is looking at this place
         if (LK > 0.01) {
           const K = CP(colorOf(R.artLook.col).split(',').map(Number)); P(q.x, q.y, 1.45, p); const g0 = st.G(p[0], p[1]); P(g0[0], g0[1], 0, p);
-          const rr = (1.3 + 0.35 * Math.sin(T * 3)) * p[2] * LK; K.fib.moveTo(p[0] + rr, p[1]); K.fib.ellipse(p[0], p[1], rr, rr * 0.8, 0, 0, TAU);
+          K.glow.push([p[0], p[1], 0.4 * LK, (3 + 0.8 * Math.sin(T * 3)) * p[2]]);
           P(q.x, q.y, 2.3, q2); K.glow.push([q2[0], q2[1], 0.8 * LK, 2.6 * q2[2] * q.R]);
         }
-        if (C) { P(q.x, q.y, 1.45, p); const g0 = st.G(p[0], p[1]); P(g0[0], g0[1], 0, p); const rr = 1.1 * p[2] * (1 + 0.22 * (q.sh || 0));   // your ring on the ground
-          C.fib.moveTo(p[0] + rr, p[1]); C.fib.ellipse(p[0], p[1], rr, rr * 0.8, 0, 0, TAU); }
+        if (C) { P(q.x, q.y, 1.45, p); const g0 = st.G(p[0], p[1]); P(g0[0], g0[1], 0, p); const rr = 1.1 * p[2] * (1 + 0.22 * (q.sh || 0));   // your light on the ground
+          C.glow.push([p[0], p[1], 0.35, 2.6 * rr]); }
         if (q.o > 0.02) {
           const al = smoothstep(0.02, 0.4, q.o) * hv, gq = geo(q, q.x, q.y, 1.1);
           P(q.x, q.y, 2, p); const depth = 0.45 + 0.55 * smoothstep(0, H, p[1]);           // far ones fainter: air between them
@@ -358,7 +354,7 @@ const ART_MODES = (() => {
           P(q.x, q.y, 0, q2); refl.push([q2[0], q2[1], q2[2] * q.R, al * (C ? 0.16 : (0.05 + 0.08 * q.k) * depth * hush), C ? C : null]);
           const aw = Math.max(aw0, (q.lw || 0) * 1.3);          // rain landing on it: a few bright drops
           if (aw > 0.02 && al > 0.5) for (let n = 0, m = Math.round(aw * (1.5 + 2 * q.k)); n < m; n++) {
-            const i = Math.floor(rnd() * 8), f = rnd() * 0.85; dot(dts[3], A[0] + (tp[i][0] - A[0]) * f, A[1] + (tp[i][1] - A[1]) * f, lw * 1.3);
+            const i = Math.floor(rnd() * 8), f = rnd() * 0.85, dx = A[0] + (tp[i][0] - A[0]) * f, dy = A[1] + (tp[i][1] - A[1]) * f; dts[3].moveTo(dx + lw * 1.4, dy); dts[3].ellipse(dx, dy, lw * 1.4, lw, 0, 0, TAU);
           }
         }
       }
@@ -404,20 +400,23 @@ const ART_MODES = (() => {
       }
       c.globalAlpha = 1;
       const flow = -T * (16 + 40 * storm) * ds, br = 0.9 + 0.1 * Math.sin(T * 6.283 / 26);   // the rain's slow breath
-      c.strokeStyle = `rgba(${ink},0.12)`; c.lineWidth = lw * 0.6; c.stroke(silk);
-      c.setLineDash([0.01, 3 * ds]); c.lineDashOffset = flow; c.lineWidth = lw * 1.05;
-      fib.forEach((pp, i) => { c.strokeStyle = `rgba(${ink},${((0.26 + 0.24 * i) * br).toFixed(2)})`; c.stroke(pp); });
-      c.setLineDash([]); c.lineDashOffset = 0;
-      dts.forEach((pp, i) => { c.fillStyle = `rgba(${ink},${((0.28 + 0.24 * i) * br).toFixed(2)})`; c.fill(pp); });
+      c.lineCap = 'round'; c.lineJoin = 'round'; c.setLineDash([]);
+      fillK.forEach((pp, i) => { c.fillStyle = `rgba(${ink},${((0.03 + 0.035 * i) * br).toFixed(3)})`; c.fill(pp); });   // canopies: a breath of grey, more for heavier rain
+      fib.forEach((pp, i) => {                                 // rims bleed: wide and faint, then a fine edge
+        const a = (0.22 + 0.2 * i) * br;
+        c.strokeStyle = `rgba(${ink},${(a * 0.18).toFixed(3)})`; c.lineWidth = lw * 3.6; c.stroke(pp);
+        c.strokeStyle = `rgba(${ink},${(a * 0.6).toFixed(3)})`; c.lineWidth = lw * 0.9; c.stroke(pp);
+      });
+      dts.forEach((pp, i) => { c.strokeStyle = `rgba(${ink},${((0.12 + 0.12 * i) * br).toFixed(3)})`; c.lineWidth = lw * 1.2; c.stroke(pp); });   // splash rings
       c.strokeStyle = `rgba(${ink},${(0.18 + 0.1 * storm).toFixed(3)})`; c.lineWidth = lw * 0.7; c.stroke(rain);
       for (const [x, y, al, z] of sparks) { c.globalAlpha = Math.min(1, al); c.drawImage(spr, x - z / 2, y - z / 2, z, z); }
       c.globalAlpha = 1;
       for (const [k, o] of cp) {
-        c.fillStyle = `rgba(${k},0.1)`; c.fill(o.body);
-        c.strokeStyle = `rgba(${k},0.3)`; c.lineWidth = lw * 0.6; c.stroke(o.body);
-        c.strokeStyle = `rgba(${k},0.6)`; c.lineWidth = lw * 0.9; c.stroke(o.lines);
-        c.fillStyle = `rgba(${k},0.9)`; c.fill(o.dots);
-        c.setLineDash([0.01, 3 * ds]); c.lineDashOffset = flow; c.strokeStyle = `rgba(${k},0.95)`; c.lineWidth = lw * 1.4; c.stroke(o.fib); c.setLineDash([]); c.lineDashOffset = 0;
+        c.fillStyle = `rgba(${k},0.22)`; c.fill(o.body);
+        c.strokeStyle = `rgba(${k},0.5)`; c.lineWidth = lw * 1.2; c.stroke(o.lines);
+        c.strokeStyle = `rgba(${k},0.45)`; c.lineWidth = lw * 1.2; c.stroke(o.dots);
+        c.strokeStyle = `rgba(${k},0.16)`; c.lineWidth = lw * 4; c.stroke(o.fib);
+        c.strokeStyle = `rgba(${k},0.7)`; c.lineWidth = lw * 1.1; c.stroke(o.fib);
         const gl = glow(k, 64, 0.3);
         for (const [x, y, al, z] of o.glow) { c.globalAlpha = al; c.drawImage(gl, x - z / 2, y - z / 2, z, z); }
         c.globalAlpha = 1;

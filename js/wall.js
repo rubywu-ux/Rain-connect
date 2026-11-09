@@ -64,7 +64,7 @@
 
   /* ---------------- the rain remembers: stains where it has rained, kept across reloads, fading over a day */
   R.enableMemory();
-  R.bottomFade = 0.55; R.haze = 0.04; R.breathe = true;   // a sky to fall from, and a slow pulse with the rain             // the plumes thin out toward the bottom: the numbers and the QR sit on quieter ground
+  R.bottomFade = 0.55; R.haze = 0.04; R.breathe = true; R.noBoltLines = true;   // a sky to fall from, and a slow pulse with the rain             // the plumes thin out toward the bottom: the numbers and the QR sit on quieter ground
   try {
     const m = JSON.parse(localStorage.getItem('rc_memory2') || 'null');
     if (m && Date.now() - m.t < 24 * 3600e3) {

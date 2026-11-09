@@ -347,13 +347,12 @@ class RainRenderer {
     const flow = -(T * (16 + 40 * storm)) * s;
     const pres = this.presence;                                       // 0 = the rain has stopped (fades smoothly)
     c.globalAlpha = pres;
-    for (let b = 0; b < 3; b++) {
-      c.setLineDash([0.01, (b === 2 ? 2.4 : 3) * s]);
-      c.lineDashOffset = flow * (1 + b * 0.15);
-      c.strokeStyle = `rgba(${PAL.ink},${Math.min(1, (0.11 + b * 0.15) * boost)})`;
-      c.lineWidth = lw * (b === 2 ? 1.2 : 1); c.stroke(fib[b]);
+    c.setLineDash([]); c.lineCap = 'round'; c.lineJoin = 'round';
+    for (let b = 0; b < 3; b++) {                                     // each strand bleeds: a wide faint pass, then a thin one
+      const a = Math.min(1, (0.11 + b * 0.15) * boost);
+      c.strokeStyle = `rgba(${PAL.ink},${(a * 0.16).toFixed(3)})`; c.lineWidth = lw * 3.4; c.stroke(fib[b]);
+      c.strokeStyle = `rgba(${PAL.ink},${(a * 0.55).toFixed(3)})`; c.lineWidth = lw * 0.9; c.stroke(fib[b]);
     }
-    c.setLineDash([]); c.lineDashOffset = 0;
     c.globalAlpha = 1;
     // the river itself: long dotted currents that run across every joined screen
     if (river && rho > 0) {
@@ -371,12 +370,10 @@ class RainRenderer {
         smooth(paths[hash(j + 900) < 0.35 ? 1 : 0], pts);
       }
       const ro = (xs - T * river.speed) * s;                          // same dot phase on every phone
-      [[0, 0.14, 3.2], [1, 0.32, 2.6]].forEach(([b, al, gap]) => {
-        c.setLineDash([]); c.strokeStyle = `rgba(${PAL.ink},${0.03 * rho * boost})`; c.lineWidth = lw * 0.6; c.stroke(paths[b]);
-        c.setLineDash([0.01, gap * s]); c.lineDashOffset = ro;
-        c.strokeStyle = `rgba(${PAL.ink},${al * rho * boost})`; c.lineWidth = lw * 1.15; c.stroke(paths[b]);
+      [[0, 0.14], [1, 0.32]].forEach(([b, al]) => {                  // the current, as soft bleeding lines
+        c.strokeStyle = `rgba(${PAL.ink},${(0.12 * al * rho * boost).toFixed(3)})`; c.lineWidth = lw * 3.6; c.stroke(paths[b]);
+        c.strokeStyle = `rgba(${PAL.ink},${(0.5 * al * rho * boost).toFixed(3)})`; c.lineWidth = lw; c.stroke(paths[b]);
       });
-      c.setLineDash([]); c.lineDashOffset = 0;
       for (let j = 0; j < 70; j++) {                                  // glitter drifting along the current
         const sp = river.speed * (0.7 + 0.6 * hash(j + 40)), span = W + 400;
         const x = vx - 200 + ((((hash(j + 41) * span + T * sp - vx) % span) + span) % span);
@@ -392,7 +389,7 @@ class RainRenderer {
     for (const [sx, sy, len, al] of streaks) { const p = st[lvl(al)]; p.moveTo(sx, sy - len); p.lineTo(sx, sy); }
     for (const [sx, sy, al, r] of sparks) {
       if (al <= 0.03) continue;
-      const d = r * lw * 1.3; sp[lvl(al)].rect(sx - d / 2, sy - d / 2, d, d);
+      const d = r * lw * 2.2; sp[lvl(al)].moveTo(sx + d / 2, sy); sp[lvl(al)].arc(sx, sy, d / 2, 0, 6.283);   // soft round glints
     }
     c.lineWidth = lw * 0.8;
     c.globalAlpha = pres;
@@ -410,7 +407,7 @@ class RainRenderer {
 
     // where drops reach the floor they spread out like ink touching water
     for (const [x, fy, age, seed, lum] of floorHits) {
-      this._bloom(c, x, fy, age, seed, { n: 9, life: 1.6, speed: [30, 110], flat: 0.22, sink: 0, alpha: 0.22 * lum, lw });
+      this._drop(c, x, fy, age * 1.6, seed, { k: 0.45, alpha: 0.22 * lum, lw, soft: true });
     }
     if (floor != null && floor < vy + H + 40) {
       const fy = (floor - vy) * s;
@@ -436,12 +433,12 @@ class RainRenderer {
         if (sx < -40 || sy < -40 || sx > this.w + 40 || sy > this.h + 40) continue;
         const a = Math.pow(1 - age / 1.6, 1.3), col = colorOf(d.c), sd = Math.round(d.x * 7 + d.y * 13);
         let P = byCol.get(col); if (!P) byCol.set(col, P = [new Path2D(), new Path2D(), new Path2D()]);
-        for (let j = 0; j < 4; j++) {
-          const f = hash(sd + j * 3), px = sx + (f - 0.5) * 10 * s, py = sy + age * (30 + 60 * hash(sd + j * 3 + 1)) * s, dd = (j ? 1.4 : 2) * lw;
-          P[Math.min(2, Math.floor(a * 3))].rect(px - dd / 2, py - dd / 2, dd, dd);
+        for (let j = 0; j < 3; j++) {
+          const f = hash(sd + j * 3), px = sx + (f - 0.5) * 10 * s, py = sy + age * (30 + 60 * hash(sd + j * 3 + 1)) * s, dd = (j ? 2.2 : 3) * lw;
+          P[Math.min(2, Math.floor(a * 3))].moveTo(px + dd, py); P[Math.min(2, Math.floor(a * 3))].arc(px, py, dd, 0, 6.283);
         }
       }
-      for (const [col, P] of byCol) P.forEach((p, i) => { c.fillStyle = `rgba(${col},${(0.4 + 0.3 * i).toFixed(2)})`; c.fill(p); });
+      for (const [col, P] of byCol) P.forEach((p, i) => { c.fillStyle = `rgba(${col},${(0.18 + 0.16 * i).toFixed(2)})`; c.fill(p); });
     }
 
     // lightning: white bolts (same seed -> same bolt on every screen), with a brief sky flash
@@ -643,25 +640,26 @@ class RainRenderer {
   _drop(c, x, y, age, seed, o) {
     const s = this.scale, [sx, sy] = this._toScreen(x, y), col = o.col || PAL.ink, life = 2.6;
     if (age > life) return;
-    c.setLineDash([0.01, 3 * s]); c.lineWidth = o.lw * 1.1;
-    for (let i = 0; i < 3; i++) {
+    c.setLineDash([]); c.lineCap = 'round';
+    for (let i = 0; i < 3; i++) {                                     // rings that bleed as they widen
       const u = age - i * 0.22; if (u < 0) continue;
-      const fade = Math.pow(Math.max(0, 1 - u / (life - i * 0.22)), 1.3), rad = (20 + 70 * o.k) * s * (1 - Math.exp(-1.6 * u)) * (1 + 0.35 * i);
-      c.strokeStyle = `rgba(${col},${(o.alpha * fade * (i ? 0.55 : 0.9)).toFixed(3)})`; c.lineDashOffset = -u * 20 * s + i * 7;
-      c.beginPath(); c.ellipse(sx, sy, rad, rad * 0.62, 0, 0, 6.283); c.stroke();
+      const fade = Math.pow(Math.max(0, 1 - u / (life - i * 0.22)), 1.3), rad = (20 + 70 * o.k) * s * (1 - Math.exp(-1.6 * u)) * (1 + 0.35 * i), a = o.alpha * fade * (i ? 0.5 : 0.85);
+      c.beginPath(); c.ellipse(sx, sy, rad, rad * 0.62, 0, 0, 6.283);
+      c.strokeStyle = `rgba(${col},${(a * 0.18).toFixed(3)})`; c.lineWidth = o.lw * (3 + 4 * u); c.stroke();
+      c.strokeStyle = `rgba(${col},${(a * 0.5).toFixed(3)})`; c.lineWidth = o.lw * 0.9; c.stroke();
     }
-    c.setLineDash([]); c.lineDashOffset = 0;
     const cf = Math.pow(Math.max(0, 1 - age / 1.1), 1.5);
     if (cf > 0) { const z = (18 + 30 * age) * s * o.k, g = sparkSprite(); c.globalAlpha = o.alpha * cf * 0.9; c.drawImage(g, sx - z / 2, sy - z / 2, z, z); c.globalAlpha = 1;
       if (o.col) { const gr = c.createRadialGradient(sx, sy, 0, sx, sy, z); gr.addColorStop(0, `rgba(${col},${(0.5 * cf * o.alpha).toFixed(3)})`); gr.addColorStop(1, `rgba(${col},0)`); c.fillStyle = gr; c.beginPath(); c.arc(sx, sy, z, 0, 6.283); c.fill(); } }
     const df = Math.pow(Math.max(0, 1 - age / 1.8), 1.2);
     if (df > 0) {
-      c.fillStyle = `rgba(${col},${(o.alpha * df).toFixed(3)})`;
-      for (let j = 0; j < 7; j++) {
+      const g = sparkSprite(); c.globalAlpha = o.alpha * df * 0.8;
+      for (let j = 0; j < 7; j++) {                                   // a few soft drops flung out, sinking
         const th = hash(seed + j * 5) * 6.283, sp = (40 + 90 * hash(seed + j * 5 + 1)) * s * o.k, rad = sp * (1 - Math.exp(-2.2 * age)) / 2.2;
-        const px = sx + Math.cos(th) * rad, py = sy + Math.sin(th) * rad * 0.62 + 90 * age * age * s, d = (hash(seed + j * 5 + 2) < 0.3 ? 2 : 1.3) * o.lw;
-        c.fillRect(px - d / 2, py - d / 2, d, d);
+        const px = sx + Math.cos(th) * rad, py = sy + Math.sin(th) * rad * 0.62 + 90 * age * age * s, d = (hash(seed + j * 5 + 2) < 0.3 ? 9 : 6) * o.lw;
+        c.drawImage(g, px - d / 2, py - d / 2, d, d);
       }
+      c.globalAlpha = 1;
     }
   }
   _bloom(c, x, y, age, seed, o) {
@@ -715,6 +713,7 @@ class RainRenderer {
       c.fillRect(0, 0, W, H);
       c.globalCompositeOperation = PAL.comp;
     }
+    if (this.noBoltLines) return;                       // the wall: the sky lights up and thunder rolls, but no bolt is drawn
     const col = INK ? '20,20,24' : '255,255,255';
     const main = new Path2D(), branches = new Path2D();
     if (b.across) {
@@ -1310,14 +1309,15 @@ class WorldMap {
     this.key = key;
     const cv = this.land || document.createElement('canvas'); cv.width = Math.round(mw * dpr); cv.height = Math.round(mh * dpr);
     const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, mw, mh);
-    g.fillStyle = `rgba(${PAL.ink},0.5)`;
-    const d = Math.max(0.9, mw / 520), ox = this.ox, oy = this.oy; this.ox = this.oy = 0;
+    const spr = sparkSprite(), d = Math.max(3, mw / 150), ox = this.ox, oy = this.oy; this.ox = this.oy = 0;   // land as a soft watermark
+    g.globalAlpha = 0.22;
     if (typeof LAND_MASK !== 'undefined') for (let r = 0; r < 90; r++) for (let c = 0; c < 180; c++) {
       if (!LAND_MASK[r * 180 + c]) continue;
       const lat = 89 - r * 2, lon = -179 + c * 2;
       if (lat < -60 || lat > 80) continue;
-      const [x, y] = this._xy(lat, lon, w, h); g.fillRect(x - d / 2, y - d / 2, d, d);
+      const [x, y] = this._xy(lat, lon, w, h); g.drawImage(spr, x - d / 2, y - d / 2, d, d);
     }
+    g.globalAlpha = 1;
     this.ox = ox; this.oy = oy;
     return (this.land = cv);
   }
@@ -1337,19 +1337,19 @@ class WorldMap {
       if (mm == null && code == null) continue;
       const [x, y] = this._xy(lat, lon, w, h);
       if (x < -40 || x > w + 40 || y < -40 || y > h + 40) continue;
-      if (!isRaining(mm, code)) { dry.rect(x - 0.7, y - 0.7, 1.4, 1.4); continue; }
+      if (!isRaining(mm, code)) { dry.moveTo(x + 1.6, y); dry.arc(x, y, 1.6, 0, 6.283); continue; }
       const k = rainStrength(mm, code), seed = Math.round((lat + 90) * 1000 + lon * 7);
       const z = (7 + 11 * k) * scl;                                     // the spark
       c.globalAlpha = 0.55 + 0.45 * k; c.drawImage(spr, x - z / 2, y - z / 2, z, z);
       for (let q = 0, n = 2 + Math.round(3 * k); q < n; q++) {           // its plume: a few dotted strands falling from it
         const per = 1.6 + hash(seed + q + 9) * 1.2, ph = ((T + hash(seed + q + 5) * per) % per) / per;
         const sx = x + (hash(seed + q) - 0.5) * 7 * scl * k, L = (9 + 14 * k) * scl, pp = fall[Math.min(2, Math.floor(k * 3))];
-        for (let m = 0; m < 4; m++) { const f = (ph + m * 0.25) % 1; pp.rect(sx + (hash(seed + q * 3 + m) - 0.5) * 1.2, y + f * L, 1.1, 1.1); }
+        const f = ph; pp.moveTo(sx, y + f * L * 0.6); pp.lineTo(sx, y + f * L * 0.6 + L * 0.35);   // a soft streak falling from it
       }
     }
     c.globalAlpha = 1;
-    c.fillStyle = `rgba(${PAL.ink},0.2)`; c.fill(dry);
-    fall.forEach((pp, i) => { c.fillStyle = `rgba(${PAL.ink},${(0.35 + 0.3 * i).toFixed(2)})`; c.fill(pp); });
+    c.fillStyle = `rgba(${PAL.ink},0.12)`; c.fill(dry);
+    c.lineCap = 'round'; fall.forEach((pp, i) => { c.strokeStyle = `rgba(${PAL.ink},${(0.12 + 0.1 * i).toFixed(2)})`; c.lineWidth = 3 * scl; c.stroke(pp); c.strokeStyle = `rgba(${PAL.ink},${(0.3 + 0.2 * i).toFixed(2)})`; c.lineWidth = 1 * scl; c.stroke(pp); });
     c.globalCompositeOperation = 'source-over';
   }
 }
