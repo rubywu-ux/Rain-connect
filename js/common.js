@@ -413,25 +413,29 @@ class RainRenderer {
       c.fillStyle = g; c.fillRect(0, fy - 50, this.w, 50);
     }
 
-    // taps: ink blooms
+    // taps: a drop landing on water, rings of dots widening in the tapper's colour
     this.ripples = this.ripples.filter(r => T - r.t < 3.2);
     for (const r of this.ripples) {
       const age = T - r.t; if (age < 0) continue;
-      const k = r.k || 1;
-      this._bloom(c, r.x, r.y, age, r.seed || 1, { n: r.echo ? 30 : 52, life: 3.2, speed: [60 * k, 260 * k], flat: 1, sink: 26,
-        alpha: r.echo ? 0.3 : 0.42, lw, core: true, col: colorOf(r.c) });
+      this._drop(c, r.x, r.y, age, r.seed || 1, { k: r.k || 1, alpha: r.echo ? 0.4 : 0.8, lw, col: colorOf(r.c) });
     }
 
-    // drags leave a fading trail of glints in the dragger's colour
+    // drags leave a trail of small drops that fall away in the dragger's colour
     this.trails = this.trails.filter(d => T - d.t < 1.6);
-    for (const d of this.trails) {
-      const age = T - d.t; if (age < 0) continue;
-      const [sx, sy] = this._toScreen(d.x, d.y);
-      if (sx < -40 || sy < -40 || sx > this.w + 40 || sy > this.h + 40) continue;
-      const a = Math.pow(1 - age / 1.6, 1.5), rr = (5 + age * 10) * s;
-      const g = c.createRadialGradient(sx, sy, 0, sx, sy, rr);
-      g.addColorStop(0, `rgba(${colorOf(d.c)},${0.55 * a})`); g.addColorStop(1, `rgba(${colorOf(d.c)},0)`);
-      c.fillStyle = g; c.beginPath(); c.arc(sx, sy, rr, 0, 6.283); c.fill();
+    if (this.trails.length) {
+      const byCol = new Map();
+      for (const d of this.trails) {
+        const age = T - d.t; if (age < 0) continue;
+        const [sx, sy] = this._toScreen(d.x, d.y);
+        if (sx < -40 || sy < -40 || sx > this.w + 40 || sy > this.h + 40) continue;
+        const a = Math.pow(1 - age / 1.6, 1.3), col = colorOf(d.c), sd = Math.round(d.x * 7 + d.y * 13);
+        let P = byCol.get(col); if (!P) byCol.set(col, P = [new Path2D(), new Path2D(), new Path2D()]);
+        for (let j = 0; j < 4; j++) {
+          const f = hash(sd + j * 3), px = sx + (f - 0.5) * 10 * s, py = sy + age * (30 + 60 * hash(sd + j * 3 + 1)) * s, dd = (j ? 1.4 : 2) * lw;
+          P[Math.min(2, Math.floor(a * 3))].rect(px - dd / 2, py - dd / 2, dd, dd);
+        }
+      }
+      for (const [col, P] of byCol) P.forEach((p, i) => { c.fillStyle = `rgba(${col},${(0.4 + 0.3 * i).toFixed(2)})`; c.fill(p); });
     }
 
     // lightning: white bolts (same seed -> same bolt on every screen), with a brief sky flash
@@ -621,12 +625,37 @@ class RainRenderer {
       for (const r of this.ripples) {
         const age = T - r.t; if (age < 0) continue;
         const k = r.k || 1;
-        this._bloom(c, r.x, r.y, age, r.seed || 1, { n: r.echo ? 24 : 40, life: 3.2, speed: [60 * k, 260 * k], flat: 1, sink: 26, alpha: r.echo ? 0.05 : 0.1, lw, core: false, col: colorOf(r.c) });
+        this._drop(c, r.x, r.y, age, r.seed || 1, { k, alpha: r.echo ? 0.12 : 0.3, lw, col: colorOf(r.c) });
       }
       if (mode.bolts !== false) for (const b of this.bolts) { const age = T - b.t; if (age >= 0) this._bolt(c, b, age, lw); }
       c.globalCompositeOperation = 'source-over';
     } finally {
       if (swap) { INK = true; Object.assign(PAL, keep); }
+    }
+  }
+  /* a drop on water: three dotted rings widening and fading, a soft core, a few flung drops that sink */
+  _drop(c, x, y, age, seed, o) {
+    const s = this.scale, [sx, sy] = this._toScreen(x, y), col = o.col || PAL.ink, life = 2.6;
+    if (age > life) return;
+    c.setLineDash([0.01, 3 * s]); c.lineWidth = o.lw * 1.1;
+    for (let i = 0; i < 3; i++) {
+      const u = age - i * 0.22; if (u < 0) continue;
+      const fade = Math.pow(Math.max(0, 1 - u / (life - i * 0.22)), 1.3), rad = (20 + 70 * o.k) * s * (1 - Math.exp(-1.6 * u)) * (1 + 0.35 * i);
+      c.strokeStyle = `rgba(${col},${(o.alpha * fade * (i ? 0.55 : 0.9)).toFixed(3)})`; c.lineDashOffset = -u * 20 * s + i * 7;
+      c.beginPath(); c.ellipse(sx, sy, rad, rad * 0.62, 0, 0, 6.283); c.stroke();
+    }
+    c.setLineDash([]); c.lineDashOffset = 0;
+    const cf = Math.pow(Math.max(0, 1 - age / 1.1), 1.5);
+    if (cf > 0) { const z = (18 + 30 * age) * s * o.k, g = sparkSprite(); c.globalAlpha = o.alpha * cf * 0.9; c.drawImage(g, sx - z / 2, sy - z / 2, z, z); c.globalAlpha = 1;
+      if (o.col) { const gr = c.createRadialGradient(sx, sy, 0, sx, sy, z); gr.addColorStop(0, `rgba(${col},${(0.5 * cf * o.alpha).toFixed(3)})`); gr.addColorStop(1, `rgba(${col},0)`); c.fillStyle = gr; c.beginPath(); c.arc(sx, sy, z, 0, 6.283); c.fill(); } }
+    const df = Math.pow(Math.max(0, 1 - age / 1.8), 1.2);
+    if (df > 0) {
+      c.fillStyle = `rgba(${col},${(o.alpha * df).toFixed(3)})`;
+      for (let j = 0; j < 7; j++) {
+        const th = hash(seed + j * 5) * 6.283, sp = (40 + 90 * hash(seed + j * 5 + 1)) * s * o.k, rad = sp * (1 - Math.exp(-2.2 * age)) / 2.2;
+        const px = sx + Math.cos(th) * rad, py = sy + Math.sin(th) * rad * 0.62 + 90 * age * age * s, d = (hash(seed + j * 5 + 2) < 0.3 ? 2 : 1.3) * o.lw;
+        c.fillRect(px - d / 2, py - d / 2, d, d);
+      }
     }
   }
   _bloom(c, x, y, age, seed, o) {
