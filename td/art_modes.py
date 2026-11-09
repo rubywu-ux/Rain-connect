@@ -1,6 +1,6 @@
-# ---- Connect the Rain: the five art modes from TouchDesigner (run after art_switch.py)
-# In the projector window: A = next art mode, Z = previous, 1-5 = pick a mode
-# (1 Murmuration, 2 Umbrellas, 3 Marbling, 4 Cymatics, 5 Sea Glow), X / Esc = art off, W = mist on/off.
+# ---- Connect the Rain: the two art modes from TouchDesigner (run after art_switch.py)
+# In the projector window: A / Z = switch between the art modes (1 Murmuration, 2 Umbrellas), 1-2 = pick one,
+# X / Esc = art off (the rain map), W = mist on/off.
 # WALL_V (set before exec) = the version tag for the wall page URL.
 CR = op('/project1/connect_rain')
 W = CR.op('wall_web')
@@ -20,7 +20,7 @@ def onKey(dat, key, character, *a, **k):
 	c = op('/project1/connect_rain')
 	if ch == 'a': js('window.__wall.cycleArt()')
 	elif ch == 'z': js('window.__wall.cycleArt(-1)')
-	elif ch in ('1', '2', '3', '4', '5'): js('window.__wall.setArt(%s)' % ch)
+	elif ch in ('1', '2'): js('window.__wall.setArt(%s)' % ch)
 	elif ch == 'x' or str(key).lower() in ('esc', 'escape') or ch == '\x1b': js('window.__wall.setArt(0)')
 	elif ch == 'w': c.par.Mist = not c.par.Mist
 	else: return
@@ -28,4 +28,4 @@ def onKey(dat, key, character, *a, **k):
 """
 P = CR.op('projector')
 if P is not None and hasattr(P.par, 'closeescape'): P.par.closeescape = False   # Esc turns art off; it must not close the wall
-print('A = next art mode, Z = previous, 1-5 = pick, X = art off, W = mist (in the projector window)')
+print('A / Z = switch art mode, 1-2 = pick, X = art off, W = mist (in the projector window)')

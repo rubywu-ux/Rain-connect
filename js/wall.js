@@ -258,7 +258,9 @@
     R._artSt = null; R._pc = null; R.fresh = true;
     if (snap) buildSites(snap);
   }
-  const cycleArt = (d = 1) => setArt(((art + (d < 0 ? -1 : 1)) % (NART + 1) + NART + 1) % (NART + 1));   // d = -1 steps back
+  // A / Z step through the art modes only (never back to the map view, which is white in calm weather);
+  // from the map view A starts at the first mode, Z at the last. X / Esc go back to the map view.
+  const cycleArt = (d = 1) => setArt(!art ? (d < 0 ? NART : 1) : ((art - 1 + (d < 0 ? -1 : 1)) % NART + NART) % NART + 1);
   // the switch lives here on the wall (button / W key); TouchDesigner's Mist toggle can flip it too
   let mistOn = false, wTarget = 0, w = 0, mistStorm = 0, light = false, lastGust = 0, lastMistBolt = 0, baseDensity = 1.2, mistSeen = 0;
   try { mistOn = localStorage.getItem('rc_mist') === '1'; } catch (e) {}
@@ -487,7 +489,7 @@
   requestAnimationFrame(frame);
 
   $('mist').onclick = () => setMist(!mistOn);
-  $('art').onclick = () => cycleArt();
+  $('art').onclick = () => setArt(art >= NART ? 0 : art + 1);       // the button: modes, then off again
   window.__wall = { setArt, cycleArt, setMist, get art() { return art; }, get mist() { return mistOn; } };   // TouchDesigner flips these
   try { const a = +(localStorage.getItem('rc_art') || 0); if (a > 0) setArt(a); } catch (e) {}       // old '1' / '0' still work
   setMist(mistOn);
