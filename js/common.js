@@ -118,11 +118,86 @@ const DRIZZLE_LANE = 26;   // fine background rain
 const RIVER_LINES = 26;    // filaments in the river when phones are joined
 function smoothstep(a, b, x) { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
 let _spark = null;         // soft glow sprite for the brightest sparkles
-/* the ground: PAL.bg at the top shading to PAL.bg2 at the floor, at a given opacity */
-function fogFill(c, w, h, a) {
+/* ---- looks: how the wall dreams. 0 = fog (plain), 1 = dream (pastel light that slowly changes colour, soft
+   bloom, drifting motes), 2 = lucid (dawn-coloured sky, deeper bloom, more motes). Each look has a ground for
+   the fog theme and one for the night theme: two sets of three colours (top, middle, floor) that it drifts
+   between over about a minute and a half. The wall switches with D (window.__wall.setLook), ?look=N, kept in
+   localStorage rc_look. The phone stays plain unless asked (?look=N). */
+const LOOKS = [
+  { name: 'plain', bloom: 0, motes: 0, drift: 0 },
+  { name: 'dream', bloom: 0.22, motes: 34, drift: 90, halo: 0.16,
+    light: [[[240, 236, 244], [242, 232, 230], [224, 234, 232]], [[232, 238, 242], [240, 234, 228], [230, 228, 238]]],
+    dark: [[[26, 22, 44], [44, 30, 56], [18, 30, 40]], [[20, 28, 46], [40, 28, 50], [30, 22, 44]]] },
+  { name: 'lucid', bloom: 0.3, motes: 60, drift: 70, halo: 0.24,
+    light: [[[226, 236, 244], [246, 236, 226], [238, 224, 232]], [[236, 230, 244], [244, 240, 226], [226, 236, 236]]],
+    dark: [[[16, 36, 48], [54, 30, 66], [70, 44, 40]], [[24, 24, 56], [60, 36, 60], [50, 46, 34]]] },
+];
+let LOOK = (() => { try { const v = new URLSearchParams(location.search).get('look'); if (v != null) return clamp(+v | 0, 0, LOOKS.length - 1); } catch (e) {} return 0; })();
+function setLook(n) { LOOK = clamp(n | 0, 0, LOOKS.length - 1); try { localStorage.setItem('rc_look', String(LOOK)); } catch (e) {} dispatchEvent(new CustomEvent('lookchange', { detail: LOOK })); }
+/* the people under the umbrellas: 0 walkers (head, shoulders, legs), 1 silhouettes (a coat to the knees),
+   2 sketches (a thin line figure holding the shaft), 3 ghosts (soft light, no edges). V on the wall, ?fig=N. */
+const FIGS = ['walkers', 'silhouettes', 'sketches', 'ghosts'];
+let FIG = (() => { try { const v = new URLSearchParams(location.search).get('fig'); if (v != null) return clamp(+v | 0, 0, FIGS.length - 1); } catch (e) {} return 0; })();
+function setFig(n) { FIG = clamp(n | 0, 0, FIGS.length - 1); try { localStorage.setItem('rc_fig', String(FIG)); } catch (e) {} dispatchEvent(new CustomEvent('figchange', { detail: FIG })); }
+const lerp3 = (a, b, m) => [a[0] + (b[0] - a[0]) * m, a[1] + (b[1] - a[1]) * m, a[2] + (b[2] - a[2]) * m].map(Math.round).join(',');
+/* the look's ground colours right now (null for the plain fog) */
+function lookGround(T) {
+  const L = LOOKS[LOOK]; if (!L || !L.drift) return null;
+  const sets = INK ? L.light : L.dark, m = 0.5 + 0.5 * Math.sin((T || 0) * 6.283 / L.drift);
+  return [0, 1, 2].map(i => lerp3(sets[0][i], sets[1][i], m));
+}
+/* the ground: PAL.bg at the top shading to PAL.bg2 at the floor, at a given opacity (or the look's drifting sky) */
+function fogFill(c, w, h, a, T) {
+  const lg = lookGround(T != null ? T : fogFill._T || 0);
+  if (lg) {
+    const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, `rgba(${lg[0]},${a})`); g.addColorStop(0.55, `rgba(${lg[1]},${a})`); g.addColorStop(1, `rgba(${lg[2]},${a})`);
+    c.fillStyle = g; c.fillRect(0, 0, w, h); return;
+  }
   if (PAL.bg2 === PAL.bg) { c.fillStyle = `rgba(${PAL.bg},${a})`; c.fillRect(0, 0, w, h); return; }
   const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, `rgba(${PAL.bg},${a})`); g.addColorStop(1, `rgba(${PAL.bg2},${a})`);
   c.fillStyle = g; c.fillRect(0, 0, w, h);
+}
+/* the dreaming: a soft bloom (the picture, blurred and laid back over itself) and motes drifting up through
+   the air. Drawn last, over everything, by the wall's renderer in looks 1 and 2. */
+const MOTE_HUES_LIGHT = ['150,130,170', '170,140,130', '120,150,150', '140,140,170'];
+const MOTE_HUES_DARK = ['220,200,255', '255,220,200', '190,235,230', '210,210,255'];
+function dreamPost(R, c, T) {
+  const L = LOOKS[LOOK]; if (!L || (!L.bloom && !L.motes)) return;
+  const w = R.w, h = R.h, dpr = R.dpr;
+  // the bloom lives on its own small canvas laid over the picture (CSS blurs and blends it), so it never
+  // feeds back into the persisting frame: multiply in the fog (a soft darkening haze), screen at night (glow)
+  let b = R._bloomEl;
+  if (L.bloom) {
+    try {
+      if (!b) { b = R._bloomEl = document.createElement('canvas'); b.setAttribute('aria-hidden', 'true'); b.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;pointer-events:none;'; R.cv.after(b); }
+      const bw = Math.max(2, Math.round(w / 4)), bh = Math.max(2, Math.round(h / 4));
+      if (b.width !== bw || b.height !== bh) { b.width = bw; b.height = bh; }
+      b.style.filter = 'blur(9px)'; b.style.mixBlendMode = INK ? 'multiply' : 'screen'; b.style.opacity = String(L.bloom * (INK ? 1 : 1.6)); b.style.display = '';
+      const g = b.getContext('2d'); g.clearRect(0, 0, bw, bh); g.drawImage(R.cv, 0, 0, bw, bh);
+    } catch (e) {}
+  } else if (b) b.style.display = 'none';
+  if (L.motes) {
+    const M = R._motes || (R._motes = []);
+    while (M.length < L.motes) M.push({ x: Math.random(), y: Math.random(), r: 3 + Math.random() * 9, v: 0.004 + Math.random() * 0.01, ph: Math.random() * 6.283, hue: Math.floor(Math.random() * 4), a: 0.05 + Math.random() * 0.09 });
+    const dt = R._moteT == null ? 0.016 : clamp(T - R._moteT, 0, 0.1); R._moteT = T;
+    c.save(); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.globalCompositeOperation = INK ? 'source-over' : 'lighter';
+    const hues = INK ? MOTE_HUES_LIGHT : MOTE_HUES_DARK;
+    for (let i = 0; i < L.motes; i++) {
+      const m = M[i]; m.y -= m.v * dt; if (m.y < -0.05) { m.y = 1.05; m.x = Math.random(); }
+      const x = (m.x + 0.02 * Math.sin(T * 0.3 + m.ph)) * w, y = m.y * h, z = m.r * (1 + 0.2 * Math.sin(T * 0.7 + m.ph)) * (w / 1400 + 0.3);
+      const spr = typeof glowSprite === 'function' ? glowSprite(hues[m.hue]) : sparkSprite();
+      c.globalAlpha = m.a * (0.7 + 0.3 * Math.sin(T * 0.5 + m.ph * 2)); c.drawImage(spr, x - z, y - z, z * 2, z * 2);
+    }
+    c.restore();
+  }
+}
+const _glowSprites = new Map();
+function glowSprite(rgb) {
+  let g = _glowSprites.get(rgb); if (g) return g;
+  g = document.createElement('canvas'); g.width = g.height = 64;
+  const x = g.getContext('2d'), gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, `rgba(${rgb},0.9)`); gr.addColorStop(0.3, `rgba(${rgb},0.35)`); gr.addColorStop(1, `rgba(${rgb},0)`);
+  x.fillStyle = gr; x.fillRect(0, 0, 64, 64); _glowSprites.set(rgb, g); return g;
 }
 function sparkSprite() {
   if (_spark) return _spark;
@@ -213,7 +288,7 @@ class RainRenderer {
     const W = this.worldW, H = this.worldH, lw = Math.max(1, s * 0.75);
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     c.globalCompositeOperation = 'source-over';
-    fogFill(c, this.w, this.h, this.fresh ? 1 : (this.fade || PAL.fade));           // soft persistence = smoky trails
+    fogFill(c, this.w, this.h, this.fresh ? 1 : (this.fade || PAL.fade), T);        // soft persistence = smoky trails
     const und = this._under();            // the faint world + the stains where it has rained, in one layer
     if (und) {
       c.save();
@@ -489,6 +564,7 @@ class RainRenderer {
       this._orbit(c, f, age, lw);
     }
     c.globalCompositeOperation = 'source-over';
+    if (this.dreams) dreamPost(this, c, T);
   }
 
   /* one plume: a few overlapping fans ("lobes") of filaments sharing one root */
@@ -659,6 +735,7 @@ class RainRenderer {
       }
       if (mode.bolts !== false) for (const b of this.bolts) { const age = T - b.t; if (age >= 0) this._bolt(c, b, age, lw); }
       c.globalCompositeOperation = 'source-over';
+      if (this.dreams) dreamPost(this, c, T);
     } finally {
       if (swap) { INK = true; Object.assign(PAL, keep); }
     }

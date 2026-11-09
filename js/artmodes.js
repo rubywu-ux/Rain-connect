@@ -268,7 +268,7 @@ const ART_MODES = (() => {
       // flowing dots and fine lines, with a soft trail as things move. Colour only for what the phones do.
       const ink = PAL.ink, ds = E.s || 1, lit = INK ? glow('255,255,255', 64, 0.3) : sparkSprite();   // lights are lighter than the fog, not darker
       c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.lineCap = 'round'; c.lineJoin = 'round'; c.setLineDash([]);
-      fogFill(c, W, H, E.fresh ? 1 : 0.62);
+      fogFill(c, W, H, E.fresh ? 1 : 0.62, T);
       { const hz = c.createLinearGradient(0, 0, 0, H * 0.6); hz.addColorStop(0, `rgba(${PAL.ink},0.045)`); hz.addColorStop(1, `rgba(${PAL.ink},0)`); c.fillStyle = hz; c.fillRect(0, 0, W, H * 0.6); }     // a short, soft trail (the map's long one is too much here)
       c.globalCompositeOperation = PAL.comp;
       const gk = W + ':' + H + ':' + INK;
@@ -326,15 +326,37 @@ const ART_MODES = (() => {
         return { A, tp };
       };
       const pplK = new Path2D(), legK = new Path2D();          // the people, filled and stroked on their own (inside a canopy's path they would cut a hole)
-      const figure = (q, pc) => {                              // head, shoulders to hips, legs mid-stride along the heading
+      const figure = (q, pc) => {                              // the person, in the chosen manner (FIG, common.js)
         const hd = q.hd || 0, ux = Math.cos(hd), uy = Math.sin(hd), vx = -uy, vy = ux, sw = Math.sin(q.ph || 0);
         const body = pc ? pc.ppl : pplK, legs = pc ? pc.lines : legK;
         const pt = (f, sd, z) => P(q.x + ux * f + vx * sd, q.y + uy * f + vy * sd, z, [0, 0, 0]);
-        const hdp = pt(0.03, 0, 1.52), sL = pt(0, -0.21, 1.34), sR = pt(0, 0.21, 1.34), hL = pt(0, -0.12, 0.8), hR = pt(0, 0.12, 0.8);
-        const r = 0.105 * hdp[2];
+        const hdp = pt(0.03, 0, 1.52), r = 0.105 * hdp[2];
+        const fL = pt(0.17 * sw, -0.09, 0), fR = pt(-0.17 * sw, 0.09, 0);
+        if (FIG === 3) {                                         // ghosts: three soft lights down the body, no edges
+          const ch = pt(0, 0, 1.1), hp = pt(0, 0, 0.65), out = pc ? pc.glow : INK ? CP(ink.split(',').map(Number)).glow : null;   // in the fog, a grey breath; at night, a pale light
+          const push = (pp, a, z) => { if (out) out.push([pp[0], pp[1], a * (pc ? 1 : 0.55), z]); else sparks.push([pp[0], pp[1], a * 0.8 * hush, z]); };
+          push(hdp, 0.5, 0.42 * hdp[2]); push(ch, 0.4, 0.7 * ch[2]); push(hp, 0.3, 0.6 * hp[2]);
+          return;
+        }
+        if (FIG === 2) {                                         // sketches: one thin line, holding the shaft
+          const sL = pt(0, -0.2, 1.33), sR = pt(0, 0.2, 1.33), sp0 = pt(0, 0, 1.4), sp1 = pt(0, 0, 0.82), hand = pt(0.16, 0.12, 1.15), apx = pt(0.1, 0.08, 2.0);
+          legs.moveTo(hdp[0] + r, hdp[1]); legs.arc(hdp[0], hdp[1], r, 0, TAU);
+          legs.moveTo(sL[0], sL[1]); legs.lineTo(sR[0], sR[1]); legs.moveTo(sp0[0], sp0[1]); legs.lineTo(sp1[0], sp1[1]);
+          legs.moveTo(sp1[0], sp1[1]); legs.lineTo(fL[0], fL[1]); legs.moveTo(sp1[0], sp1[1]); legs.lineTo(fR[0], fR[1]);
+          legs.moveTo(sR[0], sR[1]); legs.lineTo(hand[0], hand[1]); legs.lineTo(apx[0], apx[1]);
+          return;
+        }
+        if (FIG === 1) {                                         // silhouettes: head and a coat to the knees, feet below
+          const sL = pt(-0.02, -0.22, 1.34), sR = pt(-0.02, 0.22, 1.34), kL = pt(0.03, -0.2, 0.45), kR = pt(0.03, 0.2, 0.45), hL = pt(0, -0.09, 0.45), hR = pt(0, 0.09, 0.45);
+          body.moveTo(hdp[0] + r, hdp[1]); body.ellipse(hdp[0], hdp[1], r, r * 1.08, 0, 0, TAU);
+          body.moveTo(sL[0], sL[1]); body.quadraticCurveTo((sL[0] + sR[0]) / 2, sL[1] - 0.07 * sL[2], sR[0], sR[1]); body.lineTo(kR[0], kR[1]); body.lineTo(kL[0], kL[1]); body.closePath();
+          legs.moveTo(hL[0], hL[1]); legs.lineTo(fL[0], fL[1]); legs.moveTo(hR[0], hR[1]); legs.lineTo(fR[0], fR[1]);
+          return;
+        }
+        // walkers: head, shoulders to the hips, two legs mid-stride
+        const sL = pt(0, -0.21, 1.34), sR = pt(0, 0.21, 1.34), hL = pt(0, -0.12, 0.8), hR = pt(0, 0.12, 0.8);
         body.moveTo(hdp[0] + r, hdp[1]); body.ellipse(hdp[0], hdp[1], r, r * 1.08, 0, 0, TAU);
         body.moveTo(sL[0], sL[1]); body.quadraticCurveTo((sL[0] + sR[0]) / 2, sL[1] - 0.06 * sL[2], sR[0], sR[1]); body.lineTo(hR[0], hR[1]); body.lineTo(hL[0], hL[1]); body.closePath();
-        const fL = pt(0.17 * sw, -0.09, 0), fR = pt(-0.17 * sw, 0.09, 0);
         legs.moveTo(hL[0], hL[1]); legs.lineTo(fL[0], fL[1]); legs.moveTo(hR[0], hR[1]); legs.lineTo(fR[0], fR[1]);
       };
       const aw0 = amt * wet;
@@ -364,6 +386,10 @@ const ART_MODES = (() => {
           P(q.x, q.y, 2, p); const depth = 0.45 + 0.55 * smoothstep(0, H, p[1]);           // far ones fainter: air between them
           const { A, tp } = canopy(q, gq, C ? C.fib : lev(fib, al * (0.3 + 0.7 * q.k) * depth * hush), C ? C.body : null);
           if (C) C.glow.push([A[0], A[1], 0.42 * al, 1.5 * A[2] * q.R]); else sparks.push([A[0], A[1], al * (0.14 + 0.4 * q.k), 0.34 * A[2] * q.R]);
+          if (LOOKS[LOOK].halo && !C) {                           // dreaming: a pale coloured halo rests on each canopy
+            const hues = INK ? MOTE_HUES_LIGHT : MOTE_HUES_DARK, hc = hues[Math.floor(hash(q.id * 3 + 11) * hues.length)].split(',').map(Number);
+            CP(hc).glow.push([A[0], A[1], LOOKS[LOOK].halo * al * depth, 3.2 * A[2] * q.R * (1 + 0.08 * Math.sin(T * 0.6 + q.id))]);
+          }
           P(q.x, q.y, 0, q2); refl.push([q2[0], q2[1], q2[2] * q.R, al * (C ? 0.08 : (0.04 + 0.06 * q.k) * depth * hush), null]);
           const aw = Math.max(aw0, (q.lw || 0) * 1.3);          // rain landing on it: a few bright drops
           if (aw > 0.02 && al > 0.5) for (let n = 0, mm = aw * (2 + 2 * q.k), m = Math.floor(mm) + (rnd() < mm - Math.floor(mm) ? 1 : 0); n < m; n++) {   // every umbrella gets its share of drops, lighter rain fewer

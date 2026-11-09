@@ -104,7 +104,10 @@ One art mode beside the rain map, drawn in the map's own language (soft points a
 the map. **S** switches the theme: *fog* (grey ink on a pale ground, the default) or *night* (light on
 black); the choice is kept on that screen, and a phone that scans the QR opens in the wall's theme, with
 its own fog/night switch (top-right of the start screen, ◐ in the rain view). The buttons bottom-left of
-the wall do the same. In TouchDesigner use the projector window (same keys), or Mist page > Art mode.
+the wall do the same. **D** cycles the wall's *look*: plain, dream (pastel light that slowly changes colour,
+a soft bloom, motes drifting up) or lucid (dawn colours, deeper bloom, more motes); **V** cycles how the people
+under the umbrellas are drawn: walkers, silhouettes, sketches or ghosts. Both are kept on that screen and can
+be forced with `?look=N` / `?fig=N`. In TouchDesigner use the projector window (same keys), or Mist page > Art mode.
 
 A plaza in the rain seen from a high window: the 28 heaviest raining places on Earth are people crossing
 it under umbrellas (where they walk = longitude and latitude, size and brightness = how hard it rains

@@ -77,6 +77,8 @@
   /* ---------------- the wall's map: no stain memory (it grew into grey noise over the fog); the plumes thin
      out toward the bottom so the numbers and the QR sit on quiet ground */
   R.bottomFade = 0.55; R.haze = 0.04; R.breathe = true; R.noBoltLines = true;
+  R.dreams = true;                                                  // the wall may dream (looks 1 and 2, key D)
+  try { const q = new URLSearchParams(location.search); if (!q.has('look')) { const v = localStorage.getItem('rc_look'); if (v != null) setLook(+v); } if (!q.has('fig')) { const v = localStorage.getItem('rc_fig'); if (v != null) setFig(+v); } } catch (e) {}
   try { localStorage.removeItem('rc_memory2'); } catch (e) {}
   const M = new WorldMap($('map'));
   const S = new RainSound();
@@ -409,6 +411,10 @@
     themeLabel();
   }
   function themeLabel() { const b = $('theme'); if (b) b.textContent = light ? 'fog' : 'night'; }
+  function cycleLook(d = 1) { setLook((LOOK + d + LOOKS.length) % LOOKS.length); R.fresh = true; lookLabel(); }
+  function cycleFig(d = 1) { setFig((FIG + d + FIGS.length) % FIGS.length); lookLabel(); }
+  function lookLabel() { const a = $('look'), b = $('fig'); if (a) a.textContent = LOOKS[LOOK].name; if (b) b.textContent = FIGS[FIG]; }
+  addEventListener('lookchange', lookLabel); addEventListener('figchange', lookLabel);
   addEventListener('inkchange', themeLabel);
   setInterval(() => {
     const now = Date.now();
@@ -550,6 +556,8 @@
     if (e.key === 'f') document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
     if (e.key === 'w') setMist(!mistOn);
     if (e.key === 's') setTheme(!light);                               // fog <-> night
+    if (e.key === 'd') cycleLook();                                     // plain -> dream -> lucid
+    if (e.key === 'v') cycleFig();                                      // walkers -> silhouettes -> sketches -> ghosts
     if (e.key === 'a') cycleArt();                                     // map -> 1 -> 2 -> map
     if (e.key === 'z') cycleArt(-1);                                   // back the other way
     if (/^[0-9]$/.test(e.key) && +e.key <= NART) setArt(+e.key);       // 0 = the rain map, 1..N pick a mode
@@ -569,7 +577,8 @@
   $('mist').onclick = () => setMist(!mistOn);
   $('art').onclick = () => setArt(art >= NART ? 0 : art + 1);       // the button: modes, then off again
   $('theme').onclick = () => setTheme(!light); themeLabel();
-  window.__wall = { setArt, cycleArt, setMist, setTheme, toggleTheme: () => setTheme(!light), get art() { return art; }, get mist() { return mistOn; }, get theme() { return light ? 'fog' : 'night'; } };   // TouchDesigner flips these
+  $('look').onclick = () => cycleLook(); $('fig').onclick = () => cycleFig(); lookLabel();
+  window.__wall = { setArt, cycleArt, setMist, setTheme, toggleTheme: () => setTheme(!light), setLook: n => { setLook(n); R.fresh = true; lookLabel(); }, cycleLook, setFig: n => { setFig(n); lookLabel(); }, cycleFig, get art() { return art; }, get mist() { return mistOn; }, get theme() { return light ? 'fog' : 'night'; } };   // TouchDesigner flips these
   try { const a = +(localStorage.getItem('rc_art') || 0); if (a > 0) setArt(a); } catch (e) {}       // old '1' / '0' still work
   setMist(mistOn);
   if (RC.debug) window.__hub = { clients, exits, net, R, S, setMist, setSnap, tagSite, nameOf, get w() { return w; }, get light() { return light; }, get joins() { return joins; } };
