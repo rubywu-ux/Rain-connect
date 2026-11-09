@@ -6,10 +6,11 @@
   const R = new RainRenderer(rainCv, { scale: 1 });
   const M = new WorldMap(mapCv);
   M.zoom = 1.75;                                               // the world is wider than the phone: swipe to look around
-  M.ox = (innerWidth * M.zoom - innerWidth) * 0.5; M.oy = 0;   // start on the middle of the map
+  M.centre = true;                                             // start on the middle of the map
   M.onTap = (sx, sy) => {                                      // a tap on a raining place says where it is
     const r = M.nearest(sx, sy, mapCv.clientWidth, mapCv.clientHeight); if (!r) return;
     showDrop(r, sx, sy, myColor, false, 'it is raining here right now');
+    net.pub('hub/in', { type: 'look', id: ME, site: 5000 + r.idx, c: myColor });   // the wall points at it too
   };
   const S = new RainSound();
 
@@ -339,6 +340,6 @@
   document.documentElement.style.setProperty('--me', colorOf(myColor));
   requestAnimationFrame(frame);
 
-  if (RC.debug) window.__rc = { R, get members() { return members; }, get gid() { return gid; }, ME, net, T,
+  if (RC.debug) window.__rc = { R, M, get members() { return members; }, get gid() { return gid; }, ME, net, T,
     freeze: t => { frozen = t; }, get clockOff() { return clockOff; } };
 })();

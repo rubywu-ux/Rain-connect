@@ -1247,7 +1247,11 @@ class WorldMap {
   /* the map is `zoom` screens wide (and tall enough to keep its shape); ox/oy = the corner shown, in map px */
   _size(w, h) { const mw = w * this.zoom, mh = mw * 0.62; return [mw, mh]; }      // a little taller than true, like the wall
   _xy(lat, lon, w, h) { const [mw, mh] = this._size(w, h); return [mw * (0.03 + 0.94 * (lon + 180) / 360) - this.ox, mh * (0.08 + 0.84 * clamp((80 - lat) / 140, 0, 1)) - this.oy]; }
-  _clamp(w, h) { const [mw, mh] = this._size(w, h); this.ox = clamp(this.ox, 0, Math.max(0, mw - w)); this.oy = mh <= h ? -(h - mh) / 2 : clamp(this.oy, 0, mh - h); }   // shorter than the screen: sit in the middle
+  _clamp(w, h) {                                                             // both ways: a map shorter than the screen still slides from top to bottom
+    const [mw, mh] = this._size(w, h);
+    if (this.centre) { this.centre = false; this.ox = (mw - w) / 2; this.oy = mh <= h ? -(h - mh) / 2 : (mh - h) / 2; }
+    this.ox = clamp(this.ox, 0, Math.max(0, mw - w)); this.oy = mh <= h ? clamp(this.oy, -(h - mh), 0) : clamp(this.oy, 0, mh - h);
+  }
   _pan(cv) {                                                                // drag to look around; a flick keeps going a little
     let d = null;
     cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); d = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 }; this.vx = this.vy = 0; });

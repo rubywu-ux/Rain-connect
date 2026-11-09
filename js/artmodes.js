@@ -348,6 +348,12 @@ const ART_MODES = (() => {
           out.moveTo(p[0] + 0.3 * k, p[1]); out.ellipse(p[0], p[1], 0.3 * k, 0.15 * k, q.hd + Math.PI / 2, 0, TAU);
           P(q.x + Math.cos(q.hd) * 0.04, q.y + Math.sin(q.hd) * 0.04, 1.7, q2); out.moveTo(q2[0] + 0.12 * q2[2], q2[1]); out.arc(q2[0], q2[1], 0.12 * q2[2], 0, TAU);
         }
+        const LK = R.artLook && R.artLook.site === q.id ? 1 - smoothstep(3, 4.5, T - R.artLook.t) : 0;   // a phone is looking at this place
+        if (LK > 0.01) {
+          const K = CP(colorOf(R.artLook.col).split(',').map(Number)); P(q.x, q.y, 1.45, p); const g0 = st.G(p[0], p[1]); P(g0[0], g0[1], 0, p);
+          const rr = (1.3 + 0.35 * Math.sin(T * 3)) * p[2] * LK; K.fib.moveTo(p[0] + rr, p[1]); K.fib.ellipse(p[0], p[1], rr, rr * 0.8, 0, 0, TAU);
+          P(q.x, q.y, 2.3, q2); K.glow.push([q2[0], q2[1], 0.8 * LK, 2.6 * q2[2] * q.R]);
+        }
         if (C) { P(q.x, q.y, 1.45, p); const g0 = st.G(p[0], p[1]); P(g0[0], g0[1], 0, p); const rr = 1.1 * p[2] * (1 + 0.22 * (q.sh || 0));   // your ring on the ground
           C.fib.moveTo(p[0] + rr, p[1]); C.fib.ellipse(p[0], p[1], rr, rr * 0.8, 0, 0, TAU); }
         if (q.o > 0.02) {

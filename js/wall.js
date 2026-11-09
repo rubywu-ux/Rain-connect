@@ -168,6 +168,18 @@
     if (m.type === 'exit' || m.type === 'enter') swipe(m);
     if (m.type === 'blow') { blowers.set(m.id, { at: Date.now(), s: m.s || 0.5 }); lastPhone = Date.now(); }
     if (m.type === 'ix') ixIn(m, c);
+    if (m.type === 'look') look(m, c);
+  }
+  /* a phone tapped a raining place on its map: the wall points at the same place. On the rain map a bloom and a
+     caption by its plume; in Umbrellas that person's umbrella lights up in the phone's colour, and the caption
+     names the place. */
+  function look(m, c) {
+    lastPhone = Date.now();
+    const st = R.sites && R.sites.find(z => z.id === m.site); if (!st) return;
+    const col = c ? c.color : m.c;
+    if (art) { R.artLook = { site: st.id, col, t: T() }; const i = nameOf(st.id); if (i) artNote(`${i.where} · ${i.words}`, col); return; }
+    R.addRipple({ x: st.x, y: st.y + 30, t: T(), seed: (m.site * 7) % 1000 + 1, k: 1.1, c: col }); R.bright = Math.max(R.bright, 0.6);
+    tagSite(st, true, 'someone is looking at this rain'); lastTag = Date.now();
   }
   /* ---------------- test panel on the phones (js/lab.js): interaction ideas for the art modes.
      Steady controls (a bird you fly, a walker, a held finger) keep their latest message in R.ixLive;
