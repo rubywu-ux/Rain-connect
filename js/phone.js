@@ -155,11 +155,24 @@
     el.className = 'drop-tag';
     if (col != null) el.style.color = `rgb(${colorOf(col)})`;
     el.innerHTML = `<b>${rainWords(r.mm, r.code)} ${placeName(r.lat, r.lon).where}</b><small>${sub || (mine ? 'your drop is falling there now' : 'someone is holding this rain')}</small>`;
-    el.style.left = clamp(sx - 115, 10, innerWidth - 240) + 'px';
-    el.style.top = clamp(sy - 110, 60, innerHeight - 140) + 'px';
     document.body.appendChild(el);
+    placeClear(el, sx - 115, sy - 110);
     requestAnimationFrame(() => el.classList.add('on'));
     setTimeout(() => { el.classList.remove('on'); setTimeout(() => el.remove(), 1000); }, 4200);
+  }
+  /* put a floating caption near (x, y) without covering any other words on the screen: it slides up or
+     down to the nearest clear spot (the fixed texts - header, footer, pill, hints - are the obstacles) */
+  const TEXT_SEL = '.world-text, .world-foot, .hud, .hint, .umb-hint, .umb-help, .drop-tag';
+  function placeClear(el, x, y) {
+    const w = el.offsetWidth || 230, h = el.offsetHeight || 60, pad = 10;
+    x = clamp(x, 10, innerWidth - w - 10);
+    const obs = [...document.querySelectorAll(TEXT_SEL)].filter(e => e !== el && !e.classList.contains('hidden') && getComputedStyle(e).opacity !== '0')
+      .map(e => e.getBoundingClientRect()).filter(b => b.width > 0 && b.height > 0);
+    const clear = yy => yy >= 10 && yy + h <= innerHeight - 10 && !obs.some(b => x < b.right + pad && x + w > b.left - pad && yy < b.bottom + pad && yy + h > b.top - pad);
+    let best = null;
+    for (let d = 0; d < innerHeight && best == null; d += 8) { if (clear(y - d)) best = y - d; else if (clear(y + d)) best = y + d; }
+    if (best == null) best = clamp(y, 10, innerHeight - h - 10);
+    el.style.left = x + 'px'; el.style.top = best + 'px';
   }
 
   /* ---------------- live rain snapshot */

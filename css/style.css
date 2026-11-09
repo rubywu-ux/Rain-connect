@@ -157,7 +157,7 @@ html.ink .wall-qr { opacity: .5; }
   transition: opacity .9s ease, transform .9s ease; font-family: var(--serif); font-style: italic; color: rgb(var(--me, var(--rgb))); }
 .drop-tag.on { opacity: 1; transform: none; }
 .drop-tag b { display: block; font-weight: 400; font-size: 19px; line-height: 1.2; text-shadow: 0 0 18px rgba(var(--bgrgb), .9); }
-.drop-tag small { display: block; font-family: var(--mono); font-style: normal; font-size: 9.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--dim); margin-top: 6px; }
+.drop-tag small { display: block; font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--dim); margin-top: 4px; }
 
 /* art mode on the wall: the words step back and the rain is the whole picture */
 .wall-title, .wall-stats, .wall-qr, .site-tag { transition: opacity 1.6s ease, transform 1.6s ease, color 1.8s ease, text-shadow 1.8s ease; }
@@ -189,7 +189,7 @@ body:not(.wall) .pill { font-size: 18px; }
 body:not(.wall) .hint { font-size: 21px; }
 body:not(.wall) .btn { font-weight: 400; font-size: 21px; border-color: rgba(var(--rgb), .5); }
 body:not(.wall) .drop-tag b { font-size: 22px; font-weight: 500; }
-body:not(.wall) .drop-tag small { font-size: 11px; color: var(--dim); }
+body:not(.wall) .drop-tag small { font-size: 15px; color: var(--dim); }
 /* fog <-> night: a small italic word in the corner of the start screen, a round button in the rain view */
 .theme-btn { position: absolute; z-index: 2; right: 22px; top: calc(env(safe-area-inset-top) + 22px);
   font: italic 400 17px var(--serif); color: var(--dim); background: none; border: 0; padding: 6px 2px; cursor: pointer; }
