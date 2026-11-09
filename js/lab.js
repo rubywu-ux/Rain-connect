@@ -31,32 +31,34 @@ const RCLab = (() => {
   let pos = { u: 0.5, v: 0.6 }, open = true, lastSend = 0, keepT = 0, down = null;
   const $ = s => document.querySelector(s);
 
+  /* black and white; only what you touch is in colour (your phone's colour, --me) */
   const CSS = `
-  .lab{position:fixed;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));z-index:60;background:#f3f2ee;color:#222;
-    border:1.5px solid #222;border-radius:10px;padding:10px 10px 8px;font:12px/1.35 'IBM Plex Mono',ui-monospace,Menlo,monospace;
-    box-shadow:0 6px 24px rgba(0,0,0,.35);-webkit-user-select:none;user-select:none}
+  .lab{position:fixed;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));z-index:60;background:#000;color:#fff;
+    border:1px solid #fff;border-radius:10px;padding:10px 10px 8px;font:12px/1.35 'IBM Plex Mono',ui-monospace,Menlo,monospace;
+    -webkit-user-select:none;user-select:none}
   .lab.hidden,.lab-open.hidden{display:none}
   .lab-top{display:flex;justify-content:space-between;align-items:center;letter-spacing:.08em;text-transform:uppercase;font-size:11px}
   .lab-top b{font-weight:400}
-  .lab-x,.lab-open{border:1.5px solid #222;border-radius:6px;padding:3px 10px;background:#fff;color:#222;font:inherit}
+  .lab-x,.lab-open{border:1px solid #fff;border-radius:6px;padding:3px 10px;background:#000;color:#fff;font:inherit}
   .lab-open{position:fixed;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:60;font:11px 'IBM Plex Mono',ui-monospace,monospace;
-    text-transform:uppercase;letter-spacing:.08em;padding:8px 12px;background:#f3f2ee}
+    text-transform:uppercase;letter-spacing:.08em;padding:8px 12px}
   .lab-tabs{display:flex;gap:6px;margin:8px 0}
-  .lab-tabs button{flex:1;border:1px dashed #777;background:#fff;border-radius:6px;padding:7px 3px;font:inherit;font-size:11px;color:#222;line-height:1.2}
-  .lab-tabs button.on{border:1.5px solid #222;background:#222;color:#f3f2ee}
-  .lab-hint{margin:0 0 8px;color:#444;min-height:5.5em}
-  .lab-pad{position:relative;width:100%;aspect-ratio:16/9;border:1.5px dashed #555;border-radius:6px;overflow:hidden;touch-action:none;
-    background:repeating-linear-gradient(0deg,transparent 0 23px,#e4e2dc 23px 24px),repeating-linear-gradient(90deg,transparent 0 23px,#e4e2dc 23px 24px),#fbfaf7}
-  .lab-tag{position:absolute;left:6px;top:4px;font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.08em;pointer-events:none}
+  .lab-tabs button{flex:1;border:1px dashed #fff;background:#000;border-radius:6px;padding:7px 3px;font:inherit;font-size:11px;color:#fff;line-height:1.2}
+  .lab-tabs button.on{border:1px solid #fff;background:#fff;color:#000}
+  .lab-hint{margin:0 0 8px;color:#fff;opacity:.75;min-height:5.5em}
+  .lab-pad{position:relative;width:100%;aspect-ratio:16/9;border:1px dashed #fff;border-radius:6px;overflow:hidden;touch-action:none;
+    background:repeating-linear-gradient(0deg,transparent 0 23px,#222 23px 24px),repeating-linear-gradient(90deg,transparent 0 23px,#222 23px 24px),#000}
+  .lab-tag{position:absolute;left:6px;top:4px;font-size:10px;color:#fff;opacity:.5;text-transform:uppercase;letter-spacing:.08em;pointer-events:none}
   .lab-pad svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-  .lab-dot{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;border:2px solid #222;background:rgb(var(--me,200,200,200));
-    display:none;pointer-events:none}
+  .lab-dot{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;border:2px solid rgb(var(--me,255,255,255));
+    background:rgb(var(--me,255,255,255));box-shadow:0 0 14px rgba(var(--me,255,255,255),.7);display:none;pointer-events:none}
   .lab-dot.ring{background:transparent;border-style:dashed}
   .lab-row{display:flex;gap:6px;margin-top:8px}
   .lab-row:empty{display:none}
-  .lab-btn{flex:1;border:1.5px solid #222;border-radius:6px;background:#fff;padding:9px;font:inherit;color:#222}
-  .lab-btn.on{background:#222;color:#f3f2ee}
-  .lab-foot{margin:6px 0 0;color:#888;font-size:10px;display:flex;justify-content:space-between}`;
+  .lab-btn{flex:1;border:1px solid #fff;border-radius:6px;background:#000;padding:9px;font:inherit;color:#fff}
+  .lab-btn.on{border-color:rgb(var(--me,255,255,255));background:rgb(var(--me,255,255,255));color:#000}
+  .lab-foot{margin:6px 0 0;color:#fff;opacity:.5;font-size:10px;display:flex;justify-content:space-between}
+  .lab-foot #lab-sent{color:rgb(var(--me,255,255,255));opacity:1}`;
 
   function build() {
     const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st);
@@ -125,11 +127,12 @@ const RCLab = (() => {
   function svgPath(pts, dashed, arrow) {
     const s = $('#lab-svg'), r = s.getBoundingClientRect();
     const d = pts.map(([u, v], i) => (i ? 'L' : 'M') + (u * r.width).toFixed(1) + ' ' + (v * r.height).toFixed(1)).join(' ');
-    let h = `<path d="${d}" fill="none" stroke="#222" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${dashed ? ' stroke-dasharray="5 5"' : ''}/>`;
+    const ink = 'stroke:rgb(var(--me,255,255,255))';
+    let h = `<path d="${d}" fill="none" style="${ink}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"${dashed ? ' stroke-dasharray="5 5"' : ''}/>`;
     if (arrow && pts.length > 1) {
       const [a, b] = [pts[pts.length - 2], pts[pts.length - 1]], ang = Math.atan2((b[1] - a[1]) * r.height, (b[0] - a[0]) * r.width);
       const x = b[0] * r.width, y = b[1] * r.height, L = 12;
-      h += `<path d="M${x - L * Math.cos(ang - 0.5)} ${y - L * Math.sin(ang - 0.5)} L${x} ${y} L${x - L * Math.cos(ang + 0.5)} ${y - L * Math.sin(ang + 0.5)}" fill="none" stroke="#222" stroke-width="2"/>`;
+      h += `<path d="M${x - L * Math.cos(ang - 0.5)} ${y - L * Math.sin(ang - 0.5)} L${x} ${y} L${x - L * Math.cos(ang + 0.5)} ${y - L * Math.sin(ang + 0.5)}" fill="none" style="${ink}" stroke-width="2.5" stroke-linecap="round"/>`;
     }
     s.innerHTML = h;
   }
@@ -141,6 +144,7 @@ const RCLab = (() => {
       pad.setPointerCapture(e.pointerId);
       const p = at(e), t = performance.now();
       down = { pts: [[p.u, p.v]], t0: t, last: t, lu: p.u, lv: p.v, s: 0 };
+      touchDot(p);
       if (cur.pad === 'steer') { pos = p; placeDot(); send(cur.k, steady(), true); }
       if (cur.pad === 'hold') { pos = p; send(cur.k, { u: r3(p.u), v: r3(p.v), on: 1 }, true); svgPath([[p.u - 0.001, p.v], [p.u, p.v]]); }
       if (cur.pad === 'draw' || cur.pad === 'swipe') clearSvg();
@@ -150,6 +154,7 @@ const RCLab = (() => {
       const p = at(e), t = performance.now(), dts = Math.max(1, t - down.last) / 1000;
       const sp = Math.hypot(p.u - down.lu, (p.v - down.lv) * 9 / 16) / dts;     // box widths per second
       down.s = down.s * 0.7 + Math.min(1, sp / 2.5) * 0.3; down.last = t; down.lu = p.u; down.lv = p.v;
+      touchDot(p);
       if (cur.pad === 'steer') { pos = p; placeDot(); send(cur.k, steady()); }
       if (cur.pad === 'hold') { pos = p; send(cur.k, { u: r3(p.u), v: r3(p.v), on: 1, s: r3(down.s) }); down.pts.push([p.u, p.v]); if (down.pts.length > 40) down.pts.shift(); svgPath(down.pts, true); }
       if (cur.pad === 'draw' || cur.pad === 'swipe') {
@@ -178,7 +183,10 @@ const RCLab = (() => {
         }
       }
       down = null;
+      if (!cur.keep) $('#lab-dot').style.display = 'none';
     };
+    // your finger, in your colour (a steady control's dot stays where you left it)
+    const touchDot = p => { const d = $('#lab-dot'); d.style.display = 'block'; d.style.left = p.u * 100 + '%'; d.style.top = p.v * 100 + '%'; };
     pad.addEventListener('pointerup', up);
     pad.addEventListener('pointercancel', up);
   }
