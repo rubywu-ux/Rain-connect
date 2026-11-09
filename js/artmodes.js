@@ -300,7 +300,7 @@ const ART_MODES = (() => {
       // the stone is wet: every light above it (lamps, the top of each umbrella) lies in it as a soft vertical smear
       const refl = [];                                         // [x, groundY, k, alpha, col]
       // the lamps glow at night
-      if (day < 0.98) for (const [x, y] of st.lamps) { P(x, y, 5.2, p); sparks.push([p[0], p[1], 0.5 * (1 - day), 0.7 * p[2]]); P(x, y, 0, q2); refl.push([q2[0], q2[1], q2[2], 0.16, null]); }
+      // (no lamps: in the fog the only lights are the umbrellas and the phones)
       // ---- each person: the canopy's points in space (tilted with the wind, inside out if it blew)
       const geo = (q, x, y, zh, ox) => {                        // -> {apex, tips, mids} as [X, Y, Z]
         const o = ox == null ? q.o : ox, io = q.io, R = q.R * (0.14 + 0.86 * o) * (1 + 0.22 * io) * (1 + 0.22 * (q.sh || 0)), zr = 2.05 - (1 - o) * 0.75 * q.R + 0.03 * Math.sin(q.ph * 2);
