@@ -327,7 +327,7 @@
   // A / Z step through the three views: the rain map (0), then each art mode, then the map again
   const cycleArt = (d = 1) => setArt(((art + (d < 0 ? -1 : 1)) % (NART + 1) + NART + 1) % (NART + 1));
   // the switch lives here on the wall (button / W key); TouchDesigner's Mist toggle can flip it too
-  let mistOn = false, wTarget = 0, w = 0, mistStorm = 0, light = false, lastGust = 0, lastMistBolt = 0, baseDensity = 1.2, mistSeen = 0;
+  let mistOn = false, wTarget = 0, w = 0, mistStorm = 0, light = true, lastGust = 0, lastMistBolt = 0, baseDensity = 1.2, mistSeen = 0;
   try { mistOn = localStorage.getItem('rc_mist') === '1'; } catch (e) {}
   let eT = 0, xT = 0, yT = 0;      // for the art modes: how hard the mist moves right now, and where in the pot (-1..1)
   function onWeather(m) {
@@ -397,6 +397,7 @@
     xfade.style.transition = 'opacity 3s cubic-bezier(.45,0,.55,1)'; xfade.style.opacity = '0';
   }
   function setLight(on) {
+    on = true;                                                      // fog, always: the weather shows as density and motion, not light and dark
     if (on === light) return;
     light = on;
     turnTo = on;

@@ -128,7 +128,7 @@ const ART_MODES = (() => {
     st.ppl = out;
   }
   const umbrellas = {
-    name: 'umbrellas', title: 'Umbrellas', dark: true, bolts: false,
+    name: 'umbrellas', title: 'Umbrellas', bolts: false,
     draw(R, c, E) {
       const { T, dt, W, H, s, lw, st, storm, e } = E, calm = calmOf(E), wx = windX(E), wy = windY(E), dpr = E.dpr;
       if (st.W !== W || st.H !== H || !st.bgN) {
@@ -268,7 +268,7 @@ const ART_MODES = (() => {
       // flowing dots and fine lines, with a soft trail as things move. Colour only for what the phones do.
       const ink = PAL.ink, spr = sparkSprite(), ds = E.s || 1;
       c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.lineCap = 'round'; c.lineJoin = 'round'; c.setLineDash([]);
-      c.fillStyle = `rgba(${PAL.bg},${E.fresh ? 1 : 0.62})`; c.fillRect(0, 0, W, H);
+      fogFill(c, W, H, E.fresh ? 1 : 0.62);
       { const hz = c.createLinearGradient(0, 0, 0, H * 0.6); hz.addColorStop(0, `rgba(${PAL.ink},0.045)`); hz.addColorStop(1, `rgba(${PAL.ink},0)`); c.fillStyle = hz; c.fillRect(0, 0, W, H * 0.6); }     // a short, soft trail (the map's long one is too much here)
       c.globalCompositeOperation = PAL.comp;
       const gk = W + ':' + H + ':' + INK;

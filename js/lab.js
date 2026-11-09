@@ -17,10 +17,10 @@ const RCLab = (() => {
 
   const CSS = `
   .umb-hint{position:fixed;left:0;right:0;bottom:calc(22px + env(safe-area-inset-bottom));z-index:9;text-align:center;pointer-events:none;
-    font:11px/1.6 'IBM Plex Mono',ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:rgb(var(--rgb,236,237,240));
+    font:italic 15px/1.6 'Cormorant Garamond','Times New Roman',serif;color:rgb(var(--rgb,92,100,102));
     opacity:0;transition:opacity 1.2s ease}
   .umb-hint.on{opacity:.6}
-  .umb-hint i{display:block;font-style:normal;opacity:.55;letter-spacing:.2em;font-size:9px;margin-bottom:4px}
+  .umb-hint i{display:block;opacity:.6;font-size:13px;margin-bottom:4px}
   .umb-me{position:fixed;z-index:8;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;pointer-events:none;
     border:1.5px dashed rgb(var(--me,255,255,255));box-shadow:0 0 18px rgba(var(--me,255,255,255),.55);opacity:0;transition:opacity .6s ease}
   .umb-me::after{content:'';position:absolute;left:4px;top:4px;width:4px;height:4px;border-radius:50%;background:rgb(var(--me,255,255,255))}

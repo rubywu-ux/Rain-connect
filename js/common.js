@@ -84,9 +84,9 @@ class Net {
  * along every filament. Everything is a deterministic function of world position + shared
  * time, so plumes continue across phones placed side by side.
  * Default: white light on black.  ?ink : black ink on white paper. */
-let INK = new URLSearchParams(location.search).has('ink');
-const PAL_DARK = { bg: '4,4,5', ink: '236,237,240', comp: 'lighter', fade: 0.26 };
-const PAL_LIGHT = { bg: '244,243,240', ink: '12,12,14', comp: 'source-over', fade: 0.24 };
+let INK = !new URLSearchParams(location.search).has('dark');     // fog: pale ground, grey ink (the old light-on-black with ?dark)
+const PAL_DARK = { bg: '4,4,5', bg2: '4,4,5', ink: '236,237,240', comp: 'lighter', fade: 0.26 };
+const PAL_LIGHT = { bg: '232,235,234', bg2: '214,219,218', ink: '92,100,102', comp: 'source-over', fade: 0.24 };   // fog: milky, a touch cool, darker toward the floor
 const PAL = Object.assign({}, INK ? PAL_LIGHT : PAL_DARK);
 if (INK) document.documentElement.classList.add('ink');
 /* switch the whole page between light (ink on paper) and dark (light on black) while it runs */
@@ -111,6 +111,12 @@ const DRIZZLE_LANE = 26;   // fine background rain
 const RIVER_LINES = 26;    // filaments in the river when phones are joined
 function smoothstep(a, b, x) { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
 let _spark = null;         // soft glow sprite for the brightest sparkles
+/* the ground: PAL.bg at the top shading to PAL.bg2 at the floor, at a given opacity */
+function fogFill(c, w, h, a) {
+  if (PAL.bg2 === PAL.bg) { c.fillStyle = `rgba(${PAL.bg},${a})`; c.fillRect(0, 0, w, h); return; }
+  const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, `rgba(${PAL.bg},${a})`); g.addColorStop(1, `rgba(${PAL.bg2},${a})`);
+  c.fillStyle = g; c.fillRect(0, 0, w, h);
+}
 function sparkSprite() {
   if (_spark) return _spark;
   const cv = document.createElement('canvas'); cv.width = cv.height = 32;
@@ -198,8 +204,7 @@ class RainRenderer {
     const W = this.worldW, H = this.worldH, lw = Math.max(1, s * 0.75);
     c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     c.globalCompositeOperation = 'source-over';
-    c.fillStyle = `rgba(${PAL.bg},${this.fresh ? 1 : (this.fade || PAL.fade)})`;      // soft persistence = smoky trails
-    c.fillRect(0, 0, this.w, this.h);
+    fogFill(c, this.w, this.h, this.fresh ? 1 : (this.fade || PAL.fade));           // soft persistence = smoky trails
     const und = this._under();            // the faint world + the stains where it has rained, in one layer
     if (und) {
       c.save();

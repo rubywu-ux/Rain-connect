@@ -197,7 +197,7 @@
       try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
     }
     entered = true;
-    $('enter').textContent = 'Back to the rain';
+    $('enter').textContent = 'back to the rain';
   };
   $('globe').onclick = () => { $('world').classList.remove('hidden'); $('hud').classList.add('hidden'); };
 
