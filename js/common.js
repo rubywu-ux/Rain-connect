@@ -118,10 +118,6 @@ const DRIZZLE_LANE = 26;   // fine background rain
 const RIVER_LINES = 26;    // filaments in the river when phones are joined
 function smoothstep(a, b, x) { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
 let _spark = null;         // soft glow sprite for the brightest sparkles
-/* the people under the umbrellas: 0 walkers (head, shoulders, legs), 1 ghosts (soft light, no edges). V on the wall, ?fig=N. */
-const FIGS = ['walkers', 'ghosts'];
-let FIG = (() => { try { const v = new URLSearchParams(location.search).get('fig'); if (v != null) return clamp(+v | 0, 0, FIGS.length - 1); } catch (e) {} return 0; })();
-function setFig(n) { FIG = clamp(n | 0, 0, FIGS.length - 1); try { localStorage.setItem('rc_fig', String(FIG)); } catch (e) {} dispatchEvent(new CustomEvent('figchange', { detail: FIG })); }
 /* the ground: PAL.bg at the top shading to PAL.bg2 at the floor, at a given opacity */
 function fogFill(c, w, h, a) {
   if (PAL.bg2 === PAL.bg) { c.fillStyle = `rgba(${PAL.bg},${a})`; c.fillRect(0, 0, w, h); return; }

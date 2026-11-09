@@ -102,10 +102,10 @@ const ART_MODES = (() => {
     const fade = x.createLinearGradient(0, 90, 0, 192); fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,1)');
     x.globalCompositeOperation = 'destination-out'; x.fillStyle = fade; x.fillRect(0, 0, W, H);   // the feet dissolve into the ground
     g = canvas(W, H); const o = g.getContext('2d');
-    try { o.filter = 'blur(7px)'; } catch (e) {}
-    o.globalAlpha = 0.55; o.drawImage(sh, 0, 0);                                            // a wide soft breath
-    try { o.filter = 'blur(2.5px)'; } catch (e) {}
-    o.globalAlpha = 0.8; o.drawImage(sh, 0, 0);                                             // the figure itself, still edgeless
+    try { o.filter = 'blur(9px)'; } catch (e) {}
+    o.globalAlpha = 0.6; o.drawImage(sh, 0, 0);                                             // a wide soft breath
+    try { o.filter = 'blur(4px)'; } catch (e) {}
+    o.globalAlpha = 0.6; o.drawImage(sh, 0, 0);                                             // the figure itself, still edgeless
     try { o.filter = 'none'; } catch (e) {}
     _ghosts.set(rgb, g); return g;
   }
@@ -345,24 +345,13 @@ const ART_MODES = (() => {
         rim(out); rim(body || fillK[Math.min(3, Math.floor((q.k || 0) * 4))]);   // heavier rain, a fuller grey
         return { A, tp };
       };
-      const pplK = new Path2D(), legK = new Path2D(), ghosts = [];   // [x, y, w, h, alpha, sprite, stride]          // the people, filled and stroked on their own (inside a canopy's path they would cut a hole)
-      const figure = (q, pc) => {                              // the person, in the chosen manner (FIG, common.js)
+      const ghosts = [];                                        // [x, y, w, h, alpha, sprite, stride]
+      const figure = (q, pc) => {                              // the person: a ghost, one soft figure under the canopy
         const hd = q.hd || 0, ux = Math.cos(hd), uy = Math.sin(hd), vx = -uy, vy = ux, sw = Math.sin(q.ph || 0);
-        const body = pc ? pc.ppl : pplK, legs = pc ? pc.lines : legK;
         const pt = (f, sd, z) => P(q.x + ux * f + vx * sd, q.y + uy * f + vy * sd, z, [0, 0, 0]);
-        const hdp = pt(0.03, 0, 1.52), r = 0.105 * hdp[2];
-        const fL = pt(0.17 * sw, -0.09, 0), fR = pt(-0.17 * sw, 0.09, 0);
-        if (FIG === 1) {                                         // ghosts: one soft figure, head and body in a single breath, no edges
-          const top = pt(0, 0, 1.78), bot = pt(0, 0, -0.15), k = top[2];
-          const col = pc ? pc.key : INK ? ink : '236,237,240';
-          ghosts.push([top[0], top[1], 0.62 * k, bot[1] - top[1], pc ? 0.75 : (INK ? 0.5 : 0.6) * hush, ghostSprite(col), sw]);
-          return;
-        }
-        // walkers: head, shoulders to the hips, two legs mid-stride
-        const sL = pt(0, -0.21, 1.34), sR = pt(0, 0.21, 1.34), hL = pt(0, -0.12, 0.8), hR = pt(0, 0.12, 0.8);
-        body.moveTo(hdp[0] + r, hdp[1]); body.ellipse(hdp[0], hdp[1], r, r * 1.08, 0, 0, TAU);
-        body.moveTo(sL[0], sL[1]); body.quadraticCurveTo((sL[0] + sR[0]) / 2, sL[1] - 0.06 * sL[2], sR[0], sR[1]); body.lineTo(hR[0], hR[1]); body.lineTo(hL[0], hL[1]); body.closePath();
-        legs.moveTo(hL[0], hL[1]); legs.lineTo(fL[0], fL[1]); legs.moveTo(hR[0], hR[1]); legs.lineTo(fR[0], fR[1]);
+        const top = pt(0, 0, 1.78), bot = pt(0, 0, -0.15), k = top[2];
+        const col = pc ? pc.key : INK ? ink : '236,237,240';
+        ghosts.push([top[0], top[1], 0.66 * k, bot[1] - top[1], pc ? 0.5 : (INK ? 0.3 : 0.4) * hush, ghostSprite(col), sw]);   // faint: a presence more than a person
       };
       const aw0 = amt * wet;
       for (const q of list) {
@@ -448,8 +437,6 @@ const ART_MODES = (() => {
         c.globalAlpha = a * br; c.drawImage(spr, x - w / 2 + 0.04 * w * sw, y - 0.02 * h, w, h * 1.04);
       }
       c.globalAlpha = 1;
-      c.fillStyle = `rgba(${ink},${(0.26 * br).toFixed(3)})`; c.fill(pplK);                                         // the people: a firmer grey, read through the canopy
-      c.strokeStyle = `rgba(${ink},${(0.3 * br).toFixed(3)})`; c.lineWidth = lw * 1.5; c.stroke(legK);
       fib.forEach((pp, i) => {                                 // rims bleed: wide and faint, then a fine edge
         const a = (0.22 + 0.2 * i) * br;
         c.strokeStyle = `rgba(${ink},${(a * 0.18).toFixed(3)})`; c.lineWidth = lw * 3.6; c.stroke(pp);
