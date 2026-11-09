@@ -4,6 +4,7 @@
   const $ = id => document.getElementById(id);
   const rainCv = $('rain'), mapCv = $('map');
   const R = new RainRenderer(rainCv, { scale: 1 });
+  R.noBoltLines = true;           // lightning on the phone is the flash and the thunder, never a drawn bolt
   const M = new WorldMap(mapCv);
   M.zoom = 1.75;                                               // the world is wider than the phone: swipe to look around
   M.centre = true;                                             // start on the middle of the map
