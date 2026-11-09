@@ -1245,9 +1245,9 @@ class WorldMap {
   }
   setSnapshot(s) { this.snap = s; }
   /* the map is `zoom` screens wide (and tall enough to keep its shape); ox/oy = the corner shown, in map px */
-  _size(w, h) { const mw = w * this.zoom, mh = Math.max(h, mw * 0.5); return [mw, mh]; }
+  _size(w, h) { const mw = w * this.zoom, mh = mw * 0.62; return [mw, mh]; }      // a little taller than true, like the wall
   _xy(lat, lon, w, h) { const [mw, mh] = this._size(w, h); return [mw * (0.03 + 0.94 * (lon + 180) / 360) - this.ox, mh * (0.08 + 0.84 * clamp((80 - lat) / 140, 0, 1)) - this.oy]; }
-  _clamp(w, h) { const [mw, mh] = this._size(w, h); this.ox = clamp(this.ox, 0, Math.max(0, mw - w)); this.oy = clamp(this.oy, 0, Math.max(0, mh - h)); }
+  _clamp(w, h) { const [mw, mh] = this._size(w, h); this.ox = clamp(this.ox, 0, Math.max(0, mw - w)); this.oy = mh <= h ? -(h - mh) / 2 : clamp(this.oy, 0, mh - h); }   // shorter than the screen: sit in the middle
   _pan(cv) {                                                                // drag to look around; a flick keeps going a little
     let d = null;
     cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); d = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0 }; this.vx = this.vy = 0; });
@@ -1290,7 +1290,7 @@ class WorldMap {
     if (this.vx || this.vy) { this.ox += this.vx / 60; this.oy += this.vy / 60; this.vx *= 0.93; this.vy *= 0.93; if (Math.abs(this.vx) + Math.abs(this.vy) < 4) this.vx = this.vy = 0; }
     this._clamp(w, h);
     const [mw, mh] = this._size(w, h), gnd = this._ground(w, h, dpr);
-    c.drawImage(gnd, this.ox * dpr, this.oy * dpr, w * dpr, h * dpr, 0, 0, w, h);
+    c.drawImage(gnd, 0, 0, gnd.width, gnd.height, -this.ox, -this.oy, mw, mh);
     if (!this.snap) return;
     c.globalCompositeOperation = PAL.comp;
     const spr = sparkSprite(), scl = Math.max(0.7, w / 420), dry = new Path2D(), fall = [new Path2D(), new Path2D(), new Path2D()];

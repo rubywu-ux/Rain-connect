@@ -5,7 +5,7 @@
   const rainCv = $('rain'), mapCv = $('map');
   const R = new RainRenderer(rainCv, { scale: 1 });
   const M = new WorldMap(mapCv);
-  M.zoom = 2.3;                                               // the world is wider than the phone: swipe to look around
+  M.zoom = 1.75;                                               // the world is wider than the phone: swipe to look around
   M.ox = (innerWidth * M.zoom - innerWidth) * 0.5; M.oy = 0;   // start on the middle of the map
   M.onTap = (sx, sy) => {                                      // a tap on a raining place says where it is
     const r = M.nearest(sx, sy, mapCv.clientWidth, mapCv.clientHeight); if (!r) return;
