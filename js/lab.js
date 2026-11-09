@@ -21,11 +21,13 @@ const RCLab = (() => {
     opacity:0;transition:opacity 1.2s ease}
   .umb-hint.on{opacity:.85}
   .umb-hint i{display:block;opacity:.75;font-size:15px;margin-bottom:4px}
-  .umb-me{position:fixed;z-index:8;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;pointer-events:none;
-    border:1.5px dashed rgb(var(--me,255,255,255));box-shadow:0 0 18px rgba(var(--me,255,255,255),.55);opacity:0;transition:opacity .6s ease}
-  .umb-me::after{content:'';position:absolute;left:4px;top:4px;width:4px;height:4px;border-radius:50%;background:rgb(var(--me,255,255,255))}
-  .umb-me.on{opacity:.9}
-  .umb-ring{position:fixed;z-index:8;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;pointer-events:none;
+  .umb-me{position:fixed;z-index:8;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;pointer-events:none;
+    border:2px dashed rgb(var(--me,255,255,255));box-shadow:0 0 26px rgba(var(--me,255,255,255),.6), inset 0 0 10px rgba(var(--me,255,255,255),.25);opacity:0;transition:opacity .6s ease;
+    animation:umbme 2.6s ease-in-out infinite}
+  .umb-me::after{content:'';position:absolute;left:8px;top:8px;width:6px;height:6px;border-radius:50%;background:rgb(var(--me,255,255,255))}
+  .umb-me.on{opacity:.95}
+  @keyframes umbme{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
+  .umb-ring{position:fixed;z-index:8;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;pointer-events:none;
     border:1.5px solid rgb(var(--me,255,255,255));opacity:0}
   .umb-ring.go{animation:umbring 1.1s ease-out infinite}
   @keyframes umbring{0%{transform:scale(1);opacity:.8}100%{transform:scale(9);opacity:0}}
@@ -125,7 +127,7 @@ const RCLab = (() => {
     const umb = modeName === 'umbrellas';
     return `<p class="umb-help-lede">Right now it is raining in many places on Earth. The wall shows them live, and your phone is one more drop in that rain.</p>
       <p><b>on the first screen</b><br>swipe the map to look around · tap a light to see where it is raining; the wall points there too</p>
-      <p><b>in the rain</b><br>tap · a ripple and your note<br>drag · the rain bends around your finger<br>tilt the phone · the rain leans that way, slowly</p>
+      <p><b>in the rain</b><br>tap · a ripple and your note<br>drag · the rain bends around your finger<br>tilt the phone · the rain leans that way, slowly<br>≋ then blow into the phone · a wind rises on the wall, a storm if you keep going</p>
       <p class="${umb ? '' : 'umb-dim'}"><b>when the wall shows the plaza of umbrellas</b><br>one finger, drag · carry your umbrella (it stays where you leave it)<br>one finger, hold still · rain falls there while you hold<br>two fingers, move together · a gust across the plaza<br>someone whose umbrella the wind takes runs under yours</p>
       <p class="umb-help-foot">tap anywhere to close</p>`;
   }

@@ -14,10 +14,9 @@ whole picture, echoed on the wall.
   so everyone's touches blend into one piece of music. A tap also echoes, smaller and in
   the tapper's colour, on every other connected screen.
 - Breath storm: tap ≋ on the phone to let it hear your breath (microphone, opt-in). Blowing
-  sends a gust through your own strands. When 2+ people blow at the same time (any phones)
-  a storm starts on every phone and on the wall: a quiet storm wind, strands leaning,
-  white lightning in sync on all screens, and thunder. More people blowing = louder and more
-  lightning. Breath is told apart from voices/music by its noisy, low-heavy spectrum.
+  sends a gust through your own strands and raises a wind on the wall and every phone: strands
+  leaning, a flash and thunder now and then. More people blowing at once = a bigger storm, louder
+  and with more lightning. Breath is told apart from voices/music by its noisy, low-heavy spectrum.
 - Looks: white light on black (default), or black ink on white paper: add `?ink` to the wall
   URL (its QR code then sends phones to the ink version too).
 

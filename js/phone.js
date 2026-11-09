@@ -24,7 +24,7 @@
   let wallMode = 'map';                 // which view the wall is showing (js/lab.js listens to the wall and tells us)
   function updatePill() {
     const n = members.length;
-    const txt = stormN >= 2 ? `≋ ${stormN} blowing · storm` : wallMode === 'umbrellas' ? 'you carry an umbrella' : 'you are in the rain';
+    const txt = stormN >= 2 ? `≋ ${stormN} blowing · storm` : stormN === 1 ? '≋ a wind is rising' : wallMode === 'umbrellas' ? 'you carry an umbrella' : 'you are in the rain';
     $('pill').innerHTML = pillDots + txt;
   }
   addEventListener('wallmode', e => { wallMode = e.detail; updatePill(); $('enter').textContent = wallMode === 'umbrellas' ? 'carry an umbrella' : 'catch the rain'; });
@@ -86,7 +86,7 @@
         }
       }
     } else if (topic === 'storm') {
-      // shared storm: 2+ people blowing anywhere
+      // the wind: anyone blowing into a phone
       stormTarget = m.level || 0;
       if (entered) S.setStorm(stormTarget);
       stormN = m.n || 0;

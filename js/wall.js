@@ -237,7 +237,7 @@
     stats();
   }
 
-  /* ---------------- breath storm: 2+ people blowing at once (anywhere) = storm + lightning;
+  /* ---------------- breath storm: anyone blowing into a phone = wind and lightning;
      more people = louder storm, more lightning. Strikes are shared so every screen flashes together. */
   let stormLevel = 0, stormN = 0, lastStormPub = 0;
   setInterval(() => {
@@ -245,7 +245,7 @@
     for (const [id, b] of blowers) if (now - b.at > 900) blowers.delete(id);
     const n = blowers.size;
     const avg = n ? [...blowers.values()].reduce((a, b) => a + b.s, 0) / n : 0;
-    const level = n < 2 ? 0 : Math.min(1, 0.22 + (n - 2) * 0.18 + avg * 0.12);
+    const level = n < 1 ? 0 : Math.min(1, 0.2 + (n - 1) * 0.16 + avg * 0.16);   // one breath is enough for wind; more people, a bigger storm
     if (n !== stormN || Math.abs(level - stormLevel) > 0.02 || now - lastStormPub > 1500) {
       stormN = n; stormLevel = level; lastStormPub = now;
       net.pub('storm', { n, level: +level.toFixed(2) });
