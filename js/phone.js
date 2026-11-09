@@ -44,7 +44,7 @@
   net.sub('strike');
   net.sub('art');              // which view the wall is on (the test panel, js/lab.js, follows it)
   net.connect();
-  if (typeof RCLab !== 'undefined') RCLab.init({ net, ME, color: () => myColor });
+  if (typeof RCLab !== 'undefined') RCLab.init({ net, ME });
 
   function hello() { net.pub('hub/in', { type: 'hello', id: ME, w: innerWidth, h: innerHeight }); ping(); }
   function ping() { net.pub('hub/in', { type: 'ping', id: ME, t0: Date.now() }); }
@@ -261,9 +261,11 @@
     drag = { x0: e.clientX, y0: e.clientY, t0: performance.now(), pts: [[e.clientX, e.clientY, performance.now()]], moved: 0 };
     const side = edgeOf(e.clientX, e.clientY);
     if (side) net.pub('hub/in', { type: 'enter', id: ME, side, pos: side === 'left' || side === 'right' ? e.clientY : e.clientX });
+    else if (typeof RCLab !== 'undefined' && RCLab.active && RCLab.down(e)) drag.lab = true;   // the wall shows Umbrellas: the gestures are the plaza's
   });
   rainCv.addEventListener('pointermove', e => {
     if (!drag) return;
+    if (drag.lab) { RCLab.move(e); return; }
     const p = drag.pts[drag.pts.length - 1];
     const dx = e.clientX - p[0], dy = e.clientY - p[1];
     drag.moved += Math.hypot(dx, dy);
@@ -282,6 +284,7 @@
   });
   function end(e) {
     if (!drag) return;
+    if (drag.lab && RCLab.up(e)) { drag = null; return; }   // (a plain tap falls through: a ripple and a note, as always)
     const dur = performance.now() - drag.t0;
     const x = e.clientX, y = e.clientY;
     if (drag.moved < 10 && dur < 350) {

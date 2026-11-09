@@ -272,9 +272,42 @@
     R.hideUnder = n > 0;              // the stippled map and the stains belong to the map view
     R.art = n > 0; R.artIdx = n;      // the renderer draws the art mode instead of the map of plumes
     R._artSt = null; R._pc = null; R.fresh = true;
+    if (mode && mode.dark && INK) setInk(false);                                 // the art is light on black; so is the page around it
+    if (!mode && light !== INK) { turnTo = light; if (!turnRaf) { turnLast = performance.now(); turnRaf = requestAnimationFrame(turnStep); } }
     if (snap) buildSites(snap);
     if (typeof pubArt === 'function') pubArt();
+    artLine();
   }
+  /* the one line of words the art keeps: what the picture is made of */
+  function artLine() {
+    const el = $('artline'); if (!el) return;
+    if (!art || !snap) { el.classList.remove('on'); return; }
+    el.innerHTML = `right now <b>${snap.pct.toFixed(1)}%</b> of Earth is under rain<i>each umbrella is a place where it is raining · live from Open-Meteo</i>`;
+    el.classList.add('on');
+  }
+  /* what the picture tells us: a place whose umbrella the wind took, someone who found shelter under a phone's.
+     A quiet caption, and a soft note in that phone's colour. */
+  let lastNote = 0;
+  function artEvents() {
+    const evs = R.artEv; if (!evs || !evs.length) return;
+    R.artEv = [];
+    const now = Date.now();
+    for (const ev of evs) {
+      const i = nameOf(ev.site); if (!i) continue;
+      if (ev.kind === 'shelter') {
+        const at = RainSound.nextPulse(T()), u = clamp(ev.u == null ? 0.5 : ev.u, 0, 1);
+        if (ev.c != null) S.voice(ev.c, RainSound.noteFor(ev.c, u, at), at, T(), 0.16 * duckN(), u);
+        if (now - lastNote > 3500) { lastNote = now; artNote(`someone from ${i.where} found shelter`, ev.c); }
+      } else if (ev.kind === 'lost' && now - lastNote > 5000) { lastNote = now; artNote(`${i.where} · ${i.words}, an umbrella lost to the wind`); }
+    }
+  }
+  function artNote(text, c) {
+    const el = $('artnote'); if (!el) return;
+    el.textContent = text; el.style.color = c != null ? `rgb(${colorOf(c)})` : '';
+    el.classList.add('on'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('on'), 5200);
+  }
+  const duckN = () => 1 / Math.sqrt(Math.max(1, clients.size / 3));        // many phones: each note a little softer
+  setInterval(artEvents, 250);
   // A / Z step through the three views: the rain map (0), then each art mode, then the map again
   const cycleArt = (d = 1) => setArt(((art + (d < 0 ? -1 : 1)) % (NART + 1) + NART + 1) % (NART + 1));
   // the switch lives here on the wall (button / W key); TouchDesigner's Mist toggle can flip it too
@@ -339,7 +372,7 @@
     light = on;
     turnTo = on;
     const mode = art ? ART_MODES[art - 1] : null;
-    if (mode && mode.dark) { setInk(on); return; }                  // that picture keeps its own colours: nothing to hide
+    if (mode && mode.dark) return;                                  // that picture keeps its own black: the page stays with it
     if (mode && mode.turn === 'dissolve') {
       if (turnRaf) { cancelAnimationFrame(turnRaf); turnRaf = 0; turnP = 0; R.cv.style.filter = ''; }
       if (on !== INK) dissolve(on);
@@ -410,7 +443,7 @@
     const st = m.type === 'tap' && m.site != null && R.sites ? R.sites.find(z => z.id === m.site) : null;
     if (st) { R.addRipple({ x: st.x, y: st.y + 30, t: T(), seed: m.seed || 1, k: 0.9 }); R.bright = Math.max(R.bright, 0.6); tagSite(st, true, 'someone here is holding this rain'); lastTag = Date.now(); }
     if (m.type === 'tap' && !st) R.addRipple({ x, y, t: T(), seed: m.seed || 1, k: 0.8, c: m.c });
-    if (m.type === 'tap') { S.plip(clamp(x / R.worldW, 0, 1), 0.18); { const at = RainSound.nextPulse(T()); S.voice(m.c, RainSound.noteFor(m.c, clamp(x / R.worldW, 0, 1), at), at, T(), 0.2, clamp(x / R.worldW, 0, 1)); } }
+    if (m.type === 'tap') { S.plip(clamp(x / R.worldW, 0, 1), 0.18); { const at = RainSound.nextPulse(T()); S.voice(m.c, RainSound.noteFor(m.c, clamp(x / R.worldW, 0, 1), at), at, T(), 0.2 * duckN(), clamp(x / R.worldW, 0, 1)); } }
     if (m.type === 'wind') { R.addImpulse({ x, y, dx: m.dx * 0.8, dy: m.dy * 0.8, r: 70, t: T() }); R.addTrail({ x, y, t: T(), c: m.c }); }
     // simple feed for TouchDesigner: positions 0..1 on the wall
     if (m.type === 'tap' || m.type === 'wind')
@@ -432,7 +465,7 @@
   let snap = null;
   function setSnap(s) {
     snap = s; M.setSnapshot(s);
-    $('pct').textContent = s.pct.toFixed(1);
+    $('pct').textContent = s.pct.toFixed(1); artLine();
     $('meta').textContent = `${s.raining} of ${s.n} evenly spread points on Earth report rain · Open-Meteo · ${fmtTime(s.t)}`;
     rainLevel = clamp(s.pct / 30, 0, 1);
     S.setRain(rainLevel);

@@ -97,26 +97,26 @@ thunder. `td/record_clips.py` records labelled 10 s clips with voice prompts, fo
   wall lights up that place's plume and names it. The wall also names a random place now and then.
   Names come from ~250 cities (`js/places.js`) or the sea/region the point lies over.
 
-## Art mode (wall)
+## Art mode (wall): Umbrellas
 
-Two art modes beside the rain map, no map, numbers or names. Both use the same live rain data and the
-mist from TouchDesigner (how much it moves, and where in the pot). **A** steps through the three views
-(rain map, 1 Murmuration, 2 Umbrellas) and **Z** goes back; keys **0-2** pick one directly; **X** or
-**Esc** go back to the rain map. The **art** button (bottom-left of the wall) steps through them too.
-In TouchDesigner use the projector window (same keys), or Mist page > Art mode (on = last mode used).
+One art mode beside the rain map, drawn in the map's own language (points of light and fine dotted lines
+on black). **A** or **Z** switch between the rain map and Umbrellas; **1** picks Umbrellas, **0**, **X**
+or **Esc** the map. The **art** button (bottom-left of the wall) does the same. In TouchDesigner use the
+projector window (same keys), or Mist page > Art mode.
 
-1. **Murmuration** - a flock of starlings over a gold-leaf folding screen; each raining place leads a
-   patch of the flock (bigger = stronger) in a formation that folds and pulses. Breath is a hawk: the
-   birds burst away from where it comes in and the flock flees the other way; storms bring falcons that
-   fly in from a new direction each time and tear it apart; lightning startles every bird at once. Calm,
-   the flock draws together and drifts.
-2. **Umbrellas** - a plaza in the rain seen from a high window: one person under an umbrella per
-   raining place (where they walk = longitude and latitude, size = strength, colour = latitude,
-   pattern = rain type: drizzle plain, rain two-tone, showers rainbow, thunderstorms black). Breath
-   leans the umbrellas away from you and blows the weak ones inside out; storms tear some away;
-   lightning throws hard shadows and everyone jumps. Calm, umbrellas close, the sun and long shadows
-   come out and a rainbow shows in a puddle. A tap twirls the umbrella of that place.
+A plaza in the rain seen from a high window: the 28 heaviest raining places on Earth are people crossing
+it under umbrellas (where they walk = longitude and latitude, size and brightness = how hard it rains
+there, the arcs inside = the kind of rain: drizzle none, rain a few, showers more, thunderstorm all).
+It never stops raining: a settled mist is a gentle rain; a disturbed mist is a storm that leans the
+umbrellas, blows the weak ones inside out and tears some away. One line of words stays on the wall
+(the share of Earth under rain right now), and a quiet caption names a place when its umbrella is
+lost or when someone finds shelter.
 
-Lightning and thunder still follow the mist storm in both modes (each draws it in its own way).
-Phone taps act on the picture too: in Murmuration a tap is a pebble thrown into the flock.
+The phones (js/lab.js) join the plaza while the wall shows Umbrellas, with the only colour on the wall:
+- **drag** carries your umbrella (it stays where you leave it; up to twelve phones walk at once);
+- **hold still** makes it rain hard on that spot;
+- **flick** sends a gust across the plaza that way.
+Someone whose umbrella the wind takes runs in under the nearest phone's umbrella (up to four each),
+which opens wider for them; the wall plays a soft note in that phone's colour and names their place.
+A plain tap still rings your note, and edge swipes still join phones.
 
