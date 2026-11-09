@@ -266,7 +266,7 @@ const ART_MODES = (() => {
       }
       // ---- draw, in the plumes' manner: light on black (ink on paper in the light theme), everything made of
       // flowing dots and fine lines, with a soft trail as things move. Colour only for what the phones do.
-      const ink = PAL.ink, spr = sparkSprite(), ds = E.s || 1;
+      const ink = PAL.ink, ds = E.s || 1, lit = INK ? glow('255,255,255', 64, 0.3) : sparkSprite();   // lights are lighter than the fog, not darker
       c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.lineCap = 'round'; c.lineJoin = 'round'; c.setLineDash([]);
       fogFill(c, W, H, E.fresh ? 1 : 0.62);
       { const hz = c.createLinearGradient(0, 0, 0, H * 0.6); hz.addColorStop(0, `rgba(${PAL.ink},0.045)`); hz.addColorStop(1, `rgba(${PAL.ink},0)`); c.fillStyle = hz; c.fillRect(0, 0, W, H * 0.6); }     // a short, soft trail (the map's long one is too much here)
@@ -353,7 +353,7 @@ const ART_MODES = (() => {
           if (C) C.glow.push([A[0], A[1], 0.42 * al, 1.5 * A[2] * q.R]); else sparks.push([A[0], A[1], al * (0.14 + 0.4 * q.k), 0.34 * A[2] * q.R]);
           P(q.x, q.y, 0, q2); refl.push([q2[0], q2[1], q2[2] * q.R, al * (C ? 0.16 : (0.05 + 0.08 * q.k) * depth * hush), C ? C : null]);
           const aw = Math.max(aw0, (q.lw || 0) * 1.3);          // rain landing on it: a few bright drops
-          if (aw > 0.02 && al > 0.5) for (let n = 0, m = Math.round(aw * (1.5 + 2 * q.k)); n < m; n++) {
+          if (aw > 0.02 && al > 0.5) for (let n = 0, mm = aw * (2 + 2 * q.k), m = Math.floor(mm) + (rnd() < mm - Math.floor(mm) ? 1 : 0); n < m; n++) {   // every umbrella gets its share of drops, lighter rain fewer
             const i = Math.floor(rnd() * 8), f = rnd() * 0.85, dx = A[0] + (tp[i][0] - A[0]) * f, dy = A[1] + (tp[i][1] - A[1]) * f; dts[3].moveTo(dx + lw * 1.4, dy); dts[3].ellipse(dx, dy, lw * 1.4, lw, 0, 0, TAU);
           }
         }
@@ -396,7 +396,7 @@ const ART_MODES = (() => {
       // reflections first, under everything: the spark sprite stretched tall, fading downward
       for (const [x, y, k, a, Cc] of refl) {
         const w = 0.9 * k, h = (2.6 + 0.6 * Math.sin(T * 0.7 + x)) * k;
-        c.globalAlpha = a; c.drawImage(Cc ? glow(Cc.key, 64, 0.3) : spr, x - w / 2, y - h * 0.25, w, h);
+        c.globalAlpha = a * (INK && !Cc ? 1.8 : 1); c.drawImage(Cc ? glow(Cc.key, 64, 0.3) : lit, x - w / 2, y - h * 0.25, w, h);
       }
       c.globalAlpha = 1;
       const flow = -T * (16 + 40 * storm) * ds, br = 0.9 + 0.1 * Math.sin(T * 6.283 / 26);   // the rain's slow breath
@@ -409,7 +409,7 @@ const ART_MODES = (() => {
       });
       dts.forEach((pp, i) => { c.strokeStyle = `rgba(${ink},${((0.12 + 0.12 * i) * br).toFixed(3)})`; c.lineWidth = lw * 1.2; c.stroke(pp); });   // splash rings
       c.strokeStyle = `rgba(${ink},${(0.18 + 0.1 * storm).toFixed(3)})`; c.lineWidth = lw * 0.7; c.stroke(rain);
-      for (const [x, y, al, z] of sparks) { c.globalAlpha = Math.min(1, al); c.drawImage(spr, x - z / 2, y - z / 2, z, z); }
+      for (const [x, y, al, z] of sparks) { c.globalAlpha = Math.min(1, al * (INK ? 1.6 : 1)); c.drawImage(lit, x - z / 2, y - z / 2, z, z); }
       c.globalAlpha = 1;
       for (const [k, o] of cp) {
         c.fillStyle = `rgba(${k},0.22)`; c.fill(o.body);
