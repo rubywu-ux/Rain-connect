@@ -652,11 +652,7 @@ class RainRenderer {
       c.restore();
       c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       c.globalAlpha = 1; c.setLineDash([]); c.globalCompositeOperation = PAL.comp;
-      for (const r of this.ripples) {
-        const age = T - r.t; if (age < 0) continue;
-        const k = r.k || 1;
-        this._drop(c, r.x, r.y, age, r.seed || 1, { k, alpha: r.echo ? 0.12 : 0.3, lw, col: colorOf(r.c) });
-      }
+      // (no tap rings over the art: the picture answers phones in its own language)
       if (mode.bolts !== false) for (const b of this.bolts) { const age = T - b.t; if (age >= 0) this._bolt(c, b, age, lw); }
       c.globalCompositeOperation = 'source-over';
       } finally {
