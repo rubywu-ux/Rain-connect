@@ -22,7 +22,6 @@ def onKey(dat, key, character, *a, **k):
 	elif ch in ('0', '1'): js('window.__wall.setArt(%s)' % ch)
 	elif ch == 'x' or str(key).lower() in ('esc', 'escape') or ch == '\x1b': js('window.__wall.setArt(0)')
 	elif ch == 's': js('window.__wall.toggleTheme()')
-	elif ch == 'd': js('window.__wall.cycleLook()')
 	elif ch == 'v': js('window.__wall.cycleFig()')
 	elif ch == 'w': c.par.Mist = not c.par.Mist
 	else: return
