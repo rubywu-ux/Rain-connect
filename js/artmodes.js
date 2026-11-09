@@ -505,7 +505,7 @@ const ART_MODES = (() => {
       }
       c.strokeStyle = `rgba(${day > 0.5 ? '255,255,255' : '200,210,235'},${0.16 + 0.1 * storm})`; c.lineWidth = lw * 0.6; c.stroke(spl);
       // ---- each person: the canopy's points in space (tilted with the wind, inside out if it blew), then shadows and paint
-      const L = day > 0.5 ? [0.62, 0.42, 0.66] : [-0.55, 0.42, 0.72];
+      const L = day > 0.5 ? [-0.3, 0.22, 0.93] : [0.3, 0.22, 0.93];   // by day the sun is up and to the left
       const lb = fb ? [((fb.u == null ? 0.5 : fb.u) - 0.5) * -1.6, -0.5, 0.75] : null;
       const geo = (q, x, y, zh, ox) => {                        // -> {apex, tips, mids} as [X, Y, Z]
         const o = ox == null ? q.o : ox, io = q.io, R = q.R * (0.14 + 0.86 * o) * (1 + 0.22 * io), zr = 2.05 - (1 - o) * 0.75 * q.R + 0.03 * Math.sin(q.ph * 2);
@@ -519,29 +519,42 @@ const ART_MODES = (() => {
         return { apex, tips, mids };
       };
       const list = ppl.map(q => { P(q.x, q.y, 2, p); return [p[1], q]; }).sort((a, b) => a[0] - b[0]).map(a => a[1]);
-      // shadows: soft pools under each (lamplight), hard shapes by day and in a lightning flash
+      // shadows. The camera looks down at a slant, so a shadow cast straight down lands well below the canopy on
+      // screen and reads as a separate grey shape. Instead each shadow starts on the ground right behind what is
+      // drawn (G = the ground point under a screen point) and slides a little away from the light: it peeks out
+      // from under its umbrella or person. All of them go into one layer, so where two meet it is not darker.
+      const G = st.G, onGround = (x, y, z, ox, oy) => { P(x, y, z, p); const g0 = G(p[0], p[1]); return P(g0[0] + ox, g0[1] + oy, 0, p); };
       const soft = 1 - day;
-      if (soft > 0.02) {
+      if (soft > 0.02) {                                       // lamplight: soft pools under each
         const sp = [new Path2D(), new Path2D()];
-        for (const q of list) { P(q.x + 0.25, q.y - 0.2, 0, p); const r = q.R * (0.5 + 0.6 * q.o) * p[2]; sp[0].moveTo(p[0] + r * 1.25, p[1]); sp[0].ellipse(p[0], p[1], r * 1.25, r, 0, 0, TAU); sp[1].moveTo(p[0] + r * 0.8, p[1]); sp[1].ellipse(p[0], p[1], r * 0.8, r * 0.62, 0, 0, TAU); }
+        for (const q of list) { onGround(q.x, q.y, 1.5 + 0.5 * q.o, 0.15, -0.12); const r = q.R * (0.5 + 0.6 * q.o) * p[2]; sp[0].moveTo(p[0] + r * 1.25, p[1]); sp[0].ellipse(p[0], p[1], r * 1.25, r, 0, 0, TAU); sp[1].moveTo(p[0] + r * 0.8, p[1]); sp[1].ellipse(p[0], p[1], r * 0.8, r * 0.62, 0, 0, TAU); }
         c.fillStyle = `rgba(0,0,0,${0.13 * soft})`; c.fill(sp[0]); c.fill(sp[1]);
       }
-      const hard = (Lv, a) => {
-        const path = new Path2D();
+      const SH = 4;                                            // the shadow layer is drawn at 1/4 size, so its edges come out soft
+      if (!st.shc || st.shc.width !== Math.ceil(W / SH) || st.shc.height !== Math.ceil(H / SH)) st.shc = canvas(Math.ceil(W / SH), Math.ceil(H / SH));
+      const hard = (Lv, a, len) => {
+        const g = st.shc.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, st.shc.width, st.shc.height); g.setTransform(1 / SH, 0, 0, 1 / SH, 0, 0);
+        g.fillStyle = 'rgb(30,24,18)';
+        const dx = -Lv[0] / Lv[2] * len, dy = -Lv[1] / Lv[2] * len, dl = Math.hypot(dx, dy) || 1, nx = -dy / dl, ny = dx / dl;
         for (const q of list) {
-          const proj = pt => P(pt[0] - Lv[0] * pt[2] / Lv[2], pt[1] - Lv[1] * pt[2] / Lv[2], 0, p);
-          if (q.o > 0.02) {                                    // the canopy's shadow, as faint as the canopy
+          const ca = q.o > 0.02 ? smoothstep(0.02, 0.4, q.o) : 0, pa = 1 - smoothstep(0.15, 0.6, q.o);
+          if (ca > 0) {                                        // the canopy's shadow, as faint as the canopy
             const cp = new Path2D(), gq = geo(q, q.x, q.y, 1.1);
-            gq.tips.forEach((t, i) => { proj(t); i ? cp.lineTo(p[0], p[1]) : cp.moveTo(p[0], p[1]); }); cp.closePath();
-            c.fillStyle = `rgba(20,16,12,${(a * smoothstep(0.02, 0.4, q.o)).toFixed(3)})`; c.fill(cp);
+            gq.tips.forEach((t, i) => { onGround(t[0], t[1], t[2], dx * t[2], dy * t[2]); i ? cp.lineTo(p[0], p[1]) : cp.moveTo(p[0], p[1]); }); cp.closePath();
+            g.globalAlpha = ca; g.fill(cp);
           }
-          proj([q.x, q.y, 1.5]); const ex = p[0], ey = p[1]; P(q.x, q.y, 0, q2);    // the person's own shadow
-          path.moveTo(q2[0] + 0.2 * q2[2], q2[1]); path.lineTo(ex + 0.16 * q2[2], ey); path.lineTo(ex - 0.16 * q2[2], ey); path.lineTo(q2[0] - 0.2 * q2[2], q2[1]); path.closePath();
+          if (pa > 0.01) {                                     // the person's own shadow, from under their shoulders
+            P(q.x, q.y, 1.45, p); const g0 = G(p[0], p[1]), bx = g0[0], by = g0[1], cp = new Path2D();
+            const pts = [[bx + nx * 0.2, by + ny * 0.2], [bx + dx * 1.7 + nx * 0.13, by + dy * 1.7 + ny * 0.13], [bx + dx * 1.7 - nx * 0.13, by + dy * 1.7 - ny * 0.13], [bx - nx * 0.2, by - ny * 0.2]];
+            pts.forEach(([x, y], i) => { P(x, y, 0, p); i ? cp.lineTo(p[0], p[1]) : cp.moveTo(p[0], p[1]); }); cp.closePath();
+            g.globalAlpha = pa; g.fill(cp);
+          }
         }
-        c.fillStyle = `rgba(20,16,12,${a})`; c.fill(path);
+        g.globalAlpha = 1;
+        c.imageSmoothingEnabled = true; c.globalAlpha = a; c.drawImage(st.shc, 0, 0, W, H); c.globalAlpha = 1;
       };
-      if (day > 0.02) hard(L, 0.3 * day);
-      if (fl > 0.05 && lb) hard(lb, 0.5 * fl);
+      if (day > 0.02) hard(L, 0.3 * day * (1 - 0.5 * (1 - calm)), 0.7);   // softer under rain clouds
+      if (fl > 0.05 && lb) hard(lb, 0.45 * fl, 0.5);
       // people (seen when the umbrella is closed or gone) and canopies, far ones first
       const seams = new Path2D(), ribs = new Path2D(), caps = new Path2D(), drops = new Path2D();
       const paint = (q, gq, alpha) => {
