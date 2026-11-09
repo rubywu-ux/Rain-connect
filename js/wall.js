@@ -64,7 +64,7 @@
 
   /* ---------------- the rain remembers: stains where it has rained, kept across reloads, fading over a day */
   R.enableMemory();
-  R.bottomFade = 0.55;             // the plumes thin out toward the bottom: the numbers and the QR sit on quieter ground
+  R.bottomFade = 0.55; R.haze = 0.04; R.breathe = true;   // a sky to fall from, and a slow pulse with the rain             // the plumes thin out toward the bottom: the numbers and the QR sit on quieter ground
   try {
     const m = JSON.parse(localStorage.getItem('rc_memory2') || 'null');
     if (m && Date.now() - m.t < 24 * 3600e3) {
@@ -125,6 +125,8 @@
   net.connect();
 
   const groupMembers = g => [...clients.values()].filter(c => c.gid === g);
+  const bornAt = Date.now();
+  setInterval(() => { const t = document.querySelector('.wall-title'); if (t) t.classList.toggle('rest', Date.now() - bornAt > 60000 && Date.now() - lastPhone < 120000); }, 1000);
   function sendAssign(g, extra = {}) {
     const mem = groupMembers(g).map(c => ({ id: c.id, ox: c.ox, oy: c.oy, w: c.w, h: c.h, num: c.num, color: c.color }));
     if (mem.length > 1 && !since.has(g)) since.set(g, Date.now());
@@ -273,6 +275,7 @@
   function setArt(n) {
     if (n === true) n = lastArt || 1; else if (n === false || n == null) n = 0;
     n = clamp(Math.round(+n) || 0, 0, NART);
+    if (n !== art && R.cv.width) crossfade();                                      // the last picture lingers over the new one
     art = n; if (n) lastArt = n;
     const mode = n ? ART_MODES[n - 1] : null;
     try { localStorage.setItem('rc_art', String(n)); } catch (e) {}
@@ -320,6 +323,7 @@
   }
   const duckN = () => 1 / Math.sqrt(Math.max(1, clients.size / 3));        // many phones: each note a little softer
   setInterval(artEvents, 250);
+  setInterval(() => { R.quiet = clients.size ? 0 : clamp((Date.now() - lastPhone - 45000) / 45000, 0, 1); }, 1000);
   // A / Z step through the three views: the rain map (0), then each art mode, then the map again
   const cycleArt = (d = 1) => setArt(((art + (d < 0 ? -1 : 1)) % (NART + 1) + NART + 1) % (NART + 1));
   // the switch lives here on the wall (button / W key); TouchDesigner's Mist toggle can flip it too
@@ -365,6 +369,19 @@
   // colourful pictures that follow the theme (Rain Garden) would turn to their complementary colours
   // while inverting: those dissolve instead (the last frame fades out over the new one)
   let xfade = null;
+  function crossfade() {                                        // keep the current frame and let it fade over whatever comes next
+    if (!xfade) {
+      xfade = document.createElement('canvas'); xfade.setAttribute('aria-hidden', 'true');
+      xfade.style.cssText = 'position:fixed;left:0;top:0;pointer-events:none;opacity:0';
+      R.cv.after(xfade);
+    }
+    xfade.width = R.cv.width; xfade.height = R.cv.height;
+    xfade.style.width = R.cv.style.width || '100vw'; xfade.style.height = R.cv.style.height || '100vh';
+    xfade.getContext('2d').drawImage(R.cv, 0, 0);
+    xfade.style.transition = 'none'; xfade.style.opacity = '1';
+    void xfade.offsetWidth;
+    xfade.style.transition = 'opacity 2.2s cubic-bezier(.45,0,.55,1)'; xfade.style.opacity = '0';
+  }
   function dissolve(on) {
     if (!xfade) {
       xfade = document.createElement('canvas'); xfade.setAttribute('aria-hidden', 'true');
@@ -465,9 +482,8 @@
   let lastJoinColor = null;
   function wallJoin(g, n) {
     const a = anchor(g);
-    R.addFlash({ x: a.x, y: a.y, t: T(), c: lastJoinColor });
-    R.addRipple({ x: a.x, y: a.y, t: T(), seed: Math.random() * 1e6 | 0, k: 1.4 });
-    R.bright = 1.2;
+    R.addRipple({ x: a.x, y: a.y, t: T(), seed: Math.random() * 1e6 | 0, k: 1.6, c: lastJoinColor });
+    R.bright = 0.8;
     lastPhone = Date.now();
     S.chime(n - 1, 0, 0.26);
     net.pub('td', { type: 'join', n, u: +clamp(a.x / R.worldW, 0, 1).toFixed(3), v: +clamp(a.y / R.worldH, 0, 1).toFixed(3), online: clients.size });
@@ -478,7 +494,7 @@
   function setSnap(s) {
     snap = s; M.setSnapshot(s);
     $('pct').textContent = s.pct.toFixed(1); artLine();
-    $('meta').textContent = `${s.raining} of ${s.n} evenly spread points on Earth report rain · Open-Meteo · ${fmtTime(s.t)}`;
+    $('meta').textContent = `measured at ${s.n} places across Earth · live from Open-Meteo · ${fmtTime(s.t)}`;
     rainLevel = clamp(s.pct / 30, 0, 1);
     S.setRain(rainLevel);
     baseDensity = 1;

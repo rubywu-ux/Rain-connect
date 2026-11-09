@@ -98,8 +98,8 @@ function setInk(on) {
   dispatchEvent(new Event('inkchange'));
 }
 /* one colour per phone (strands stay black & white; a person's touches carry their colour) */
-const COLORS_LIGHT = ['214,74,58', '196,132,20', '30,150,110', '40,110,200', '130,80,200', '200,70,140', '90,150,30', '20,140,160'];
-const COLORS_DARK = ['255,122,107', '255,198,96', '112,228,182', '110,182,255', '198,152,255', '255,140,200', '170,232,100', '96,222,232'];
+const COLORS_LIGHT = ['168,88,92', '84,128,100', '86,110,158', '160,122,62', '126,102,160', '72,130,134', '172,110,86', '106,130,72'];
+const COLORS_DARK = ['222,150,150', '152,194,162', '150,172,214', '220,188,132', '188,168,214', '140,194,194', '226,184,162', '174,194,142'];
 function colorOf(i) { const C = INK ? COLORS_LIGHT : COLORS_DARK; return i == null ? PAL.ink : C[((i % C.length) + C.length) % C.length]; }
 const PLUME_LANE = 380;    // world px between plume lanes
 const PLUME_GAP = 15;      // seconds between plumes in one lane (divided by rain density)
@@ -209,9 +209,10 @@ class RainRenderer {
       c.restore();
     }
     this.fresh = false;
+    if (this.haze) { c.globalCompositeOperation = PAL.comp; const hz = c.createLinearGradient(0, 0, 0, this.h * 0.55); hz.addColorStop(0, `rgba(${PAL.ink},${this.haze})`); hz.addColorStop(1, `rgba(${PAL.ink},0)`); c.fillStyle = hz; c.fillRect(0, 0, this.w, this.h * 0.55); c.globalCompositeOperation = 'source-over'; }
     this.impulses = this.impulses.filter(m => T - m.t < 3);
     this.bright = Math.max(0, this.bright - 0.01);
-    const boost = 1 + this.bright * 0.6;
+    const boost = (1 + this.bright * 0.6) * (this.breathe ? 0.9 + 0.1 * Math.sin(T * 6.283 / 26) : 1);   // the rain's slow breath
 
     c.globalCompositeOperation = PAL.comp;
     c.lineCap = 'round'; c.lineJoin = 'round';

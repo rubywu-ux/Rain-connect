@@ -23,7 +23,7 @@
   let stormTarget = 0, stormN = 0, pillDots = '';
   function updatePill() {
     const n = members.length;
-    const txt = stormN >= 2 ? `≋ ${stormN} blowing · storm` : n > 1 ? `${n} phones · one rain` : 'alone in the rain';
+    const txt = stormN >= 2 ? `≋ ${stormN} blowing · storm` : n > 1 ? `${n} phones · one rain` : 'you are in the rain';
     $('pill').innerHTML = pillDots + txt;
   }
   let myColor = Math.floor(hash(parseInt(ME, 36) | 0) * 8);   // until the wall assigns one
@@ -124,7 +124,7 @@
     if (n > before && m.seam) {
       // someone joined: light sweeps from the seam; every phone rings its own note, left to right
       const jm = members.find(p => p.id === m.joined);
-      R.addFlash({ x: m.seam.x, y: m.seam.y, t: T(), c: jm ? jm.color : null });
+      R.addRipple({ x: m.seam.x, y: m.seam.y, t: T(), seed: Math.random() * 1e6 | 0, k: 1.4, c: jm ? jm.color : null });
       R.bright = 1.4;
       const minX = Math.min(...members.map(p => p.ox));
       const order = [...members].sort((a, b) => a.ox - b.ox || a.oy - b.oy).findIndex(p => p.id === ME);
@@ -171,7 +171,7 @@
     if (!s || !s.pts) return;
     snap = s; M.setSnapshot(s); cacheSet(s);
     $('pct').textContent = s.pct.toFixed(1);
-    $('meta').innerHTML = `${s.raining} of ${s.n} evenly spread points on Earth report rain<br>live from Open-Meteo · ${fmtTime(s.t)}`;
+    $('meta').innerHTML = `measured at ${s.n} places across Earth<br>live from Open-Meteo · ${fmtTime(s.t)}`;
     S.setRain(clamp(s.pct / 30, 0, 1));
     R.density = 0.75 + clamp(s.pct / 25, 0, 1) * 0.6;
   }

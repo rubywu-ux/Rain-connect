@@ -106,17 +106,6 @@ const ART_MODES = (() => {
       const major = !(i & 1) && !(j & 1), k = clamp(p[2] / 55, 0.6, 1.5);
       dot(p[0], p[1], (major ? 1.7 : 1.1) * k, major ? 0.9 : 0.4);
     }
-    st.puddles = [];
-    for (let n = 0; n < 6; n++) {                                // puddles: a dense dotted shoreline, a faint stipple of surface
-      const cx = n === 2 ? 3.5 : (hash(n * 7 + 1) - 0.5) * 18, cy = n === 2 ? -1 : -3 + hash(n * 7 + 2) * 10, r = n === 2 ? 1.7 : 0.8 + 1.4 * hash(n * 7 + 3);
-      const rr = a => r * (1 + 0.35 * vnoise(Math.cos(a) * 1.5 + n * 3, Math.sin(a) * 1.5));
-      st.puddles.push({ cx, cy, r, rr, n });
-      for (let q = 0; q < 420 * r; q++) {
-        const a = hash(n * 997 + q * 3) * TAU, edge = hash(n * 997 + q * 3 + 1) < 0.75, f = edge ? 0.94 + 0.08 * hash(n * 997 + q * 3 + 2) : Math.sqrt(hash(n * 997 + q * 3 + 2)) * 0.9;
-        P(cx + Math.cos(a) * rr(a) * 1.5 * f, cy + Math.sin(a) * rr(a) * f, 0, p);
-        dot(p[0], p[1], edge ? 1.5 : 1, edge ? 1 : 0.26);
-      }
-    }
     for (const t of st.trees) for (let q = 0; q < 900; q++) {   // crowns
       const a = hash(t.sd + q * 3) * TAU, f = Math.pow(hash(t.sd + q * 3 + 1), 0.35), x = t.x + Math.cos(a) * t.r * 0.9 * f, y = t.y + Math.sin(a) * t.r * 0.9 * f;
       dot(x, y, 0.9 + 1.2 * hash(t.sd + q * 3 + 2), 0.25 + 0.5 * f);
@@ -192,6 +181,9 @@ const ART_MODES = (() => {
         gus.push({ x0, y0, dx: (x1 - x0) / dl, dy: (y1 - y0) / dl, s: clamp(ev.s || 0.6, 0.2, 1.4), t0: T, col: ixCol(ev) });
       }
       while (gus.length && T - gus[0].t0 > 5) gus.shift();
+      const quiet = R.quiet || 0, hush = 1 - 0.3 * quiet;                       // nobody here for a while: the plaza settles
+      const shown = ppl.length - Math.round(10 * quiet);
+      ppl.forEach((q, i) => { q.hide = (q.hide == null ? (i < shown ? 0 : 1) : q.hide) + (((i < shown) ? 0 : 1) - (q.hide || 0)) * (1 - Math.exp(-dt * 0.5)); });
       const all = mine.size ? ppl.concat([...mine.values()]) : ppl;
       for (const q of all) {
         P(q.x, q.y, 2, p); const sx = p[0], sy = p[1];
@@ -206,7 +198,7 @@ const ART_MODES = (() => {
         // walking: toward a spot near home, a new one now and then
         if (!q.ctrl && !held && (T > q.gt || Math.hypot(q.gx - q.x, q.gy - q.y) < 0.4)) { q.gt = T + 6 + 8 * rnd(); const a = rnd() * TAU, r = 0.5 + 2.4 * Math.sqrt(rnd()); q.gx = q.hx + Math.cos(a) * r * 1.4; q.gy = q.hy + Math.sin(a) * r; }
         const dx = q.gx - q.x, dy = q.gy - q.y, dd = Math.hypot(dx, dy) + 1e-6, run = q.lost > T ? 2 : 1;
-        const spd = q.ctrl ? 2.6 * Math.min(1, dd / 0.7) : q.sp * (0.8 + 0.5 * (1 - calm) + 0.9 * storm) * run * (1 + 0.8 * lwq) * (held ? 1.5 * Math.min(1, dd / 0.5) : 1);
+        const spd = q.ctrl ? 2.6 * Math.min(1, dd / 0.7) : q.sp * (1 - 0.4 * quiet) * (0.8 + 0.5 * (1 - calm) + 0.9 * storm) * run * (1 + 0.8 * lwq) * (held ? 1.5 * Math.min(1, dd / 0.5) : 1);
         let ax = dx / dd * spd + qwx * G * 1.6, ay = dy / dd * spd + qwy * G * 1.6;
         if (sx < W * 0.04) ax += 1.5; if (sx > W * 0.96) ax -= 1.5; if (sy < H * 0.08) ay -= 1.5; if (sy > H * 0.96) ay += 1.5;
         for (const b of strikes) { const ux = q.x - ((b.u == null ? 0.5 : b.u) - 0.5) * 16, uy = q.y - 2, ud = Math.hypot(ux, uy) + 0.5; q.vx += ux / ud * 3.5 * (b.power || 0.6); q.vy += uy / ud * 3.5 * (b.power || 0.6); q.om += (rnd() - 0.5) * 14; q.tvx += (rnd() - 0.5) * 3; q.tvy += (rnd() - 0.5) * 3; }
@@ -276,7 +268,8 @@ const ART_MODES = (() => {
       // flowing dots and fine lines, with a soft trail as things move. Colour only for what the phones do.
       const ink = PAL.ink, spr = sparkSprite(), ds = E.s || 1;
       c.globalCompositeOperation = 'source-over'; c.globalAlpha = 1; c.lineCap = 'round'; c.lineJoin = 'round'; c.setLineDash([]);
-      c.fillStyle = `rgba(${PAL.bg},${E.fresh ? 1 : 0.62})`; c.fillRect(0, 0, W, H);     // a short, soft trail (the map's long one is too much here)
+      c.fillStyle = `rgba(${PAL.bg},${E.fresh ? 1 : 0.62})`; c.fillRect(0, 0, W, H);
+      { const hz = c.createLinearGradient(0, 0, 0, H * 0.6); hz.addColorStop(0, `rgba(${PAL.ink},0.045)`); hz.addColorStop(1, `rgba(${PAL.ink},0)`); c.fillStyle = hz; c.fillRect(0, 0, W, H * 0.6); }     // a short, soft trail (the map's long one is too much here)
       c.globalCompositeOperation = PAL.comp;
       const gk = W + ':' + H + ':' + INK;
       if (st.gndKey !== gk) { st.gnd = umbGround(st, W, H, dpr); st.gndKey = gk; }
@@ -285,7 +278,7 @@ const ART_MODES = (() => {
       const fib = [0, 1, 2, 3].map(() => new Path2D()), dts = [0, 1, 2, 3].map(() => new Path2D()), silk = new Path2D(), sparks = [];
       const lev = (arr, al) => arr[Math.min(3, Math.max(0, Math.floor(al * 4)))];
       const dot = (pp, x, y, d) => pp.rect(x - d / 2, y - d / 2, d, d);
-      const cp = new Map(), CP = col => { const k = col.join(','); let o = cp.get(k); if (!o) cp.set(k, o = { fib: new Path2D(), body: new Path2D(), lines: new Path2D(), dots: new Path2D(), glow: [] }); return o; };
+      const cp = new Map(), CP = col => { const k = col.join(','); let o = cp.get(k); if (!o) cp.set(k, o = { key: k, fib: new Path2D(), body: new Path2D(), lines: new Path2D(), dots: new Path2D(), glow: [] }); return o; };
       const off = (x, y) => x < -30 || x > W + 30 || y < -30 || y > H + 30;
       // splashes: a ring of dots opening on the stone (in a phone's colour where its shower falls)
       const nsp = Math.round((6 + 60 * amt) * W / 1600);
@@ -304,22 +297,10 @@ const ART_MODES = (() => {
         }
         P(o.x, o.y, 0, p); C.fib.moveTo(p[0] + 2.8 * p[2], p[1]); C.fib.ellipse(p[0], p[1], 2.8 * p[2], 2.2 * p[2], 0, 0, TAU);   // where it falls
       }
-      // the puddles are water: a faint sheen, and the rain's rings widening on them
-      for (const pd of st.puddles) {
-        const sh = new Path2D();
-        for (let i = 0; i <= 28; i++) { const a = i / 28 * TAU, rr = pd.rr(a); P(pd.cx + Math.cos(a) * rr * 1.5, pd.cy + Math.sin(a) * rr, 0, p); i ? sh.lineTo(p[0], p[1]) : sh.moveTo(p[0], p[1]); }
-        sh.closePath(); c.fillStyle = `rgba(${ink},0.022)`; c.fill(sh);
-        const nr = Math.round((3 + 9 * amt) * pd.r);
-        for (let i = 0; i < nr; i++) {
-          const ph = T / 1.6 + hash(pd.n * 53 + i * 7), cyc = Math.floor(ph), f = ph - cyc, sd = pd.n * 7919 + i * 131 + cyc * 977;
-          const a = hash(sd) * TAU, d = Math.sqrt(hash(sd + 1)) * 0.85, rr = pd.rr(a);
-          P(pd.cx + Math.cos(a) * rr * 1.5 * d, pd.cy + Math.sin(a) * rr * d, 0, p);
-          const R0 = (0.06 + 0.55 * f) * p[2] * pd.r * 0.6, pp = lev(dts, 0.55 * (1 - f) * (1 - f));
-          for (let m = 0, nm = 6 + Math.round(R0 / 3); m < nm; m++) { const b = m / nm * TAU + hash(sd + 9) * TAU; dot(pp, p[0] + Math.cos(b) * R0, p[1] + Math.sin(b) * R0 * 0.8, lw * 1.05); }
-        }
-      }
+      // the stone is wet: every light above it (lamps, the top of each umbrella) lies in it as a soft vertical smear
+      const refl = [];                                         // [x, groundY, k, alpha, col]
       // the lamps glow at night
-      if (day < 0.98) for (const [x, y] of st.lamps) { P(x, y, 5.2, p); sparks.push([p[0], p[1], 0.5 * (1 - day), 0.7 * p[2]]); }
+      if (day < 0.98) for (const [x, y] of st.lamps) { P(x, y, 5.2, p); sparks.push([p[0], p[1], 0.5 * (1 - day), 0.7 * p[2]]); P(x, y, 0, q2); refl.push([q2[0], q2[1], q2[2], 0.16, null]); }
       // ---- each person: the canopy's points in space (tilted with the wind, inside out if it blew)
       const geo = (q, x, y, zh, ox) => {                        // -> {apex, tips, mids} as [X, Y, Z]
         const o = ox == null ? q.o : ox, io = q.io, R = q.R * (0.14 + 0.86 * o) * (1 + 0.22 * io) * (1 + 0.22 * (q.sh || 0)), zr = 2.05 - (1 - o) * 0.75 * q.R + 0.03 * Math.sin(q.ph * 2);
@@ -338,7 +319,7 @@ const ART_MODES = (() => {
       const PAT = [0, 0b01010101, 0b00110011, 255];
       const canopy = (q, gq, out, body) => {
         const A = P(gq.apex[0], gq.apex[1], gq.apex[2], [0, 0, 0]), tp = gq.tips.map(t => P(t[0], t[1], t[2], [0, 0, 0])), md = gq.mids.map(t => P(t[0], t[1], t[2], [0, 0, 0]));
-        for (let i = 0; i < 8; i++) { out.moveTo(A[0], A[1]); out.lineTo(tp[i][0], tp[i][1]); }
+        for (let i = 0; i < 8; i += 2) { out.moveTo(A[0], A[1]); out.lineTo(tp[i][0], tp[i][1]); }   // four ribs read as an umbrella; eight read as a wireframe
         const rim = pp => { pp.moveTo(tp[0][0], tp[0][1]); for (let i = 0; i < 8; i++) pp.quadraticCurveTo(md[i][0], md[i][1], tp[(i + 1) % 8][0], tp[(i + 1) % 8][1]); };
         rim(out); rim(body || silk);
         const pat = PAT[q.kind] || 0, inner = body || silk;   // the kind of rain, as faint arcs inside
@@ -353,9 +334,10 @@ const ART_MODES = (() => {
       for (const q of list) {
         const C = q.ctrl ? CP(q.col) : null;
         // the person: a dotted head and shoulders, seen as the umbrella fades; under a phone's umbrella, in its colour
-        const vis = 1 - smoothstep(0.15, 0.6, q.o);
+        const hv = 1 - (q.hide || 0); if (hv < 0.02) continue;
+        const vis = (1 - smoothstep(0.15, 0.6, q.o)) * hv;
         if (vis > 0.01) {
-          const out = C ? C.fib : q.host ? CP(q.host.col).lines : lev(fib, 0.75 * vis);
+          const out = C ? C.fib : q.host ? CP(q.host.col).lines : lev(fib, 0.75 * vis * hush);
           P(q.x, q.y, 1.45, p); const k = p[2];
           out.moveTo(p[0] + 0.3 * k, p[1]); out.ellipse(p[0], p[1], 0.3 * k, 0.15 * k, q.hd + Math.PI / 2, 0, TAU);
           P(q.x + Math.cos(q.hd) * 0.04, q.y + Math.sin(q.hd) * 0.04, 1.7, q2); out.moveTo(q2[0] + 0.12 * q2[2], q2[1]); out.arc(q2[0], q2[1], 0.12 * q2[2], 0, TAU);
@@ -369,9 +351,11 @@ const ART_MODES = (() => {
         if (C) { P(q.x, q.y, 1.45, p); const g0 = st.G(p[0], p[1]); P(g0[0], g0[1], 0, p); const rr = 1.1 * p[2] * (1 + 0.22 * (q.sh || 0));   // your ring on the ground
           C.fib.moveTo(p[0] + rr, p[1]); C.fib.ellipse(p[0], p[1], rr, rr * 0.8, 0, 0, TAU); }
         if (q.o > 0.02) {
-          const al = smoothstep(0.02, 0.4, q.o), gq = geo(q, q.x, q.y, 1.1);
-          const { A, tp } = canopy(q, gq, C ? C.fib : lev(fib, al * (0.3 + 0.7 * q.k)), C ? C.body : null);
-          if (C) C.glow.push([A[0], A[1], 0.6 * al, 1.6 * A[2] * q.R]); else sparks.push([A[0], A[1], al * (0.14 + 0.4 * q.k), 0.34 * A[2] * q.R]);
+          const al = smoothstep(0.02, 0.4, q.o) * hv, gq = geo(q, q.x, q.y, 1.1);
+          P(q.x, q.y, 2, p); const depth = 0.45 + 0.55 * smoothstep(0, H, p[1]);           // far ones fainter: air between them
+          const { A, tp } = canopy(q, gq, C ? C.fib : lev(fib, al * (0.3 + 0.7 * q.k) * depth * hush), C ? C.body : null);
+          if (C) C.glow.push([A[0], A[1], 0.42 * al, 1.5 * A[2] * q.R]); else sparks.push([A[0], A[1], al * (0.14 + 0.4 * q.k), 0.34 * A[2] * q.R]);
+          P(q.x, q.y, 0, q2); refl.push([q2[0], q2[1], q2[2] * q.R, al * (C ? 0.16 : (0.05 + 0.08 * q.k) * depth * hush), C ? C : null]);
           const aw = Math.max(aw0, (q.lw || 0) * 1.3);          // rain landing on it: a few bright drops
           if (aw > 0.02 && al > 0.5) for (let n = 0, m = Math.round(aw * (1.5 + 2 * q.k)); n < m; n++) {
             const i = Math.floor(rnd() * 8), f = rnd() * 0.85; dot(dts[3], A[0] + (tp[i][0] - A[0]) * f, A[1] + (tp[i][1] - A[1]) * f, lw * 1.3);
@@ -413,12 +397,18 @@ const ART_MODES = (() => {
       }
       // ---- now lay it all down: faint silk under the rims, the dotted filaments (the dots flow, as in the plumes),
       // sparks and drops, the falling streaks; then the phones' own, in colour
-      const flow = -T * (16 + 40 * storm) * ds;
+      // reflections first, under everything: the spark sprite stretched tall, fading downward
+      for (const [x, y, k, a, Cc] of refl) {
+        const w = 0.9 * k, h = (2.6 + 0.6 * Math.sin(T * 0.7 + x)) * k;
+        c.globalAlpha = a; c.drawImage(Cc ? glow(Cc.key, 64, 0.3) : spr, x - w / 2, y - h * 0.25, w, h);
+      }
+      c.globalAlpha = 1;
+      const flow = -T * (16 + 40 * storm) * ds, br = 0.9 + 0.1 * Math.sin(T * 6.283 / 26);   // the rain's slow breath
       c.strokeStyle = `rgba(${ink},0.12)`; c.lineWidth = lw * 0.6; c.stroke(silk);
       c.setLineDash([0.01, 3 * ds]); c.lineDashOffset = flow; c.lineWidth = lw * 1.05;
-      fib.forEach((pp, i) => { c.strokeStyle = `rgba(${ink},${(0.26 + 0.24 * i).toFixed(2)})`; c.stroke(pp); });
+      fib.forEach((pp, i) => { c.strokeStyle = `rgba(${ink},${((0.26 + 0.24 * i) * br).toFixed(2)})`; c.stroke(pp); });
       c.setLineDash([]); c.lineDashOffset = 0;
-      dts.forEach((pp, i) => { c.fillStyle = `rgba(${ink},${(0.28 + 0.24 * i).toFixed(2)})`; c.fill(pp); });
+      dts.forEach((pp, i) => { c.fillStyle = `rgba(${ink},${((0.28 + 0.24 * i) * br).toFixed(2)})`; c.fill(pp); });
       c.strokeStyle = `rgba(${ink},${(0.18 + 0.1 * storm).toFixed(3)})`; c.lineWidth = lw * 0.7; c.stroke(rain);
       for (const [x, y, al, z] of sparks) { c.globalAlpha = Math.min(1, al); c.drawImage(spr, x - z / 2, y - z / 2, z, z); }
       c.globalAlpha = 1;
