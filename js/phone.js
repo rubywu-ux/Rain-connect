@@ -24,7 +24,7 @@
   let wallMode = 'map';                 // which view the wall is showing (js/lab.js listens to the wall and tells us)
   function updatePill() {
     const n = members.length;
-    const txt = stormN >= 2 ? `≋ ${stormN} blowing · storm` : wallMode === 'umbrellas' ? 'you carry an umbrella' : n > 1 ? `${n} phones · one rain` : 'you are in the rain';
+    const txt = stormN >= 2 ? `≋ ${stormN} blowing · storm` : wallMode === 'umbrellas' ? 'you carry an umbrella' : n > 1 ? `${n} phones side by side` : 'you are in the rain';
     $('pill').innerHTML = pillDots + txt;
   }
   addEventListener('wallmode', e => { wallMode = e.detail; updatePill(); $('enter').textContent = wallMode === 'umbrellas' ? 'carry an umbrella' : 'catch the rain'; });

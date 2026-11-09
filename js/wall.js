@@ -324,7 +324,7 @@
   const duckN = () => 1 / Math.sqrt(Math.max(1, clients.size / 3));        // many phones: each note a little softer
   setInterval(artEvents, 250);
   setInterval(() => { R.quiet = clients.size ? 0 : clamp((Date.now() - lastPhone - 45000) / 45000, 0, 1); }, 1000);
-  // A / Z step through the three views: the rain map (0), then each art mode, then the map again
+  // Z steps through the views: the rain map (0), then each art mode, then the map again
   const cycleArt = (d = 1) => setArt(((art + (d < 0 ? -1 : 1)) % (NART + 1) + NART + 1) % (NART + 1));
   // the switch lives here on the wall (button / W key); TouchDesigner's Mist toggle can flip it too
   let mistOn = false, wTarget = 0, w = 0, mistStorm = 0, light = INK, lastGust = 0, lastMistBolt = 0, baseDensity = 1.2, mistSeen = 0;
@@ -555,8 +555,7 @@
     if (e.key === 'w') setMist(!mistOn);
     if (e.key === 's') setTheme(!light);                               // fog <-> night
     if (e.key === 'v') cycleFig();                                      // walkers <-> ghosts
-    if (e.key === 'a') cycleArt();                                     // map -> 1 -> 2 -> map
-    if (e.key === 'z') cycleArt(-1);                                   // back the other way
+    if (e.key === 'z') cycleArt();                                     // rain map <-> umbrellas
     if (/^[0-9]$/.test(e.key) && +e.key <= NART) setArt(+e.key);       // 0 = the rain map, 1..N pick a mode
     if (e.key === 'Escape' || e.key === 'x') setArt(0);                         // Esc / X = art off
   });

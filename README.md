@@ -100,7 +100,7 @@ thunder. `td/record_clips.py` records labelled 10 s clips with voice prompts, fo
 ## Art mode (wall): Umbrellas
 
 One art mode beside the rain map, drawn in the map's own language (soft points and fine strands).
-**A** or **Z** switch between the rain map and Umbrellas; **1** picks Umbrellas, **0**, **X** or **Esc**
+**Z** switches between the rain map and Umbrellas; **1** picks Umbrellas, **0**, **X** or **Esc**
 the map. **S** switches the theme: *fog* (grey ink on a pale ground, the default) or *night* (light on
 black); the choice is kept on that screen, and a phone that scans the QR opens in the wall's theme, with
 its own fog/night switch (top-right of the start screen, ◐ in the rain view). The buttons bottom-left of
