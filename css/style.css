@@ -197,7 +197,7 @@ body:not(.wall) .drop-tag small { font-size: 15px; color: var(--dim); }
 
 /* ---------- wall text: a size up and firmer, in both themes, so it reads from across the room */
 body.wall { --dim: rgba(var(--rgb), 0.8); --faint: rgba(var(--rgb), 0.62); }
-html.ink body.wall { --dim: rgba(var(--rgb), 0.86); --faint: rgba(var(--rgb), 0.7); }
+html.ink body.wall { --rgb: 58, 66, 68; --ink: #3a4244; --dim: rgba(58, 66, 68, 0.92); --faint: rgba(58, 66, 68, 0.8); }   /* fog: a darker ink for the words, so they hold against the pale ground */
 .wall-title small { font-size: 1.3vw; font-weight: 400; }
 .wall-stats .big { font-size: 4.2vw; font-weight: 400; }
 .wall-stats .lede { font-size: 1.8vw; font-weight: 400; }
