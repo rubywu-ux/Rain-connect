@@ -89,6 +89,26 @@ const ART_MODES = (() => {
      all). The mist in the pot is the weather over all of them: settled, a gentle rain; blown about, a storm
      that leans the umbrellas, turns the weak ones inside out and tears some away. Someone who loses theirs
      runs in under the umbrella of a phone that is here (js/lab.js): the only colour on the wall. */
+  /* a ghost: one soft figure (a head joined to a body that fades toward the feet), blurred, in a colour; cached */
+  const _ghosts = new Map();
+  function ghostSprite(rgb) {
+    let g = _ghosts.get(rgb); if (g) return g;
+    const W = 96, H = 192, sh = canvas(W, H), x = sh.getContext('2d');
+    x.fillStyle = `rgb(${rgb})`;
+    x.beginPath(); x.ellipse(48, 30, 14, 15, 0, 0, TAU); x.fill();                       // head
+    x.beginPath(); x.moveTo(48, 40); x.bezierCurveTo(24, 46, 18, 60, 22, 80);            // shoulders flowing into the body
+    x.bezierCurveTo(26, 110, 30, 150, 34, 186); x.lineTo(62, 186); x.bezierCurveTo(66, 150, 70, 110, 74, 80);
+    x.bezierCurveTo(78, 60, 72, 46, 48, 40); x.closePath(); x.fill();
+    const fade = x.createLinearGradient(0, 90, 0, 192); fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,1)');
+    x.globalCompositeOperation = 'destination-out'; x.fillStyle = fade; x.fillRect(0, 0, W, H);   // the feet dissolve into the ground
+    g = canvas(W, H); const o = g.getContext('2d');
+    try { o.filter = 'blur(7px)'; } catch (e) {}
+    o.globalAlpha = 0.55; o.drawImage(sh, 0, 0);                                            // a wide soft breath
+    try { o.filter = 'blur(2.5px)'; } catch (e) {}
+    o.globalAlpha = 0.8; o.drawImage(sh, 0, 0);                                             // the figure itself, still edgeless
+    try { o.filter = 'none'; } catch (e) {}
+    _ghosts.set(rgb, g); return g;
+  }
   function umbCam(st, W, H) {
     const ph = 1.02, D = 21, F = W * 1.05, cp = Math.cos(ph), sp = Math.sin(ph), Cy = -D * cp, Cz = D * sp;
     st.P = (X, Y, Z, out) => { const dy = Y - Cy, dz = Z - Cz, zc = dy * cp - dz * sp, yc = dy * sp + dz * cp, k = F / zc; out[0] = W / 2 + X * k; out[1] = H / 2 - yc * k; out[2] = k; return out; };
@@ -325,17 +345,17 @@ const ART_MODES = (() => {
         rim(out); rim(body || fillK[Math.min(3, Math.floor((q.k || 0) * 4))]);   // heavier rain, a fuller grey
         return { A, tp };
       };
-      const pplK = new Path2D(), legK = new Path2D();          // the people, filled and stroked on their own (inside a canopy's path they would cut a hole)
+      const pplK = new Path2D(), legK = new Path2D(), ghosts = [];   // [x, y, w, h, alpha, sprite, stride]          // the people, filled and stroked on their own (inside a canopy's path they would cut a hole)
       const figure = (q, pc) => {                              // the person, in the chosen manner (FIG, common.js)
         const hd = q.hd || 0, ux = Math.cos(hd), uy = Math.sin(hd), vx = -uy, vy = ux, sw = Math.sin(q.ph || 0);
         const body = pc ? pc.ppl : pplK, legs = pc ? pc.lines : legK;
         const pt = (f, sd, z) => P(q.x + ux * f + vx * sd, q.y + uy * f + vy * sd, z, [0, 0, 0]);
         const hdp = pt(0.03, 0, 1.52), r = 0.105 * hdp[2];
         const fL = pt(0.17 * sw, -0.09, 0), fR = pt(-0.17 * sw, 0.09, 0);
-        if (FIG === 1) {                                         // ghosts: three soft lights down the body, no edges
-          const ch = pt(0, 0, 1.1), hp = pt(0, 0, 0.65), out = pc ? pc.glow : INK ? CP(ink.split(',').map(Number)).glow : null;   // in the fog, a grey breath; at night, a pale light
-          const push = (pp, a, z) => { if (out) out.push([pp[0], pp[1], a * (pc ? 1 : 0.55), z]); else sparks.push([pp[0], pp[1], a * 0.8 * hush, z]); };
-          push(hdp, 0.5, 0.42 * hdp[2]); push(ch, 0.4, 0.7 * ch[2]); push(hp, 0.3, 0.6 * hp[2]);
+        if (FIG === 1) {                                         // ghosts: one soft figure, head and body in a single breath, no edges
+          const top = pt(0, 0, 1.78), bot = pt(0, 0, -0.15), k = top[2];
+          const col = pc ? pc.key : INK ? ink : '236,237,240';
+          ghosts.push([top[0], top[1], 0.62 * k, bot[1] - top[1], pc ? 0.75 : (INK ? 0.5 : 0.6) * hush, ghostSprite(col), sw]);
           return;
         }
         // walkers: head, shoulders to the hips, two legs mid-stride
@@ -424,6 +444,10 @@ const ART_MODES = (() => {
       const flow = -T * (16 + 40 * storm) * ds, br = 0.9 + 0.1 * Math.sin(T * 6.283 / 26);   // the rain's slow breath
       c.lineCap = 'round'; c.lineJoin = 'round'; c.setLineDash([]);
       fillK.forEach((pp, i) => { c.fillStyle = `rgba(${ink},${((0.025 + 0.055 * i) * br).toFixed(3)})`; c.fill(pp); });   // canopies: a breath of grey for drizzle, a fuller grey for heavy rain
+      for (const [x, y, w, h, a, spr, sw] of ghosts) {           // ghosts: the soft figure, swaying a little as it walks
+        c.globalAlpha = a * br; c.drawImage(spr, x - w / 2 + 0.04 * w * sw, y - 0.02 * h, w, h * 1.04);
+      }
+      c.globalAlpha = 1;
       c.fillStyle = `rgba(${ink},${(0.26 * br).toFixed(3)})`; c.fill(pplK);                                         // the people: a firmer grey, read through the canopy
       c.strokeStyle = `rgba(${ink},${(0.3 * br).toFixed(3)})`; c.lineWidth = lw * 1.5; c.stroke(legK);
       fib.forEach((pp, i) => {                                 // rims bleed: wide and faint, then a fine edge

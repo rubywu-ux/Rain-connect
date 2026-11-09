@@ -410,7 +410,7 @@
     themeLabel();
   }
   function themeLabel() { const b = $('theme'); if (b) b.textContent = light ? 'fog' : 'night'; }
-  function cycleFig(d = 1) { setFig((FIG + d + FIGS.length) % FIGS.length); lookLabel(); }
+  function cycleFig(d = 1) { if (art) crossfade(); setFig((FIG + d + FIGS.length) % FIGS.length); lookLabel(); }   // the people change under a soft crossfade
   function lookLabel() { const b = $('fig'); if (b) b.textContent = FIGS[FIG]; }
   addEventListener('figchange', lookLabel);
   addEventListener('inkchange', themeLabel);
