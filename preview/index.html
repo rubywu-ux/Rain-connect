@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Connect the Rain (preview) — Ruby Wu</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="description" content="Connect the Rain by Ruby Wu: a data art installation where live rain from around the world is shared between one wall, every phone in the room and a pot of mist." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+  <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,401,500,700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css?v=11" />
+  <link rel="stylesheet" href="css/v2.css?v=118" />
+</head>
+<body id="top" class="story" data-back="https://rubyw.de/archives.html" data-back-label="All archives">
+  <header class="nav" aria-label="Primary">
+    <a href="https://rubyw.de/index.html" class="nav__logo">RW</a>
+    <button class="nav__toggle" aria-expanded="false" aria-controls="site-menu" aria-label="Open menu">
+      <span class="nav__plus" aria-hidden="true"></span>
+      <span class="nav__toggle-label" data-label>Menu</span>
+    </button>
+  </header>
+  <nav class="menu" id="site-menu" aria-hidden="true" aria-label="Menu">
+    <div class="menu__links">
+      <a href="https://rubyw.de/index.html#work">Work</a>
+      <a href="https://rubyw.de/archives.html">Archives</a>
+      <a href="https://rubyw.de/about.html">About</a>
+      <a href="https://drive.google.com/file/d/1_G2HR-hnqo7MGKR3k97q4y3wPmMM_jim/view?usp=sharing" target="_blank" rel="noopener">Resume<span class="ext">↗</span></a>
+    </div>
+    <div class="menu__meta">
+      <a href="mailto:rubywu.uxd@gmail.com">rubywu.uxd@gmail.com</a>
+      <a href="https://github.com/rubywu-ux" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://www.linkedin.com/in/ruby-wu02" target="_blank" rel="noopener">LinkedIn</a>
+    </div>
+  </nav>
+
+  <main>
+    <!-- 01 Overview -->
+    <header id="overview" data-section="Overview">
+      <div class="s-hero" style="--hero-pos:center 42%">
+        <div class="s-hero__media">
+          <video src="assets/hq/rain/hero.mp4" poster="assets/hq/rain/hero.jpg" muted loop playsinline autoplay preload="auto" data-autoplay aria-label="The wall in fog: grey umbrellas drift across a pale plaza, with one red umbrella among them"></video>
+        </div>
+        <div class="s-hero__fade" aria-hidden="true"></div>
+        <div class="s-hero__text">
+          <p class="s-hero__kicker">Archive · Data art installation · 2026</p>
+          <h1 class="s-hero__title">Connect the Rain</h1>
+          <p class="s-hero__sub">Live rain from around the world, shared between one wall and every phone in the room.</p>
+        </div>
+        <a class="s-hero__cue" href="#walkthrough" aria-label="Scroll to content">Scroll<i></i></a>
+      </div>
+      <div class="col">
+        <dl class="s-meta reveal">
+          <div><dt>Project type</dt><dd>Data art installation,<br />class midterm</dd></div>
+          <div><dt>Role</dt><dd>Concept, design, build</dd></div>
+          <div><dt>Year</dt><dd>Nov 2026</dd></div>
+          <div><dt>Tools</dt><dd>HTML, CSS, JavaScript, Open-Meteo, MQTT, TouchDesigner</dd></div>
+        </dl>
+        <div class="s-tldr reveal">
+          <div><h3>Data</h3><p>Live weather at 320 evenly spaced points on Earth, from Open-Meteo, checked every 30 minutes. When this was recorded, 10.3% of them were under rain.</p></div>
+          <div><h3>Experience</h3><p>A shared wall shows where it is raining right now. Each phone that joins becomes one more drop: taps, tilts and breath appear on the wall for everyone.</p></div>
+          <div><h3>Weather</h3><p>A pot of mist beside the wall, watched by a webcam, sets the weather: clear, rain or storm.</p></div>
+        </div>
+        <a class="s-jump" href="#live">See the wall live <span class="arrow">↓</span></a>
+      </div>
+    </header>
+
+    <!-- 02 Walkthrough -->
+    <section class="s-sec" id="walkthrough" data-group="Overview" data-section="Walkthrough">
+      <div class="col">
+        <p class="s-label reveal"><b>02</b> Walkthrough</p>
+        <h2 class="s-h2 reveal">One phone, the wall and the mist, in sync.</h2>
+        <p class="s-p reveal">The phone recording and the wall recording play side by side, lined up to the same moment. The pot of mist cuts in each time the wall’s weather changes.</p>
+      </div>
+      <div class="wide s-block">
+        <figure class="film rn-film reveal">
+          <video src="assets/hq/rain/walkthrough.mp4" poster="assets/hq/rain/walkthrough.jpg" controls playsinline preload="none" aria-label="Walkthrough film: a phone on the left and the shared wall on the right respond to each other, with captions for each interaction"></video>
+          <figcaption>Walkthrough, 2:58, with sound.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- 03 Live: the real wall, in a room made for this visit -->
+    <section class="s-sec" id="live" data-group="The piece" data-section="Live">
+      <div class="col">
+        <p class="s-label reveal"><b>03</b> Live</p>
+        <h2 class="s-h2 reveal">The wall, running right here.</h2>
+        <p class="s-p reveal">This is the real wall, loaded from its live site into a room made for this visit. Click it once to start the sound, then scan the code with your phone. What you tap shows up here.</p>
+      </div>
+      <div class="s-block">
+        <div class="rn-live reveal" data-base="https://rubywu-ux.github.io/Rain-connect/">
+          <div class="rn-live__screen"><iframe title="Connect the Rain, the live wall" allow="autoplay; fullscreen"></iframe></div>
+          <p class="rn-live__note"><b>Scan to join the rain.</b> Your phone opens the piece in this room.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 04 The phone -->
+    <section class="s-sec" id="phone" data-group="The piece" data-section="The phone">
+      <div class="col">
+        <p class="s-label reveal"><b>04</b> The phone</p>
+        <h2 class="s-h2 reveal">Your phone is one more drop.</h2>
+        <p class="s-p reveal">Visitors scan a code on the wall and catch the rain. Each phone gets its own colour and its own instrument, and every note fits a slow chord progression shared by the whole room.</p>
+      </div>
+      <div class="wide s-block s-phones">
+        <figure class="s-phone reveal">
+          <video src="assets/hq/rain/phone-tap.mp4" poster="assets/hq/rain/phone-tap.jpg" muted loop playsinline preload="metadata" data-autoplay aria-label="Tapping the rain on the phone: a red ripple spreads and the name of a place appears"></video>
+          <figcaption><b>Tap.</b> A ripple, a note, and the nearest place where it is raining.</figcaption>
+        </figure>
+        <figure class="s-phone reveal reveal-delay-1">
+          <video src="assets/hq/rain/phone-breath.mp4" poster="assets/hq/rain/phone-breath.jpg" muted loop playsinline preload="metadata" data-autoplay aria-label="Blowing into the phone: the label reads a wind is rising and the rain bends"></video>
+          <figcaption><b>Breathe.</b> Blow into the phone and a wind rises on the wall.</figcaption>
+        </figure>
+        <figure class="s-phone reveal reveal-delay-2">
+          <video src="assets/hq/rain/phone-umbrella.mp4" poster="assets/hq/rain/phone-umbrella.jpg" muted loop playsinline preload="metadata" data-autoplay aria-label="The phone in umbrella mode: you carry an umbrella, with hints for one finger and two fingers"></video>
+          <figcaption><b>Carry.</b> When the wall becomes a plaza, one finger carries your umbrella.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- 05 The wall -->
+    <section class="s-sec" id="wall" data-group="The piece" data-section="The wall">
+      <div class="col">
+        <p class="s-label reveal"><b>05</b> The wall</p>
+        <h2 class="s-h2 reveal">A live map everyone shares.</h2>
+        <p class="s-p reveal">There is one wall. It draws a plume for every place where it is raining, sized by how hard, and it points to the place a phone has just touched.</p>
+      </div>
+      <div class="wide s-block s-three rn-walls">
+        <figure class="s-fig s-fig--zoom reveal"><img src="assets/hq/rain/wall-map.webp" alt="The wall at night: a dark world map with bright points and plumes where it is raining, and labels for places phones have touched" loading="lazy" /><figcaption>The rain map, at night.</figcaption></figure>
+        <figure class="s-fig s-fig--zoom reveal reveal-delay-1"><img src="assets/hq/rain/wall-plaza.webp" alt="The wall as a plaza: grey umbrellas for the places with the heaviest rain, and one glowing red umbrella for the visitor" loading="lazy" /><figcaption>The plaza: the heaviest rain as people under umbrellas. The red one is you.</figcaption></figure>
+        <figure class="s-fig s-fig--zoom reveal reveal-delay-2"><img src="assets/hq/rain/wall-fog.webp" alt="The wall in fog: a pale grey world map with soft dark plumes and place labels" loading="lazy" /><figcaption>The same map, in fog.</figcaption></figure>
+      </div>
+    </section>
+
+    <!-- 06 The mist -->
+    <section class="s-sec" id="mist" data-group="The piece" data-section="The mist">
+      <div class="col">
+        <p class="s-label reveal"><b>06</b> The mist</p>
+        <h2 class="s-h2 reveal">A pot of mist sets the weather.</h2>
+        <p class="s-p reveal">A mist maker sits in a pot beside the wall. A webcam films it into TouchDesigner, which reads how much the mist is moving and tells the wall. Phones are not affected: the weather belongs to the room.</p>
+      </div>
+      <div class="wide s-block s-two rn-mist">
+        <figure class="film reveal">
+          <video src="assets/hq/rain/mist-pot.mp4" poster="assets/hq/rain/mist-pot.jpg" muted loop playsinline preload="metadata" data-autoplay aria-label="The pot of mist being stirred: thick mist billows over the rim"></video>
+          <figcaption>The pot, stirred.</figcaption>
+        </figure>
+        <figure class="film reveal reveal-delay-1">
+          <video src="assets/hq/rain/wall-storm.mp4" poster="assets/hq/rain/wall-storm.jpg" muted loop playsinline preload="metadata" data-autoplay aria-label="The wall in a storm: rain slants across the plaza and umbrellas tumble in the wind"></video>
+          <figcaption>The wall, in a storm.</figcaption>
+        </figure>
+      </div>
+      <div class="col s-block">
+        <ol class="vlist reveal">
+          <li><span class="n">01</span><div><h3>No mist</h3><p>The rain stops and the room brightens.</p></div></li>
+          <li><span class="n">02</span><div><h3>Still mist</h3><p>Steady rain.</p></div></li>
+          <li><span class="n">03</span><div><h3>Stirred mist</h3><p>Blow on it or wave through it: wind, leaning rain, lightning and thunder.</p></div></li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- 07 How it works -->
+    <section class="s-sec" id="how" data-group="The piece" data-section="How it works">
+      <div class="col">
+        <p class="s-label reveal"><b>07</b> How it works</p>
+        <h2 class="s-h2 reveal">How the parts talk to each other.</h2>
+        <ol class="vlist reveal">
+          <li><span class="n">01</span><div><h3>Live data</h3><p>A point counts as raining when Open-Meteo reports rain, drizzle, showers or a thunderstorm there, or at least 0.1 mm of precipitation that is not snow.</p></div></li>
+          <li><span class="n">02</span><div><h3>Sync</h3><p>A public MQTT relay carries tap and swipe positions between the phones and the wall. Nothing personal is sent.</p></div></li>
+          <li><span class="n">03</span><div><h3>Sound</h3><p>Eight instruments on one shared clock. Phones play softer as more people join, so the touches blend.</p></div></li>
+          <li><span class="n">04</span><div><h3>Mist</h3><p>The detector finds the opening of the pot, ignores the mist maker’s colour-changing light and any hand in view, and compares the mist’s movement with its quiet level.</p></div></li>
+        </ol>
+        <p class="s-p reveal" style="margin-top:1.25rem">The code is on <a href="https://github.com/rubywu-ux/Rain-connect" target="_blank" rel="noopener">GitHub</a>.</p>
+      </div>
+    </section>
+
+    <div class="wide">
+      <nav class="s-next" aria-label="Next in archives">
+        <a class="s-next__next" href="https://rubyw.de/spotify.html">
+          <div>
+            <p class="s-kicker">Next in archives</p>
+            <p class="t">Spotify Debrief <span class="arrow">→</span></p>
+            <p class="d">Coming soon.</p>
+          </div>
+          <div class="m spot spot--tile"><div class="spot__stage"><span class="spot__glow"></span><span class="spot__rings"><i></i><i></i><i></i></span><div class="spot__zoom"><div class="spot__beat"><div class="spot__logo"><svg viewBox="0 0 168 168" aria-hidden="true"><circle cx="84" cy="84" r="83" fill="#1DB954"/><g fill="none" stroke="#000" stroke-linecap="round"><path d="M31 57 C61 44 108 44.5 142 68.5" stroke-width="16"/><path d="M35.5 86 C62 74.5 101 75 131.5 97.5" stroke-width="13"/><path d="M39 114 C62 104.5 96 105 121 122" stroke-width="10.5"/></g></svg><span class="spot__sheen"></span></div></div></div></div></div>
+        </a>
+      </nav>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer__cols">
+        <div class="footer__col">
+          <h4>Contact</h4>
+          <a href="mailto:rubywu.uxd@gmail.com">rubywu.uxd@gmail.com</a>
+        </div>
+        <div class="footer__col">
+          <h4>Elsewhere</h4>
+          <a href="https://github.com/rubywu-ux" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://www.linkedin.com/in/ruby-wu02" target="_blank" rel="noopener">LinkedIn</a>
+          <a href="https://drive.google.com/file/d/1_G2HR-hnqo7MGKR3k97q4y3wPmMM_jim/view?usp=sharing" target="_blank" rel="noopener">Resume</a>
+        </div>
+      </div>
+    </div>
+    <div class="wordmark" aria-hidden="true">RubyWu</div>
+    <div class="container">
+      <div class="footer__base">
+        <span>© <span data-year>2026</span> Ruby Wu. All rights reserved.</span>
+        <a href="#top">Back to top ↑</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js?v=6"></script>
+  <script src="js/story.js?v=34"></script>
+  <script>
+    (function () {
+      // Live piece: the real wall in an iframe that fills the window under the nav, edge to edge.
+      // It is drawn at least 1280 wide and scaled to fit, so a narrow window shows the whole wall, only smaller.
+      // Every visit gets its own room, so this wall is the only hub in it and the gallery wall is left alone.
+      // The wall draws its own code for phones to scan. It starts loading once the block is near the viewport;
+      // the side rail steps aside while it is on screen.
+      var live = document.querySelector(".rn-live");
+      if (!live) return;
+      var room = "";
+      try { room = sessionStorage.getItem("rn_room") || ""; } catch (e) {}
+      if (!/^p[a-z0-9]{6}$/.test(room)) {
+        room = "p" + (Math.random().toString(36) + "000000").slice(2, 8);
+        try { sessionStorage.setItem("rn_room", room); } catch (e) {}
+      }
+      var wallUrl = live.getAttribute("data-base") + "wall.html?room=" + room;
+      var screen = live.querySelector(".rn-live__screen"), wall = screen.querySelector("iframe");
+      var fit = function () {
+        var w = screen.clientWidth, h = screen.clientHeight, lw = Math.max(1280, w);
+        wall.style.width = lw + "px";
+        wall.style.height = Math.round(lw * h / w) + "px";
+        wall.style.transform = "scale(" + (w / lw).toFixed(4) + ")";
+      };
+      fit();
+      addEventListener("resize", fit);
+      var load = function () { if (!wall.src) wall.src = wallUrl; };
+      if ("IntersectionObserver" in window) {
+        new IntersectionObserver(function (es, io) { if (es.some(function (e) { return e.isIntersecting; })) { load(); io.disconnect(); } }, { rootMargin: "600px 0px" }).observe(live);
+        new IntersectionObserver(function (es) { document.body.classList.toggle("rn-wall-on", es[es.length - 1].isIntersecting); }, { rootMargin: "-80px 0px 0px 0px" }).observe(screen);
+      } else load();
+    })();
+  </script>
+</body>
+</html>
