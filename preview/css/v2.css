@@ -1867,6 +1867,7 @@ body[data-rail-blend] .rail__bar i { background: #fff; }
 /* ---- Connect the Rain (rain.html, archive piece) ---- */
 .rn-film video { background: #E2E5E3; aspect-ratio: 16 / 9; }
 .rn-mist .film video { aspect-ratio: 16 / 10; object-fit: cover; background: #0B0B0C; }
+.rn-phones .s-phone video { background: #E8EBEA; } /* the phone clips are in the fog theme */
 .rn-walls .s-fig img { width: 100%; height: auto; border-radius: var(--radius); }
 .rn-walls .s-fig figcaption, .story .s-phone figcaption { text-wrap: balance; }
 .story .s-phone figcaption b { font-weight: 500; color: var(--ink); }
