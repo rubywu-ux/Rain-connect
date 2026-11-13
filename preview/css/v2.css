@@ -1879,3 +1879,4 @@ body[data-rail-blend] .rail__bar i { background: #fff; }
 .rn-live__note b { font-weight: 500; color: var(--ink); }
 .rn-live__note a { color: var(--ink-soft); text-decoration: underline; text-underline-offset: 3px; }
 body.rn-wall-on .rail { opacity: 0; pointer-events: none; } /* the wall runs under where the rail sits */
+@media (min-aspect-ratio: 1/1) { body.rn-wall-on .mobar.is-on { transform: translate(-50%, 140%); } } /* and the small-screen progress bar slides away */
