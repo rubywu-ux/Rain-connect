@@ -520,17 +520,31 @@
 
   /* ---------------- start + loop */
   /* sound on/off from the page around the wall, when the wall is shown inside another page (a portfolio page).
-     That page sends {rc:'wall', mute:true|false}; the wall answers {rc:'wall', sound:'on'|'off'} once its sound
-     has started and whenever that changes. On its own (the gallery, TouchDesigner) the wall is never muted. */
+     That page sends {rc:'wall', mute:true|false}; the wall answers {rc:'wall', sound:'on'|'off'} whenever that
+     changes. "mute:false" before the first click also starts the wall, where the browser allows sound without a
+     click on the wall itself; where it does not, "click anywhere to begin" stays up. On its own (the gallery,
+     TouchDesigner) the wall is never muted. */
   const FRAMED = self !== top;
-  let muted = false;
+  let muted = false, begun = false;
+  const tellSound = () => { if (FRAMED) parent.postMessage({ rc: 'wall', sound: begun && !muted ? 'on' : 'off' }, '*'); };
   const setMuted = on => {
     muted = !!on;
     if (S.ctx) S.master.gain.setTargetAtTime(muted ? 0 : 0.9, S.ctx.currentTime, 0.08);
-    if (FRAMED && S.ctx) parent.postMessage({ rc: 'wall', sound: muted ? 'off' : 'on' }, '*');
+    tellSound();
   };
-  if (FRAMED) addEventListener('message', e => { const m = e.data; if (m && m.rc === 'wall' && 'mute' in m) setMuted(m.mute); });
-  $('start').onclick = () => { S.start(); if (snap) S.setRain(clamp(snap.pct / 30, 0, 1)); S.startPad(T); $('start').remove(); if (FRAMED) setMuted(muted); };
+  const begin = () => {
+    S.start(); if (snap) S.setRain(clamp(snap.pct / 30, 0, 1)); S.startPad(T);
+    const el = $('start'); if (el) el.remove();
+    begun = true; setMuted(muted);
+  };
+  if (FRAMED) addEventListener('message', e => {
+    const m = e.data;
+    if (!m || m.rc !== 'wall' || !('mute' in m)) return;
+    if (m.mute || begun) { setMuted(m.mute); return; }
+    muted = false; S.start();                                   // asked to play before the first click
+    setTimeout(() => { if (!begun && S.ctx && S.ctx.state === 'running') begin(); else tellSound(); }, 200);
+  });
+  $('start').onclick = begin;
   if (TDMODE) {
     // inside TouchDesigner: no overlay; sound starts at once, or on the first click TouchDesigner sends
     $('start').remove();
