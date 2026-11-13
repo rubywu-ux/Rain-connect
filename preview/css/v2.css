@@ -1877,6 +1877,12 @@ body[data-rail-blend] .rail__bar i { background: #fff; }
 .rn-live iframe { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; border: 0; background: #E8EBEA; transform-origin: 0 0; }
 .rn-live__screen.is-scrolling iframe { pointer-events: none; } /* while the page is moving, scrolling carries across the wall */
 .rn-guide b { font-weight: 500; }
+.rn-live__sound { position: absolute; z-index: 2; top: clamp(12px, 1.6vw, 24px); right: clamp(12px, 1.6vw, 24px);
+  padding: .5rem .85rem; border-radius: 999px; border: 1px solid var(--hair); background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-size: .8125rem; line-height: 1; cursor: pointer;
+  box-shadow: 0 8px 20px -12px rgba(33,30,26,.5); transition: transform .3s var(--ease); }
+.rn-live__sound:hover { transform: translateY(-1px); }
+.rn-live__sound:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .rn-live__note { margin: 1.1rem auto 0; padding-inline: var(--pad-x); text-align: center; color: var(--muted); font-size: .95rem; line-height: 1.5; text-wrap: balance; }
 .rn-live__note b { font-weight: 500; color: var(--ink); }
 .rn-live__note a { color: var(--ink-soft); text-decoration: underline; text-underline-offset: 3px; }

@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
   <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,401,500,700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/style.css?v=11" />
-  <link rel="stylesheet" href="css/v2.css?v=122" />
+  <link rel="stylesheet" href="css/v2.css?v=123" />
 </head>
 <body id="top" class="story" data-back="https://rubyw.de/archives.html" data-back-label="All archives">
   <header class="nav" aria-label="Primary">
@@ -91,13 +91,14 @@
       </div>
       <div class="s-block">
         <div class="rn-live reveal" data-base="https://rubywu-ux.github.io/Rain-connect/">
-          <div class="rn-live__screen"><iframe title="Connect the Rain, the live wall" allow="autoplay; fullscreen"></iframe></div>
+          <div class="rn-live__screen"><iframe title="Connect the Rain, the live wall" allow="autoplay; fullscreen"></iframe><button class="rn-live__sound" type="button" aria-pressed="false" hidden>Mute sound</button></div>
         </div>
       </div>
       <div class="col">
         <div class="s-tldr rn-guide reveal">
           <div><h3>Join</h3><p><b>Scan to join the rain.</b> Your phone opens the piece in this room.</p></div>
           <div><h3>Wall keys</h3><p>Click the wall once, then press <b>S</b> for fog or night and <b>Z</b> for the rain map or the umbrellas. The buttons at its bottom left do the same.</p></div>
+          <div><h3>Sound</h3><p>It starts with your first click on the wall. The button at the wall’s top right mutes it and brings it back.</p></div>
           <div><h3>On your phone</h3><p><b>Tap</b> for a ripple and your note. <b>Drag</b> and the rain bends around your finger. <b>Tilt</b> and the rain leans that way.</p></div>
           <div><h3>Blow</h3><p>Tap <b>≋</b> and allow the microphone, then blow into the phone. A wind rises on the wall, and a storm if you keep going.</p></div>
           <div><h3>Umbrellas</h3><p>When the wall shows the plaza, <b>one finger</b> carries your umbrella, <b>holding still</b> makes rain fall there, and <b>two fingers</b> send a gust across.</p></div>
@@ -248,6 +249,19 @@
       fit();
       addEventListener("resize", fit);
       var load = function () { if (!wall.src) wall.src = wallUrl; };
+      // Sound: once the wall says its sound has started, a button on its top right corner mutes and unmutes it.
+      var soundBtn = screen.querySelector(".rn-live__sound"), muted = false;
+      addEventListener("message", function (e) {
+        if (e.source !== wall.contentWindow || !e.data || e.data.rc !== "wall" || !e.data.sound) return;
+        muted = e.data.sound === "off";
+        soundBtn.hidden = false;
+        soundBtn.textContent = muted ? "Unmute sound" : "Mute sound";
+        soundBtn.setAttribute("aria-pressed", muted ? "true" : "false");
+      });
+      soundBtn.addEventListener("click", function (e) {
+        wall.contentWindow.postMessage({ rc: "wall", mute: !muted }, "*");
+        if (e.detail) { try { wall.contentWindow.focus(); } catch (err) {} }   // a mouse click hands the keys back to the wall
+      });
       // The wall page lets scrolling pass through to this page (see wall.html in Rain-connect). And while the
       // page is moving, the wall never takes the pointer, so a scroll that begins above it carries straight across.
       var idle;

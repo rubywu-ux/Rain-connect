@@ -519,7 +519,18 @@
   // (the old outline map no longer fades in: the stippled world under the plumes is the map now)
 
   /* ---------------- start + loop */
-  $('start').onclick = () => { S.start(); if (snap) S.setRain(clamp(snap.pct / 30, 0, 1)); S.startPad(T); $('start').remove(); };
+  /* sound on/off from the page around the wall, when the wall is shown inside another page (a portfolio page).
+     That page sends {rc:'wall', mute:true|false}; the wall answers {rc:'wall', sound:'on'|'off'} once its sound
+     has started and whenever that changes. On its own (the gallery, TouchDesigner) the wall is never muted. */
+  const FRAMED = self !== top;
+  let muted = false;
+  const setMuted = on => {
+    muted = !!on;
+    if (S.ctx) S.master.gain.setTargetAtTime(muted ? 0 : 0.9, S.ctx.currentTime, 0.08);
+    if (FRAMED && S.ctx) parent.postMessage({ rc: 'wall', sound: muted ? 'off' : 'on' }, '*');
+  };
+  if (FRAMED) addEventListener('message', e => { const m = e.data; if (m && m.rc === 'wall' && 'mute' in m) setMuted(m.mute); });
+  $('start').onclick = () => { S.start(); if (snap) S.setRain(clamp(snap.pct / 30, 0, 1)); S.startPad(T); $('start').remove(); if (FRAMED) setMuted(muted); };
   if (TDMODE) {
     // inside TouchDesigner: no overlay; sound starts at once, or on the first click TouchDesigner sends
     $('start').remove();
