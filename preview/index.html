@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
   <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,401,500,700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/style.css?v=11" />
-  <link rel="stylesheet" href="css/v2.css?v=120" />
+  <link rel="stylesheet" href="css/v2.css?v=121" />
 </head>
 <body id="top" class="story" data-back="https://rubyw.de/archives.html" data-back-label="All archives">
   <header class="nav" aria-label="Primary">
@@ -41,7 +41,7 @@
     <header id="overview" data-section="Overview">
       <div class="s-hero" style="--hero-pos:center 42%">
         <div class="s-hero__media">
-          <video src="assets/hq/rain/hero.mp4?v=2" poster="assets/hq/rain/hero.jpg?v=2" muted loop playsinline autoplay preload="auto" data-autoplay aria-label="The wall in fog: grey umbrellas drift across a pale plaza, with one red umbrella among them"></video>
+          <video src="assets/hq/rain/hero.mp4?v=3" poster="assets/hq/rain/hero.jpg?v=3" muted loop playsinline autoplay preload="auto" data-autoplay aria-label="The wall in fog: grey umbrellas drift across a pale plaza, with one red umbrella among them"></video>
         </div>
         <div class="s-hero__fade" aria-hidden="true"></div>
         <div class="s-hero__text">
@@ -257,6 +257,14 @@
         setTimeout(function () { if (document.activeElement === wall) screen.classList.add("is-on"); }, 0);
       });
       screen.addEventListener("click", function () { try { wall.contentWindow.focus(); } catch (e) {} });
+      // And while the page is moving, the wall never takes the pointer, so a scroll that begins above it
+      // carries straight across.
+      var idle;
+      addEventListener("scroll", function () {
+        screen.classList.add("is-scrolling");
+        clearTimeout(idle);
+        idle = setTimeout(function () { screen.classList.remove("is-scrolling"); }, 400);
+      }, { passive: true });
       if ("IntersectionObserver" in window) {
         new IntersectionObserver(function (es, io) { if (es.some(function (e) { return e.isIntersecting; })) { load(); io.disconnect(); } }, { rootMargin: "600px 0px" }).observe(live);
         new IntersectionObserver(function (es) { document.body.classList.toggle("rn-wall-on", es[es.length - 1].isIntersecting); }, { rootMargin: "-80px 0px 0px 0px" }).observe(screen);
