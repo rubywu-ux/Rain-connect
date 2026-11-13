@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
   <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,401,500,700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/style.css?v=11" />
-  <link rel="stylesheet" href="css/v2.css?v=119" />
+  <link rel="stylesheet" href="css/v2.css?v=120" />
 </head>
 <body id="top" class="story" data-back="https://rubyw.de/archives.html" data-back-label="All archives">
   <header class="nav" aria-label="Primary">
@@ -41,7 +41,7 @@
     <header id="overview" data-section="Overview">
       <div class="s-hero" style="--hero-pos:center 42%">
         <div class="s-hero__media">
-          <video src="assets/hq/rain/hero.mp4" poster="assets/hq/rain/hero.jpg" muted loop playsinline autoplay preload="auto" data-autoplay aria-label="The wall in fog: grey umbrellas drift across a pale plaza, with one red umbrella among them"></video>
+          <video src="assets/hq/rain/hero.mp4?v=2" poster="assets/hq/rain/hero.jpg?v=2" muted loop playsinline autoplay preload="auto" data-autoplay aria-label="The wall in fog: grey umbrellas drift across a pale plaza, with one red umbrella among them"></video>
         </div>
         <div class="s-hero__fade" aria-hidden="true"></div>
         <div class="s-hero__text">
@@ -92,7 +92,15 @@
       <div class="s-block">
         <div class="rn-live reveal" data-base="https://rubywu-ux.github.io/Rain-connect/">
           <div class="rn-live__screen"><iframe title="Connect the Rain, the live wall" allow="autoplay; fullscreen"></iframe></div>
-          <p class="rn-live__note"><b>Scan to join the rain.</b> Your phone opens the piece in this room.</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="s-tldr rn-guide reveal">
+          <div><h3>Join</h3><p><b>Scan to join the rain.</b> Your phone opens the piece in this room.</p></div>
+          <div><h3>Wall keys</h3><p>Click the wall once, then press <b>S</b> for fog or night and <b>Z</b> for the rain map or the umbrellas.</p></div>
+          <div><h3>On your phone</h3><p><b>Tap</b> for a ripple and your note. <b>Drag</b> and the rain bends around your finger. <b>Tilt</b> and the rain leans that way.</p></div>
+          <div><h3>Blow</h3><p>Tap <b>≋</b> and allow the microphone, then blow into the phone. A wind rises on the wall, and a storm if you keep going.</p></div>
+          <div><h3>Umbrellas</h3><p>When the wall shows the plaza, <b>one finger</b> carries your umbrella, <b>holding still</b> makes rain fall there, and <b>two fingers</b> send a gust across.</p></div>
         </div>
       </div>
     </section>
@@ -241,6 +249,14 @@
       fit();
       addEventListener("resize", fit);
       var load = function () { if (!wall.src) wall.src = wallUrl; };
+      // Once it has been clicked, the wall page keeps scrolling to itself, and the reader gets stuck on it.
+      // That first click shows up here as focus moving into the iframe. From then on the pointer is taken off
+      // the wall: scrolling passes through to the page, the keys still reach the wall, and a click on it
+      // hands it the keyboard again.
+      addEventListener("blur", function () {
+        setTimeout(function () { if (document.activeElement === wall) screen.classList.add("is-on"); }, 0);
+      });
+      screen.addEventListener("click", function () { try { wall.contentWindow.focus(); } catch (e) {} });
       if ("IntersectionObserver" in window) {
         new IntersectionObserver(function (es, io) { if (es.some(function (e) { return e.isIntersecting; })) { load(); io.disconnect(); } }, { rootMargin: "600px 0px" }).observe(live);
         new IntersectionObserver(function (es) { document.body.classList.toggle("rn-wall-on", es[es.length - 1].isIntersecting); }, { rootMargin: "-80px 0px 0px 0px" }).observe(screen);
